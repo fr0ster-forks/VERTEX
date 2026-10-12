@@ -1,5 +1,10 @@
 # Development history
 
+## 2026-10-12 — Local transpiler launch prototype
+
+Added a VS Code local-run module that finds a project configuration or generates one under the OS temporary directory, invokes a project CLI when present or VERTEX's bundled CLI, and launches a selected report or the ABAP Unit entry point in a terminal or the Node debugger. The extension bundles the CLI and runtime, staging runtime files beside generated output when the project does not install them. Open Visual Debug uses a local panel with a radio choice from the same parser as Value Origin, applies that choice to transpiled variables, and starts a Node debug session. A real report transpiled and printed 5 locally; a radio-button choice changed the actual result.
+Added the serverless ABAP Unit CI use case to user documentation. The user-supplied abap-unit-runner-ci reference was checked and requires a SAP endpoint, so the no-SAP example points to open-abap-core's Node pipeline instead.
+
 ## 2026-10-12 — Package analysis progress and local cache
 
 The shared Metrics/UML webview now shows a live spinner, stage, processed/total objects and elapsed time. The frontend analysis yields before synchronous diagram and metrics construction so the status can paint. VS Code local package sessions keep one analysis API object to reuse the frontend parser cache across UML/Metrics requests and invalidate on document-version changes. Focused analysis-progress and local-analysis tests: 24 passed. A local 17-object folder measured about 3 s for a cold UML request and 4 s for subsequent Metrics; no previous-build baseline was available.

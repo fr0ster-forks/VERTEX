@@ -20,7 +20,9 @@ GitHub Copilot model or API keys for Anthropic, OpenAI, Mistral, Gemini, Groq,
 Cerebras, OpenRouter and NVIDIA. Provider model lists can be collapsed independently.
 Each list has a Clear all / Select all control for its model checkboxes.
 The VS Code chat can explain an active local `.abap` file using its current editor text, even without a SAP connection.
-Local ABAP programs and classes support VERTEX Outline, definition navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis. SAP execution and version history still require a system.
+Local ABAP programs and classes support VERTEX Outline, definition navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis. VERTEX bundles the abaplint transpiler and runtime. **Open Visual Debug** on a local file shows **Run with ABAP Transpiler**, with radio-button selection before launch; project configuration is generated automatically when absent. See [local execution setup](vscode/README.md#local-abap-execution). SAP execution and version history still require a system.
+
+**Idea for use: ABAP Unit in CI.** Calculation classes and tests that work with the transpiler can run on a GitHub Actions Node.js runner after each push, without starting SAP. A CI repository installs its own npm dependencies and runs `abap_transpile` followed by `node output/index.mjs`; [open-abap-core](https://github.com/open-abap/open-abap-core/blob/main/package.json) uses this pipeline. Tests needing SAP APIs or database behavior require substitutes or a SAP-backed test job. GitHub Actions billing depends on the repository and account plan.
 In VS Code, choose **Analyze Local ABAP Package** on a folder in Explorer to see UML and aggregate metrics for its `.abap` files, including subfolders.
 Click a method in UML to open its source in VS Code or Eclipse; this also works for local ABAP files in VS Code.
 In VS Code, UML method links open code beside the diagram and keep focus on UML.

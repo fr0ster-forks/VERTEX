@@ -229,6 +229,16 @@
         "category": "VERTEX Tools"
       },
       {
+        "command": "vertex.localRun",
+        "title": "Run Local ABAP",
+        "category": "VERTEX"
+      },
+      {
+        "command": "vertex.localDebug",
+        "title": "Debug Local ABAP",
+        "category": "VERTEX"
+      },
+      {
         "command": "vertex.ai.chooseLogFolder",
         "title": "Choose Log Folder",
         "category": "VERTEX"
@@ -399,7 +409,7 @@
       "editor/context": [
         {
           "command": "vertex.openVisualDebug",
-          "when": "resourceScheme == vertex-sap && editorLangId == abap",
+          "when": "(resourceScheme == vertex-sap || resourceScheme == file) && editorLangId == abap",
           "group": "navigation@8"
         },
         {
@@ -504,11 +514,11 @@
         }
       ],
       "explorer/context": [
-          {
-            "command": "vertex.tools.localPackage",
-            "group": "navigation@11",
-            "when": "explorerResourceIsFolder && resourceScheme == file"
-          },
+        {
+          "command": "vertex.tools.localPackage",
+          "group": "navigation@11",
+          "when": "explorerResourceIsFolder && resourceScheme == file"
+        },
         {
           "submenu": "vertex.tools.context",
           "group": "navigation@12",
@@ -541,7 +551,7 @@
         },
         {
           "command": "vertex.openVisualDebug",
-          "when": "resourceScheme == vertex-sap && editorLangId == abap"
+          "when": "(resourceScheme == vertex-sap || resourceScheme == file) && editorLangId == abap"
         },
         {
           "command": "vertex.switchSystem",
@@ -738,6 +748,8 @@
   },
   "dependencies": {
     "@abaplint/core": "2.120.68",
+    "@abaplint/runtime": "2.14.3",
+    "@abaplint/transpiler-cli": "2.14.3",
     "abap-adt-api": "8.4.3"
   }
 }

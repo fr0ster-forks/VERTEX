@@ -1,5 +1,10 @@
 # Release history
 
+## 2026-10-12 — Experimental local ABAP execution in VS Code
+
+Added Run Local ABAP and Debug Local ABAP commands and a local mode in Open Visual Debug. The local panel offers Run with ABAP Transpiler and a radio-button choice before starting VS Code debugging. The extension bundles the CLI and runtime, creates a temporary transpiler configuration when the project has none, and uses source maps for ABAP breakpoints. SAP-dependent code still needs a local substitute or SAP.
+Documented ABAP Unit in GitHub Actions as a use case for transpiler-compatible tests, with the CI runner's own dependencies.
+
 ## 2026-10-12 — UML and Metrics progress
 
 UML and Metrics now show an animated progress indicator with the current stage, processed object count and elapsed time. VS Code local folder analysis reuses parsed source when switching views and refreshes it after edits.

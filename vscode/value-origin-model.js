@@ -901,4 +901,4 @@ async function collectSources(initial, load, options = {}) {
   }
   return { sources, warnings, skipped };
 }
-module.exports = { analyze, buildIndex, collectSources, variableAt, literalAt, customerObject, typeComponents, assignment, variablePaths, callsIn, resolver, declaredIn, formParameters };
+module.exports = { analyze, buildIndex, collectSources, radioGroups, variableAt, literalAt, customerObject, typeComponents, assignment, variablePaths, callsIn, resolver, declaredIn, formParameters };

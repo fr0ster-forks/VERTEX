@@ -881,10 +881,12 @@ function activate(context) {
   let dockedDebugView = null, dockedDebugSource = null;
   const dockedDebugInitial = () => !dockedDebugSource ? null : {
     name: dockedDebugSource.object_name,
-    type: dockedDebugSource.object_type
+    type: dockedDebugSource.object_type,
+    local: dockedDebugSource.local === true,
+    scenarios: dockedDebugSource.local ? require("./local-run").scenariosFor(dockedDebugSource.document) : []
   };
   const postDockedPicture = () => {
-    if (dockedDebugView) void dockedDebugView.webview.postMessage({ type: "debug", payload: JSON.stringify(dbg.picture()) });
+    if (dockedDebugView && !dockedDebugSource?.local) void dockedDebugView.webview.postMessage({ type: "debug", payload: JSON.stringify(dbg.picture()) });
   };
   context.subscriptions.push(vscode.window.registerWebviewViewProvider("vertex.visualDebug", {
     resolveWebviewView(view) {
@@ -907,6 +909,14 @@ function activate(context) {
       view.onDidDispose(() => { clearTimeout(cursorTimer); cursorWatchers.forEach(watcher => watcher.dispose()); });
       const receive = view.webview.onDidReceiveMessage(async message => {
         try {
+          if (message.call === "localRun") {
+            if (!dockedDebugSource?.local) throw new Error("Open a local ABAP file in Visual Debug first.");
+            await require("./local-run").launch(vscode, true, {
+              document: dockedDebugSource.document, selection: message.selection || {}
+            });
+            await view.webview.postMessage({ type: "localRunResult", message: "Debug session started. Breakpoints and variables are in the VS Code Debug view." });
+            return;
+          }
           if(message.call==="inlineLogic"){if(logicReceive)await logicReceive(message.payload);return;}
           if (message.call === "source") {
             const args = message.args || [];
@@ -975,6 +985,10 @@ function activate(context) {
               resource => fetch(context, resource)));
           await view.webview.postMessage({ type: "result", payload: JSON.stringify(answer) });
         } catch (error) {
+          if (message.call === "localRun") {
+            await view.webview.postMessage({ type: "localRunResult", error: error.message });
+            return;
+          }
           await view.webview.postMessage({ type: "result", payload: "ERROR:" + error.message });
         }
       });
@@ -986,10 +1000,18 @@ function activate(context) {
       postDockedPicture();
     }
   }, { webviewOptions: { retainContextWhenHidden: true } }));
+  require("./local-debug-vars").register(vscode, context, state => {
+    if (dockedDebugView && dockedDebugSource?.local) {
+      void dockedDebugView.webview.postMessage({ type: "localVariables", state });
+    }
+  });
   const openVisualDebug = () => {
-    const source = sapCode.editorContext();
+    const editor = vscode.window.activeTextEditor;
+    const local = require("./local-analysis");
+    const localObject = local.isLocalAbap(editor?.document) ? local.sourceObject(editor.document) : null;
+    const source = localObject ? { ...localObject, local: true, document: editor.document } : sapCode.editorContext();
     if (!source || !source.object_name) {
-      vscode.window.showWarningMessage("VERTEX: open a VERTEX ABAP source tab first.");
+      vscode.window.showWarningMessage("VERTEX: open a local or SAP ABAP source tab first.");
       return;
     }
     dockedDebugSource = source;
@@ -1022,6 +1044,7 @@ function activate(context) {
     return showTools(initial);
   }));
   require('./tools-context').register(vscode, context, sapCode, showTools);
+  require('./local-run').register(vscode, context);
   context.subscriptions.push(
     vscode.commands.registerCommand("vertex.openVisualDebug", openVisualDebug),
     vscode.commands.registerCommand("vertex.debugInto", () => stepFromSource("into")),

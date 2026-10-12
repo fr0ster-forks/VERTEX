@@ -41,6 +41,41 @@ Recommended companion extension:
 
 Open Welcome with **VERTEX: Get Started** in the Command Palette.
 
+## Local ABAP execution
+
+For calculation code that can run without SAP services, use the transpiler and
+runtime bundled with VERTEX. Open a saved local `.abap` file and choose
+**VERTEX: Open Visual Debug**. The same panel used for SAP shows
+**Run with ABAP Transpiler** for local files. Choose a radio-button value, then
+run; breakpoints and variables appear in VS Code's Debug view.
+
+VERTEX detects the workspace's `src` folder and creates its transpiler config
+and output in a temporary directory. An existing `abap_transpile.json` in the
+project takes precedence. A custom configuration can look like this:
+
+```json
+{"input_folder":"src","input_filter":[],"output_folder":"output","write_unit_tests":true,"write_source_map":true}
+```
+
+Put report sources under `src/`, for example `zcalc.prog.abap`. For ABAP Unit,
+the project must have test classes that the transpiler can discover. The separate
+**VERTEX: Run Local ABAP** and **VERTEX: Debug Local ABAP** Command Palette entries
+also work; they use a temporary configuration when the project has none.
+The debug command uses the transpiler's source maps for ABAP breakpoints. Check a
+breakpoint and variable display against your project's syntax before relying on it.
+The VERTEX Local ABAP output channel shows transpiler diagnostics. Database and SAP
+service dependencies need their own local implementations or an SAP system. Projects
+that install their own transpiler CLI use that version; VERTEX supplies its runtime
+to generated output when the project has none. No project npm install is required
+for basic local runs.
+
+**Idea for use: ABAP Unit in CI.** A GitHub Actions workflow can run the same
+transpiler pipeline on every push for tests independent of SAP: `npm ci`,
+`abap_transpile`, then `node output/index.mjs`. Unlike interactive VERTEX, the
+CI runner needs its own npm dependencies and `abap_transpile.json`; see
+[open-abap-core's test scripts](https://github.com/open-abap/open-abap-core/blob/main/package.json).
+Tests requiring SAP services need local substitutes or a SAP-backed job.
+
 For the built-in VERTEX Assistant, choose Claude Code, Codex, GitHub Copilot or
 an API provider in **LLM Providers**. Copilot uses the models available from a
 signed-in GitHub Copilot extension through VS Code; it can call the same SAP
