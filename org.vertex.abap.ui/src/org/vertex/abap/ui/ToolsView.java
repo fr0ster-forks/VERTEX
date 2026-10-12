@@ -30,11 +30,22 @@ public class ToolsView extends ChatView {
     private IViewportListener viewportListener;
     private IPartListener2 editorActivation;
     @Override protected String page() { return "resources/tools.html"; }
-    @Override protected String projectName() { return part(2); }
+    @Override protected String projectName() {
+        String named = part(2);
+        if (named != null) return named;
+        AdtEditor editor = activeObject();
+        return editor != null && editor.project != null ? editor.project.getName() : null;
+    }
     @Override protected String title(String object) { return "VERTEX Tools"; }
+    private AdtEditor activeObject() {
+        return AdtEditor.of(getSite().getPage().getActiveEditor());
+    }
     @Override protected String initialLiteral() {
-        return part(0) == null ? "null" : "{\"name\":" + AssistantBridge.quote(part(0))
-            + ",\"type\":" + AssistantBridge.quote(part(1) == null ? "CLAS" : part(1)) + ",\"boundObject\":true,\"cursorLine\":" + editorLine() + "}";
+        AdtEditor editor = part(0) == null ? activeObject() : null;
+        String name = part(0) == null ? editor == null ? null : editor.ownerName() : part(0);
+        String type = part(1) == null ? editor == null ? "CLAS" : editor.kind() : part(1);
+        return name == null || name.isBlank() ? "null" : "{\"name\":" + AssistantBridge.quote(name)
+            + ",\"type\":" + AssistantBridge.quote(type == null ? "CLAS" : type) + ",\"boundObject\":true,\"cursorLine\":" + editorLine() + "}";
     }
     @Override protected String readResource(String path) throws IOException {
         String value = super.readResource(path);
@@ -134,6 +145,10 @@ public class ToolsView extends ChatView {
                         String[] rows=document.get().split("\\r?\\n");
                         Pattern declaration=Pattern.compile("^\\s*(METHOD|FORM|FUNCTION|MODULE)\\s+"+Pattern.quote(method)+"(?:\\s|\\.)",Pattern.CASE_INSENSITIVE);
                         for(int i=0;i<rows.length;i++)if(declaration.matcher(rows[i]).find()){target=i+1;break;}
+                        if(target<1){
+                            Pattern signature=Pattern.compile("^\\s*(?:CLASS-)?METHODS\\s+"+Pattern.quote(method)+"(?:\\s|\\.)",Pattern.CASE_INSENSITIVE);
+                            for(int i=0;i<rows.length;i++)if(signature.matcher(rows[i]).find()){target=i+1;break;}
+                        }
                     }
                     try{
                         int editorTarget=Math.max(1,Math.min(document.getNumberOfLines(),target));
@@ -216,7 +231,15 @@ public class ToolsView extends ChatView {
         };
         editorActivation=new IPartListener2(){
             @Override public void partActivated(IWorkbenchPartReference ref){
-                Object part=ref.getPart(false);if(part instanceof IEditorPart)watchScroll((IEditorPart)part);
+                Object part=ref.getPart(false);if(part instanceof IEditorPart){
+                    watchScroll((IEditorPart)part);
+                    AdtEditor object=AdtEditor.of((IEditorPart)part);
+                    if(object!=null&&object.ownerName()!=null&&!browser.isDisposed()){
+                        String type=object.kind()==null?"CLAS":object.kind().split("/")[0];
+                        String payload="{\"name\":"+AssistantBridge.quote(object.ownerName())+",\"type\":"+AssistantBridge.quote(type)+"}";
+                        browser.execute("if(typeof sdeFollowEditor==='function')sdeFollowEditor("+payload+");");
+                    }
+                }
             }
             @Override public void partClosed(IWorkbenchPartReference ref){if(ref.getPart(false)==scrolledEditor)watchScroll(null);}
         };

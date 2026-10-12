@@ -102,11 +102,12 @@ async function debugCommand(dbg, command, a, fetchVertex) {
   throw new Error("Visual Debug has no command " + command + ".");
 }
 function open(vscode, context, deps, initial) {
+  let local = initial?.localSession;
   // The window keeps the system that was active when it opened: another one
   // chosen later is for the windows opened after. The tab names it.
-  const opened = deps.active();
-  const system = opened.error ? "" : opened.system.name;
-  const pin = work => deps.pin ? deps.pin(system, work) : work();
+  const opened = local ? null : deps.active();
+  const system = local ? "" : opened.error ? "" : opened.system.name;
+  const pin = work => local ? work() : deps.pin ? deps.pin(system, work) : work();
   const panel = deps.panel || vscode.window.createWebviewPanel("vertex.tools", initial?.boundObject ? initial.name + " · VERTEX Tools" : system ? "VERTEX " + system : "VERTEX Tools", // Run Select opens SelecTor beside the code it came from.
     initial?.boundObject || initial?.selectorPlan ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
@@ -118,6 +119,7 @@ function open(vscode, context, deps, initial) {
     window.sdeAnthropicApi=()=>true;
     window.sdeFrontendAnalysis=()=>true;
     window.sdeCancelWorkspace=()=>host.postMessage({call:"cancelWorkspace",args:[]});
+    window.sdeLocalFolder=clear=>host.postMessage({call:"localFolder",args:[clear===true]});
     window.sdeTake=()=>{const r=pending;pending=null;return r;};
     for(const call of ["workspace","asset","models","ask","browse","openToolSource","requestSearch","vertexContext","aiProvider","aiModel","aiConfig"]){
       window["sde"+call[0].toUpperCase()+call.slice(1)]=(...args)=>{
@@ -142,9 +144,10 @@ function open(vscode, context, deps, initial) {
         const child=document.getElementById("result").contentWindow;
         if(child&&typeof child.sdeDeliver==="function")child.sdeDeliver(e.data.payload);
       }
+      if(e.data.type==="localFolder"&&typeof sdeLocalFolderReady==="function")sdeLocalFolderReady(e.data.payload);
     });
   <\/script>`;
-  panel.webview.html = html(deps.pages, initial).replace("<script>", bridge + "<script>");
+  panel.webview.html = html(deps.pages, local ? { ...initial, localSession: undefined, local: true } : initial).replace("<script>", bridge + "<script>");
   // The chat here offers what the VERTEX panel does: its provider, the models
   // Config models switched on, and the chosen one - one setting for both.
   let chatWho = "";
@@ -167,7 +170,7 @@ function open(vscode, context, deps, initial) {
     if(Date.now()<sourceNavigationUntil)return;
     cursorTimer=setTimeout(()=>{
       if(Date.now()<sourceNavigationUntil)return;
-      const object=deps.documentObject(event.textEditor.document),selection=event.selections[0];
+      const object=local ? local.documentObject(event.textEditor.document) : deps.documentObject(event.textEditor.document),selection=event.selections[0];
       if(object&&selection)void panel.webview.postMessage({type:'codeCursor',payload:{name:object.object_name,type:object.object_type,line:selection.start.line+1,endLine:selection.end.line+1,userFocus:event.kind!=null}});
     },80);
   }):null;
@@ -176,7 +179,7 @@ function open(vscode, context, deps, initial) {
     if(Date.now()<sourceNavigationUntil)return;
     scrollTimer=setTimeout(()=>{
       if(Date.now()<sourceNavigationUntil)return;
-      const object=deps.documentObject(event.textEditor.document),ranges=event.visibleRanges;
+      const object=local ? local.documentObject(event.textEditor.document) : deps.documentObject(event.textEditor.document),ranges=event.visibleRanges;
       if(!object||!ranges.length)return;
       const range=ranges[0],line=range.start.line+Math.floor((range.end.line-range.start.line)/3)+1;
       void panel.webview.postMessage({type:'codeCursor',payload:{name:object.object_name,type:object.object_type,line,endLine:line,scrollOnly:true,userFocus:event.textEditor===vscode.window.activeTextEditor}});
@@ -190,12 +193,25 @@ function open(vscode, context, deps, initial) {
   panel.webview.onDidReceiveMessage(message => pin(async () => {
     const args = message.args || [];
     try {
+      if(message.call === "localFolder") {
+        if(args[0]===true) { local=null;panel.title=system?'VERTEX '+system:'VERTEX Tools'; return; }
+        const path=require('path');
+        const active=vscode.window.activeTextEditor?.document?.uri;
+        const defaultUri=active?.scheme==='file'?vscode.Uri.file(path.dirname(active.fsPath)):vscode.workspace.workspaceFolders?.[0]?.uri;
+        const picked=await vscode.window.showOpenDialog({canSelectFiles:false,canSelectFolders:true,canSelectMany:false,
+          openLabel:'Analyze ABAP folder',defaultUri});
+        if(!picked?.length){await panel.webview.postMessage({type:'localFolder',payload:null});return;}
+        local=await require('./local-analysis').createPackage(vscode,picked[0]);
+        panel.title=local.object.object_name+' · VERTEX Tools';
+        await panel.webview.postMessage({type:'localFolder',payload:{name:local.object.object_name,type:'DEVC',action:'uml',folder:picked[0].fsPath}});
+        return;
+      }
       if(message.call==="debug"&&args[0]==="logicTools"){
         const selected=JSON.parse(String(args[1]||"{}"));
         await vscode.commands.executeCommand("vertex.tools",{...selected,action:"scheme",boundObject:true});
         await panel.webview.postMessage({type:"result",payload:"{}"});return;
       }
-      if(message.call === "openToolSource") { sourceNavigationUntil=Date.now()+700; await deps.openToolSource(JSON.parse(String(args[0]||"{}"))); return; }
+      if(message.call === "openToolSource") { sourceNavigationUntil=Date.now()+700; await (local ? local.openSource : deps.openToolSource)(JSON.parse(String(args[0]||"{}"))); return; }
       if(message.call === "browse") {
         if(/^https?:\/\//i.test(String(args[0]))) await vscode.env.openExternal(vscode.Uri.parse(args[0]));
         return;
@@ -209,6 +225,7 @@ function open(vscode, context, deps, initial) {
         await panel.webview.postMessage({type:"requestSearch",payload}); return;
       }
       if(message.call === "origin") {
+        if(local)throw new Error("Value origin for local files is not yet available in this window.");
         // The same analysis the editor command runs, asked for by object and
         // variable: the window needs the places a value can be changed.
         const payload=JSON.stringify(await deps.originPoints(JSON.parse(String(args[0]||"{}"))));
@@ -241,16 +258,24 @@ function open(vscode, context, deps, initial) {
       if(message.call === "cancelWorkspace") {if(analysisJob)analysisJob.cancelled=true;return;}
       if(message.call === "asset") payload=deps.asset(args[0]);
       else if(message.call === "workspace" && args[0] === "project") {
-        const selected=deps.active();payload=selected.error?"ERROR:"+selected.error:selected.system.name;
+        if(local)payload="Local ABAP";
+        else {const selected=deps.active();payload=selected.error?"ERROR:"+selected.error:selected.system.name;}
       } else if(message.call === "workspace" && allowed(args[0],args[1])) {
         const job={cancelled:false};analysisJob=job;
-        payload=await deps.fetch(context,args[0],args[1]==null?undefined:String(args[1]),text=>{
+        const resource=String(args[0]);
+        const supported=/^\/sap\/bc\/adt\/vertex\/(metrics|class|package|flow)\//.test(resource);
+        payload=local ? resource==="/sap/bc/adt/vertex/about" ? JSON.stringify({user:"Local ABAP",backends:[],services:["metrics","class","package","flow"].map(name=>({name,active:"X",backend:"Local source + abaplint"}))}) : !supported||args[1]!=null ? "ERROR:This analysis requires a SAP system." : JSON.stringify(await local.request(resource,text=>{
+          if(!job.cancelled)void panel.webview.postMessage({type:"progress",path:args[0],payload:text});
+        },()=>job.cancelled)) : await deps.fetch(context,args[0],args[1]==null?undefined:String(args[1]),text=>{
           if(!job.cancelled)void panel.webview.postMessage({type:"progress",path:args[0],payload:text});
         },()=>job.cancelled);
         if(analysisJob===job)analysisJob=null;
       } else throw new Error("Unsupported VERTEX request.");
       await panel.webview.postMessage({type:"result",payload});
     } catch(error) {
+      if(message.call==='localFolder'){
+        await panel.webview.postMessage({type:'localFolder',payload:{error:error.message}});return;
+      }
       const ai=message.call==="ask"||message.call==="models";
       await panel.webview.postMessage({type:ai?"assistant":"result",payload:ai?
         JSON.stringify({call:message.call,assistant:args[0],error:error.message}):"ERROR:"+error.message});

@@ -113,6 +113,19 @@ function tools(log, call) {
   };
 }
 
+/** Logs a direct assistant's SAP tool call while preserving its original result shape. */
+async function assistantTool(log, name, args, call) {
+  const toolId = log && log.toolUse(name, args);
+  try {
+    const result = await call(name, args);
+    if (log) log.toolResult(toolId, { content: [{ type: "text", text: JSON.stringify(result) }] });
+    return result;
+  } catch (error) {
+    if (log) log.toolResult(toolId, { isError: true, content: [{ type: "text", text: String(error && error.message || error) }] });
+    throw error;
+  }
+}
+
 const shared = new Map();
 /** One log per folder, provider and choice for the life of the process: the VS Code chat is one conversation. */
 function current(root, provider, include) {
@@ -133,4 +146,4 @@ function fromConfig(config) {
     tools: config.get("log.tools", false), code: config.get("log.code", false) };
 }
 
-module.exports = { create, current, reset, tools, redactArgs, summarize, stamp, fromConfig };
+module.exports = { create, current, reset, tools, assistantTool, redactArgs, summarize, stamp, fromConfig };

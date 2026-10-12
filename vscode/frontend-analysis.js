@@ -27,12 +27,16 @@ function trimCache(cache) {
 function declarations(sources) {
   const nodes = [], edges = [];
   for (const source of sources) {
-    let owner, visibility = 'public';
+    let owner, implementation, visibility = 'public';
     for (const s of source.aceStatements) {
       const t = s.tokens.map(t => upper(t.value)), raw = s.text;
+      if (t[0] === 'CLASS' && t.includes('IMPLEMENTATION')) {
+        owner = null;
+        implementation = nodes.find(node => node.kind === 'class' && node.name === t[1]);
+      }
       if (['CLASS', 'INTERFACE'].includes(t[0]) && t[1] !== '-' && !t.includes('IMPLEMENTATION')) {
         owner = { name: t[1], kind: t[0] === 'INTERFACE' ? 'interface' : 'class', methods: [] };
-        nodes.push(owner); visibility = 'public';
+        nodes.push(owner); implementation = null; visibility = 'public';
         const at = t.indexOf('FROM');
         if (t.includes('INHERITING') && at >= 0) edges.push({ source: owner.name, target: t[at + 1], kind: 'inheritance' });
       }
@@ -44,11 +48,15 @@ function declarations(sources) {
         for (const token of t.slice(start)) { if (token === ',') chunks.push([]); else if (![':', '.'].includes(token)) chunks.at(-1).push(token); }
         for (const chunk of chunks) if (chunk.length) owner.methods.push({ name: chunk[0], visibility, is_static: start === 3 ? 'X' : '', signature: raw });
       }
+      if (implementation && t[0] === 'METHOD' && t[2] === '~' && t[3]) {
+        const target = t[1], edge = edges.find(e => e.kind === 'implementation' && e.source === implementation.name && e.target === target);
+        implementation.methods.push({ name: target + '~' + t[3], visibility: edge?.visibility || 'public', is_static: '', signature: raw });
+      }
       // ACE UML scans references only in attributes and method declarations.
       const declaration=t[0]==='DATA'||t[0]==='METHODS'||t.slice(0,3).join(' ')==='CLASS - DATA'||t.slice(0,3).join(' ')==='CLASS - METHODS';
       if (owner&&declaration) for (let i = 0; i < t.length - 2; i++) if (t[i] === 'REF' && t[i + 1] === 'TO' && t[i + 2]!==owner.name && t[i + 2]!=='OBJECT')
         edges.push({ source: owner.name, target: t[i + 2], kind: 'dependency' });
-      if (['ENDCLASS', 'ENDINTERFACE'].includes(t[0])) owner = null;
+      if (['ENDCLASS', 'ENDINTERFACE'].includes(t[0])) { owner = null; implementation = null; }
     }
   }
   for(const node of nodes)node.methods=[...new Map(node.methods.map(m=>[m.name,m])).values()].sort((a,b)=>a.name.localeCompare(b.name));
@@ -158,8 +166,8 @@ async function request(api, resource, progress, cancelled = () => false) {
   if (service === 'flow' && url.searchParams.get('mode') === 'statements' && pool) { name = pool[1]; type = 'CLAS'; }
   let parser;
   const read = api.analysisReader(), sources = [], warnings = [], cache=cacheFor(api);
-  const started=Date.now();let phase='Reading '+name;
-  const report=()=>{if(typeof progress==='function')progress(phase+' · '+sources.length+' sources · '+Math.floor((Date.now()-started)/1000)+' s');};
+  const started=Date.now();let phase='Reading '+name,packageTotal=0,packageDone=0;
+  const report=()=>{if(typeof progress==='function')progress(phase+' · '+(packageTotal?packageDone+'/'+packageTotal+' objects':sources.length+' sources')+' · '+Math.floor((Date.now()-started)/1000)+' s');};
   const stage=text=>{check();phase=text;report();};
   report();const pulse=setInterval(report,2000);
   async function load(object_name, object_type) {
@@ -212,7 +220,8 @@ async function request(api, resource, progress, cancelled = () => false) {
   try {
     if (service === 'package' || type === 'DEVC') {
       const objects = await api.packageObjects(name);
-      for (const object of objects) await load(object.object_name, object.object_type);
+      packageTotal=objects.length;report();
+      for (const object of objects) {await load(object.object_name, object.object_type);packageDone++;report();}
     } else await load(name, type);
     if (service === 'flow' && url.searchParams.get('mode') === 'calls') {
       const seen = new Set(sources.map(s => s.objectName));
@@ -240,16 +249,20 @@ async function request(api, resource, progress, cancelled = () => false) {
       });
     }
     stage('Building '+service+' analysis');
+    // Let the host paint this stage before the synchronous index and metric work.
+    await new Promise(resolve=>setTimeout(resolve,0));
     // Empty routines are real ACE units too (metrics and call leaves).
     if (service === 'flow' && url.searchParams.get('mode') === 'origin') return { sources, warnings };
     const index = buildIndex(sources), units = analysisUnits(index);
-    const base = { object: name, program: name, type, engine: 'ADT + abaplint', warnings };
+    const base = { object: name, program: name, type, engine: api.local ? 'Local source + abaplint' : 'ADT + abaplint', warnings };
     if (service === 'class' || service === 'package') {
       const graph=declarations(sources);
       if(service==='class'){graph.nodes=graph.nodes.filter(n=>n.name===name);graph.edges=graph.edges.filter(e=>e.source===name);}
       return { ...base, ...graph };
     }
     if (service === 'metrics') {
+      stage('Calculating metrics');
+      await new Promise(resolve=>setTimeout(resolve,0));
       const rows = units.map(metric), totals = { units: rows.length };
       for (const key of ['cyclomatic','loc','lloc','cloc','volume','effort','time_t','bugs']) totals[key] = rows.reduce((sum, r) => sum + r[key], 0);
       totals.avg_cyclomatic = rows.length ? totals.cyclomatic / rows.length : 0;

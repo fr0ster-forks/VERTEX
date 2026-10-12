@@ -13,6 +13,13 @@ test('ACE UML references come only from attributes and method declarations',()=>
  assert.deepEqual(graph.nodes[0].methods.map(m=>m.name),['ALPHA','ZEBRA']);
  assert.deepEqual(graph.edges.map(e=>e.target),['ZCL_OTHER']);
 });
+test('UML lists interface methods implemented by a class and keeps private methods',()=>{
+ const text='CLASS zcl_mod DEFINITION. PUBLIC SECTION. INTERFACES zif_modifier. PRIVATE SECTION. METHODS helper. ENDCLASS. '
+  +'CLASS zcl_mod IMPLEMENTATION. METHOD zif_modifier~apply. ENDMETHOD. METHOD helper. ENDMETHOD. ENDCLASS.';
+ const source=parseSource({id:'test',name:'ZCL_MOD',objectType:'CLAS',text}).source;
+ const graph=require('../frontend-analysis').declarations([source]);
+ assert.deepEqual(graph.nodes[0].methods.map(m=>[m.name,m.visibility]),[['HELPER','private'],['ZIF_MODIFIER~APPLY','public']]);
+});
 function units(text,type='PROG'){
  const source=parseSource({id:'test',name:'ZTEST',objectName:'ZTEST',objectType:type,text}).source;
  return analysisUnits(buildIndex([source])).map(metric);

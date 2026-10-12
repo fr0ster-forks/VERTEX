@@ -18,7 +18,26 @@ the developer's existing ADT connection and renders as HTML.
 In VS Code, the built-in VERTEX Assistant can use Codex, Claude Code, a signed-in
 GitHub Copilot model or API keys for Anthropic, OpenAI, Mistral, Gemini, Groq,
 Cerebras, OpenRouter and NVIDIA. Provider model lists can be collapsed independently.
+Each list has a Clear all / Select all control for its model checkboxes.
+The VS Code chat can explain an active local `.abap` file using its current editor text, even without a SAP connection.
+Local ABAP programs and classes support VERTEX Outline, definition navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis. SAP execution and version history still require a system.
+In VS Code, choose **Analyze Local ABAP Package** on a folder in Explorer to see UML and aggregate metrics for its `.abap` files, including subfolders.
+Click a method in UML to open its source in VS Code or Eclipse; this also works for local ABAP files in VS Code.
+In VS Code, UML method links open code beside the diagram and keep focus on UML.
+Metrics method links use the same side-by-side opening in VS Code, including package tables.
+UML includes methods implemented through interfaces as well as methods declared directly by a class.
+An abapGit folder tree may contain subpackages; VERTEX combines them for this view. Source lookup prefers the opened file's folder and reports duplicate names in a selected tree.
+The same command is available from the VS Code Command Palette and opens a folder picker.
+The main VERTEX Tools type list also has **Local Folder**, which opens the picker and shows UML or Metrics in the same window.
+UML and Metrics show the current analysis stage, object count and elapsed time. Switching between them for a local folder reuses parsed source until a file changes.
+UML and Metrics show the current analysis stage, object count and elapsed time. Switching between them for a local folder reuses parsed source until a file changes.
+Package Metrics has **Expand all / Collapse all** above Objects to open or close every object's method table.
+FLOW and Value Origin diagrams support graphs with more than 500 edges in both hosts.
+Eclipse Tools selects the active ADT class or program when opened from its editor.
 Each API provider can have several named keys, with one selected manually.
+For Mistral and other compatible APIs, the VS Code chat shows the token usage returned by the provider, summed across tool calls.
+With `vertex.ai.logPath` set, the VS Code assistant writes an Anthropic-compatible JSONL log for any provider. Each direct API or Copilot model call has its own record; CLI subscriptions are recorded per VERTEX invocation. Choose the folder in LLM Providers or Settings. Raw HTTP request bodies are not stored.
+The 📜 button on the VERTEX panel opens a session report for these logs, with date, provider, model and prompt filters and token totals. It shows only question, answer and tool content enabled in log settings.
 Eclipse's built-in
 Assistant uses Codex or Claude Code; Copilot Chat in Eclipse connects separately
 through MCP.

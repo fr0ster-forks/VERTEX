@@ -225,7 +225,27 @@
   signed-in GitHub Copilot model through the VS Code Language Model API.
   Its LLM Providers window has independently collapsible model lists and API-key
   providers for Anthropic, OpenAI, Mistral, Gemini, Groq, Cerebras, OpenRouter and NVIDIA.
+  Each provider's model list has a Clear all / Select all control.
+  With a local .abap file active, the chat can explain its current editor text without a SAP connection.
+  Local ABAP programs and classes also support Outline, definition navigation, UML, metrics,
+  Logic and Calls diagrams, and forward/backward usage analysis. Version history and SAP execution require a system.
+  In VS Code, Analyze Local ABAP Package on an Explorer folder shows UML and aggregate metrics for its .abap files, including subfolders.
+  An abapGit folder tree can contain subpackages. Source lookup prefers the opened file's folder and reports duplicate object names in a selected tree.
+  The command also runs from the VS Code Command Palette and then asks for the folder.
+  The main VS Code VERTEX Tools window also offers Local Folder in its type list, with UML and Metrics in the same window.
+  UML and Metrics show the current analysis stage, object count and elapsed time. Local folder analysis reuses parsed source when switching views until a file changes.
+  UML and Metrics show the current analysis stage, object count and elapsed time. Local folder analysis reuses parsed source when switching views until a file changes.
+  In package Metrics, Expand all / Collapse all above Objects opens or closes every object's method table.
+  Click a method in UML to open its source in the editor.
+  In VS Code, the source opens beside UML without switching focus.
+  Metrics method links in VS Code behave the same way, including package tables.
+  UML also lists interface methods in the classes that implement them.
+  FLOW and Value Origin diagrams support graphs with more than 500 edges in both hosts.
+  In Eclipse, Tools selects the active ADT class or program when opened from its editor.
   Each provider can keep multiple named API keys; the user selects the active one.
+  For API-key providers, the VS Code chat displays token counts reported by the API across the complete answer.
+  With vertex.ai.logPath set, the VS Code assistant writes an Anthropic-compatible JSONL log for any provider. Direct API and Copilot model calls are recorded individually; CLI subscriptions are recorded per VERTEX invocation. LLM Providers has a folder picker and a gear for log settings.
+  The 📜 button on the VERTEX panel opens a session report with filters for date, provider, model and prompt text, plus token totals and saved answer or tool details.
   VERTEX registers ABAP itself; opening SAP source does not require another ABAP extension.
   Claude Code detection also accepts its native CLI in PATH or ~/.local/bin when
   the Claude Code VS Code extension is absent; restart VS Code after installation.

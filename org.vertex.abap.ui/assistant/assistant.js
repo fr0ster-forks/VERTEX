@@ -72,8 +72,45 @@ function describe(id) {
 function locate(id, extensionPath) {
   const assistant = describe(id);
   if (!extensionPath) {
+    if (id === "claude" || id === "codex") {
+      const name = process.platform === "win32" ? id + ".exe" : id;
+      const folders = (process.env.PATH || process.env.Path || "").split(path.delimiter)
+        .concat([path.join(os.homedir(), ".local", "bin")]);
+      if (id === "codex" && process.platform === "win32" && process.env.APPDATA) {
+        folders.push(path.join(process.env.APPDATA, "npm"));
+      }
+      for (const folder of folders) {
+        if (!folder) { continue; }
+        const root = folder.replace(/^"|"$/g, "");
+        const candidates = [path.join(root, name)];
+        if (id === "codex") {
+          const triple = TRIPLES[process.platform + "-" + process.arch];
+          const platformPackage = "codex-" + ({ win32: "win32", darwin: "darwin", linux: "linux" }[process.platform] || process.platform) + "-" + process.arch;
+          for (const modules of [path.join(root, "node_modules"), path.join(root, "..", "lib", "node_modules")]) {
+            for (const packageRoot of [path.join(modules, "@openai", "codex"),
+              path.join(modules, "@openai", platformPackage),
+              path.join(modules, "@openai", "codex", "node_modules", "@openai", platformPackage)]) {
+              if (triple) {
+                candidates.push(path.join(packageRoot, "vendor", triple, "codex", name),
+                  path.join(packageRoot, "vendor", triple, "bin", name));
+              }
+            }
+          }
+        }
+        for (const candidate of candidates) {
+        try {
+          if (fs.statSync(candidate).isFile()) {
+            fs.accessSync(candidate, fs.constants.X_OK);
+            return candidate;
+          }
+        } catch (_) { /* Try the next native CLI location. */ }
+        }
+      }
+    }
     throw new Error(assistant.label + " is not installed in this VS Code (extension "
-                    + assistant.extension + "). VERTEX runs the copy that comes with it.");
+                    + assistant.extension + "). " + (id === "claude"
+                      ? "No native Claude CLI was found in PATH or ~/.local/bin either. Install Claude Code and restart VS Code."
+                      : "No native Codex CLI was found in PATH or its npm installation either. Install Codex CLI and restart VS Code."));
   }
   const file = id === "claude" ? claudeBinary(extensionPath) : codexBinary(extensionPath);
   if (!fs.existsSync(file)) {
@@ -115,6 +152,7 @@ async function models(options) {
   const id = options.assistant;
   describe(id);
   if (id === "claude") {
+    if (!options.executable) { locate(id, options.extensionPath); }
     return CLAUDE_VERSIONS;
   }
 
@@ -285,10 +323,12 @@ function codexCommand(options, dir) {
     "--output-schema", schema, "-o", answerFile,
     // No shell and nothing a plugin or an app would add.
     "--disable", "shell_tool", "--disable", "unified_exec",
-    "--disable", "plugins", "--disable", "apps",
-    "-c", "mcp_servers." + SERVER + ".url=" + options.url,
-    "-c", "mcp_servers." + SERVER + ".bearer_token_env_var=" + TOKEN_VAR
+    "--disable", "plugins", "--disable", "apps"
   ];
+  if (options.tools.length) {
+    args.push("-c", "mcp_servers." + SERVER + ".url=" + options.url,
+      "-c", "mcp_servers." + SERVER + ".bearer_token_env_var=" + TOKEN_VAR);
+  }
   if (options.model) {
     args.push("-m", options.model);
   }

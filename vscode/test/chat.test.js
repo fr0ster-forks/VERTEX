@@ -5,6 +5,7 @@ const assistant = require("../assistant");
 const chat = require("../chat");
 const copilot = require("../copilot");
 const compatible = require("../openai-compatible");
+const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
 
 function fakeVscode(settings) {
   return {
@@ -78,6 +79,27 @@ test("the VERTEX chat routes a key provider through its API with SAP tools", asy
   assert.deepEqual(received.tools.map(tool => tool.name), ["read_sap_object"]);
 });
 
+test("every direct model round is a separate Anthropic-format log entry", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-rounds-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  t.mock.method(compatible, "ask", async options => {
+    options.onModelCall({ model: "mistral-test", usage: { input_tokens: 10, output_tokens: 2 }, text: "" });
+    options.onModelCall({ model: "mistral-test", usage: { input_tokens: 20, output_tokens: 3 }, text: "Done" });
+    return { plan: { answer: "Done", navigation: null }, model: "mistral-test",
+      usage: { input_tokens: 30, output_tokens: 5 } };
+  });
+  const tools = { schemas: [], instructions: "", editorContext: () => null };
+  const ask = chat.create(fakeVscode({ provider: "mistral-api", model: "mistral-test", logPath: root,
+    "log.questions": true, "log.answers": true }), tools, {}, { get: async () => "secret" });
+  await ask("Explain");
+  const dir = path.join(root, "claude_compatible");
+  const file = fs.readdirSync(dir).find(name => name.endsWith(".jsonl"));
+  const lines = fs.readFileSync(path.join(dir, file), "utf8").trim().split("\n").map(JSON.parse);
+  assert.deepEqual(lines.map(line => line.type), ["user", "assistant", "assistant"]);
+  assert.deepEqual(lines.slice(1).map(line => line.message.usage.output_tokens), [2, 3]);
+  assert.equal(lines[2].message.content[0].text, "Done");
+});
+
 test("a selected fragment from an external ADT editor is sent to VERTEX chat", async (t) => {
   let prompt = "";
   t.mock.method(assistant, "ask", async options => {
@@ -106,6 +128,27 @@ test("the active editor's full source is never silently added to a chat prompt",
     { start: async () => ({ url: "http://127.0.0.1:1/mcp" }), token: "t" });
   await ask("explain this method");
   assert.doesNotMatch(prompt, /SECRET_FULL_SOURCE/);
+});
+
+test("the chat reads the active local ABAP document without a SAP system", async (t) => {
+  let request;
+  t.mock.method(assistant, "ask", async options => {
+    request = options;
+    return { plan: { answer: "It calls ZCL_CALC.", navigation: null }, model: "haiku", usage: null };
+  });
+  const vscode = fakeVscode({ provider: "claude-subscription", model: "haiku", systems: [] });
+  vscode.window.activeTextEditor = { document: { languageId: "abap",
+    uri: { scheme: "file", fsPath: "C:\\work\\zvertex_debug_lab.prog.abap" },
+    getText: () => "REPORT zvertex_debug_lab.\nDATA(result) = NEW zcl_calc( )->run( )." } };
+  const tools = { schemas: [{ name: "read_sap_object", description: "Read SAP", inputSchema: {} }],
+    instructions: "SAP system tools", editorContext: () => null };
+  const ask = chat.create(vscode, tools,
+    { start: async () => ({ url: "http://127.0.0.1:1/mcp" }), token: "t" });
+  assert.equal((await ask("можешь прочитать этот код?")).answer, "It calls ZCL_CALC.");
+  assert.match(request.prompt, /REPORT zvertex_debug_lab/);
+  assert.match(request.prompt, /NEW zcl_calc/);
+  assert.match(request.instructions, /No SAP system is configured/);
+  assert.deepEqual(request.tools, []);
 });
 
 test("an active UML view is sent as diagram context and is analysed without requesting an object", async (t) => {

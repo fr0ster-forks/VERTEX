@@ -27,3 +27,33 @@ test('program Calls passes panel initialization and unsupported UML does not ope
  await commands['vertex.tools.uml']({object_name:'ZVERTEX_DEBUG_LAB',object_type:'PROG'});
  assert.equal(opened.length,1);assert.equal(errors.length,1);assert.match(errors[0],/unavailable for Program/);
 });
+test('local ABAP context binds analysis to its document and keeps version history on SAP',async()=>{
+ const commands={},opened=[],errors=[];
+ const document={uri:{scheme:'file',fsPath:'zlocal.prog.abap',toString:()=> 'file:///zlocal.prog.abap'},languageId:'abap',getText:()=> 'REPORT zlocal.\nWRITE 1.'};
+ const vscode={commands:{registerCommand:(name,fn)=>{commands[name]=fn;return {};}},window:{activeTextEditor:{document,selection:{active:{line:1}}},showErrorMessage:s=>errors.push(s)}};
+ require('../tools-context').register(vscode,{subscriptions:[]},{documentObject:()=>null},value=>opened.push(value));
+ await commands['vertex.tools.metrics']();
+ assert.equal(opened[0].name,'ZLOCAL');
+ assert.equal(opened[0].localSession.primary,document);
+ await commands['vertex.tools.diff']();
+ assert.equal(opened.length,1);
+ assert.match(errors[0],/Version history needs a SAP system/);
+});
+
+test('local package command can choose a folder from the command palette',async()=>{
+ const commands={},opened=[],errors=[],dialogs=[];
+ const folder={scheme:'file',fsPath:__dirname};
+ const local=require('../local-analysis'),original=local.createPackage;
+ local.createPackage=async (_,selected)=>({object:{object_name:'TEST',object_type:'DEVC'},folder:selected});
+ try{
+  const vscode={commands:{registerCommand:(name,fn)=>{commands[name]=fn;return {};}},
+   workspace:{workspaceFolders:[{uri:folder}]},window:{showOpenDialog:async options=>{dialogs.push(options);return [folder];},showErrorMessage:s=>errors.push(s)}};
+  require('../tools-context').register(vscode,{subscriptions:[]},{},value=>opened.push(value));
+  await commands['vertex.tools.localPackage']();
+  assert.equal(dialogs[0].canSelectFolders,true);
+  assert.equal(dialogs[0].canSelectFiles,false);
+  assert.equal(opened[0].localSession.folder,folder);
+  assert.deepEqual([opened[0].name,opened[0].type,opened[0].action],['TEST','DEVC','uml']);
+  assert.deepEqual(errors,[]);
+ }finally{local.createPackage=original;}
+});

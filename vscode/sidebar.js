@@ -7,6 +7,7 @@ const ACTIONS = Object.freeze({
   selector: "vertex.open",
   metrics: "vertex.metrics",
   versions: "vertex.versions",
+  logs: "vertex.showLogs",
   system: "vertex.switchSystem",
   settings: "workbench.action.openSettings"
 });
@@ -164,6 +165,8 @@ button:hover { background: var(--vscode-button-hoverBackground); }
 .link { color: var(--vscode-textLink-foreground); text-decoration: none; }
 .link:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
 #llm-settings { margin-left: auto; }
+#logs { margin: 0; padding: 3px 6px; font-size: 17px; line-height: 1; background: transparent; color: var(--vscode-foreground); }
+#logs:hover { background: var(--vscode-list-hoverBackground); }
 .line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .line button { margin: 4px 0; padding: 4px 10px; }
 .line select { padding: 3px 4px; }
@@ -174,7 +177,8 @@ button:hover { background: var(--vscode-button-hoverBackground); }
 </style></head><body>
 <div class="line"><a href="#" class="link" id="system-settings" title="Configure SAP systems">SAP system</a>
 <select id="system-select" aria-label="SAP system"><option>Loading…</option></select>
-<a href="#" class="link" id="llm-settings" title="Providers and the models they offer">LLM Providers</a></div>
+<a href="#" class="link" id="llm-settings" title="Providers and the models they offer">LLM Providers</a>
+<button type="button" data-action="logs" id="logs" title="Session logs" aria-label="Open session logs">📜</button></div>
 <main id="messages" aria-live="polite"><p>Ask about SAP code, data or a transport.</p></main>
 <div class="dock">
 <div class="line chat-head"><select id="provider-select" aria-label="AI provider" title="AI provider"></select><select id="model-select" aria-label="Model" title="Model"><option>Loading…</option></select><button class="secondary" data-action="newConversation" id="new-conversation">New conversation</button></div>

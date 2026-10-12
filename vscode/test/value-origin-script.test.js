@@ -20,4 +20,7 @@ test('all executable scripts in the generated Value Origin page parse', () => {
   // from), the guard that says so when the flow view did not load, and the flow builder with its ABAP control rules,
   // which build a reading when it is asked for - and, first of all, the link to the host that reports a failing script.
   assert.equal(count, 8);
+  const limits = [...page.matchAll(/mermaid\.initialize\(\{[^}]*maxEdges:(\d+)/g)].map(match => Number(match[1]));
+  assert.equal(limits.length, 2, 'the page and shared flow renderer both configure Mermaid');
+  assert.ok(limits.every(limit => limit > 500), 'large Eclipse and VS Code diagrams clear Mermaid’s default edge limit');
 });

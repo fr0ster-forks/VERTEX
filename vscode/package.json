@@ -25,7 +25,7 @@
     "codex",
     "reviewer"
   ],
-  "version": "0.8.12",
+  "version": "0.8.10",
   "publisher": "YuriiSychov",
   "engines": {
     "vscode": "^1.85.0"
@@ -146,6 +146,10 @@
         "title": "VERTEX: Open Panel"
       },
       {
+        "command": "vertex.showLogs",
+        "title": "VERTEX: Session Logs"
+      },
+      {
         "command": "vertex.tools",
         "title": "VERTEX Tools"
       },
@@ -218,6 +222,16 @@
         "command": "vertex.tools.uml",
         "title": "UML diagram",
         "category": "VERTEX Tools"
+      },
+      {
+        "command": "vertex.tools.localPackage",
+        "title": "Analyze Local ABAP Package",
+        "category": "VERTEX Tools"
+      },
+      {
+        "command": "vertex.ai.chooseLogFolder",
+        "title": "Choose Log Folder",
+        "category": "VERTEX"
       },
       {
         "command": "vertex.tools.metrics",
@@ -326,7 +340,7 @@
         "vertex.ai.logPath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Folder for a Claude-Code-compatible chat log (`claude_compatible/*.jsonl`). Token usage is always written; the checkboxes below add more. Empty turns logging off."
+          "markdownDescription": "[Choose folder](command:vertex.ai.chooseLogFolder) for an Anthropic-compatible log (`claude_compatible/*.jsonl`). Each direct API or VS Code model call is recorded; CLI subscriptions are logged per VERTEX invocation. The checkboxes below control retained content. Empty turns logging off."
         },
         "vertex.ai.log.questions": {
           "type": "boolean",
@@ -405,7 +419,7 @@
         },
         {
           "command": "vertex.backwardUsage",
-          "when": "resourceScheme == vertex-sap && editorLangId == abap",
+          "when": "editorLangId == abap && (resourceScheme == vertex-sap || resourceScheme == file || resourceScheme == untitled)",
           "group": "navigation@9"
         },
         {
@@ -430,12 +444,12 @@
         },
         {
           "command": "vertex.goToClassMethod",
-          "when": "resourceScheme == vertex-sap && editorLangId == abap",
+          "when": "editorLangId == abap && (resourceScheme == vertex-sap || resourceScheme == file || resourceScheme == untitled)",
           "group": "navigation@1"
         },
         {
           "command": "vertex.navigateBack",
-          "when": "resourceScheme == vertex-sap",
+          "when": "editorLangId == abap && (resourceScheme == vertex-sap || resourceScheme == file || resourceScheme == untitled)",
           "group": "navigation@2"
         },
         {
@@ -485,10 +499,16 @@
         },
         {
           "command": "vertex.tools.diff",
+          "when": "resourceScheme == vertex-sap || resourceScheme == vertex-source || webviewSection == vertex-object",
           "group": "navigation@5"
         }
       ],
       "explorer/context": [
+          {
+            "command": "vertex.tools.localPackage",
+            "group": "navigation@11",
+            "when": "explorerResourceIsFolder && resourceScheme == file"
+          },
         {
           "submenu": "vertex.tools.context",
           "group": "navigation@12",

@@ -157,6 +157,15 @@ test("Codex runs without the person's config, shell or plugins, and gets the rul
   assert.doesNotMatch(args.join(" "), /secret-token/);
 });
 
+test("Codex receives no SAP MCP server when the chat has no SAP tools", async () => {
+  const spawn = spawner(call => {
+    fs.writeFileSync(after(call.args, "-o"), JSON.stringify({ answer: "ok", navigation: null }));
+    call.child.emit("close", 0);
+  });
+  await assistant.ask(common(spawn, "codex", { tools: [] }));
+  assert.doesNotMatch(spawn.calls[0].args.join(" "), /mcp_servers\.vertex/);
+});
+
 test("Codex's refusal comes through as the provider's sentence", async () => {
   const run = stderr => assistant.ask(common(spawner(call => {
     call.child.stderr.emit("data", stderr);

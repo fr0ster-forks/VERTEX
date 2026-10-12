@@ -79,6 +79,17 @@ function apply(vscode, id, list) {
 
 /* ---------- the table ---------- */
 
+async function chooseLogFolder(vscode) {
+  const settings = vscode.workspace.getConfiguration("vertex.ai");
+  const current = settings.get("logPath", "");
+  const picked = await vscode.window.showOpenDialog({ canSelectFiles: false, canSelectFolders: true,
+    canSelectMany: false, openLabel: "Use for VERTEX logs",
+    defaultUri: current ? vscode.Uri.file(current) : vscode.workspace.workspaceFolders?.[0]?.uri });
+  if (!picked?.length) return null;
+  await settings.update("logPath", picked[0].fsPath, vscode.ConfigurationTarget.Global);
+  return picked[0].fsPath;
+}
+
 /**
  * Opens the table - also where the provider is chosen. full(id) is the
  * provider's whole list, forget(id) drops what was read of it; extensionPath(id)
@@ -106,6 +117,15 @@ function open(vscode, full, extensionPath, forget, secrets) {
 
   panel.webview.onDidReceiveMessage(async message => {
     if (!message || typeof message !== "object") { return; }
+    if (message.action === "log-settings") {
+      await vscode.commands.executeCommand("workbench.action.openSettings", "vertex.ai.log");
+      return;
+    }
+    if (message.action === "choose-log-folder") {
+      try { const selected = await chooseLogFolder(vscode); if (selected) post({ logFolder: selected }); }
+      catch (error) { post({ logFolderError: error.message }); }
+      return;
+    }
     const id = String(message.provider || "");
     if (!PROVIDERS.some(p => p.id === id)) { return; }
     if (message.action === "load") { await load(id); return; }
@@ -222,7 +242,7 @@ td.id { font-family: var(--vscode-editor-font-family); }
 .ok { color: var(--vscode-testing-iconPassed, var(--vscode-foreground)); }
 </style></head><body>
 <div id="tree"></div>
-<div class="row"><button class="primary" id="save">Save</button><span id="said"></span></div>
+<div class="row"><button class="primary" id="save">Save</button><button id="choose-log-folder" type="button">Choose log folder...</button><button id="log-settings" type="button" title="Open logging settings" aria-label="Open logging settings">⚙</button><span id="said"></span></div>
 <script nonce="${nonce}">
 const api = acquireVsCodeApi();
 const INIT = ${init};
@@ -284,13 +304,27 @@ function fill(id) {
     return;
   }
   if (!s.rows) { body.appendChild(el("div", { className: "note", textContent: "Loading ..." })); return; }
+  const bulk = el("button", { type: "button" });
+  const updateBulk = () => {
+    const all = s.rows.length > 0 && s.rows.every(r => r.on);
+    bulk.textContent = all ? "Clear all" : "Select all";
+    bulk.title = all ? "Clear all models for this provider" : "Select all models for this provider";
+  };
+  bulk.addEventListener("click", () => {
+    const next = !s.rows.every(r => r.on);
+    s.rows.forEach(r => { r.on = next; });
+    table.querySelectorAll('tbody input[type="checkbox"]').forEach(box => { box.checked = next; });
+    updateBulk(); say("");
+  });
+  updateBulk();
+  body.appendChild(el("div", { className: "row" })).appendChild(bulk);
   const table = el("table");
   table.innerHTML = "<thead><tr><th>On</th><th>Model</th><th>Id</th><th></th></tr></thead>";
   const tbody = el("tbody");
   s.rows.forEach((r, i) => {
     const tr = el("tr");
     const box = el("input", { type: "checkbox", checked: r.on });
-    box.addEventListener("change", () => { r.on = box.checked; say(""); });
+    box.addEventListener("change", () => { r.on = box.checked; updateBulk(); say(""); });
     tr.appendChild(el("td")).appendChild(box);
     tr.appendChild(el("td", { textContent: r.label }));
     tr.appendChild(el("td", { className: "id", textContent: r.id === "" ? "(default)" : r.id }));
@@ -324,8 +358,13 @@ $("save").addEventListener("click", () => {
   api.postMessage({ action: "save", provider: use, use,
     providers: INIT.providers.map(p => ({ id: p.id, on: state[p.id].on, rows: state[p.id].rows })) });
 });
+$("log-settings").addEventListener("click", () => api.postMessage({ action: "log-settings" }));
+$("choose-log-folder").addEventListener("click", () => api.postMessage({ action: "choose-log-folder" }));
 window.addEventListener("message", event => {
-  const m = event.data; if (!m || !state[m.provider]) { return; }
+  const m = event.data;
+  if (m?.logFolder) { say("Logs: " + m.logFolder, "ok"); return; }
+  if (m?.logFolderError) { say(m.logFolderError, "error"); return; }
+  if (!m || !state[m.provider]) { return; }
   const s = state[m.provider];
   if (m.profiles) { s.profiles = m.profiles; }
   if (m.error) { s.error = m.error; fill(m.provider); return; }
@@ -343,4 +382,4 @@ INIT.providers.forEach(p => api.postMessage({ action: "load", provider: p.id }))
 </script></body></html>`;
 }
 
-module.exports = { PROVIDERS, shortLabel, read, rows, apply, open, isOn, offered };
+module.exports = { PROVIDERS, shortLabel, read, rows, apply, open, isOn, offered, chooseLogFolder };

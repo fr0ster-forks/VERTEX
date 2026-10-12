@@ -109,6 +109,20 @@ test('local analysis reports progress during a slow ADT read and then parsing/bu
  assert.ok(messages.some(m=>/^Building metrics analysis/.test(m)));
  assert.equal(result.units[0].unit_name,'START-OF-SELECTION');
 });
+test('package progress counts completed objects and keeps moving through Metrics',async()=>{
+ const messages=[];
+ const api={packageObjects:async()=>[{object_name:'ZCL_A',object_type:'CLAS'},{object_name:'ZCL_B',object_type:'CLAS'}],
+  analysisReader:()=>async({object_name,object_type})=>({object_name,object_type,source_url:object_name,source:'CLASS '+object_name+' DEFINITION. PUBLIC SECTION. METHODS run. ENDCLASS. CLASS '+object_name+' IMPLEMENTATION. METHOD run. ENDMETHOD. ENDCLASS.',includes:[]})};
+ await request(api,'/sap/bc/adt/vertex/metrics/SRC?type=DEVC',text=>messages.push(text));
+ assert.ok(messages.some(text=>/0\/2 objects/.test(text)),messages.join('\n'));
+ assert.ok(messages.some(text=>/2\/2 objects/.test(text)),messages.join('\n'));
+});
+test('UML and Metrics display the live stage in the result area',()=>{
+ const page=fs.readFileSync(path.join(__dirname,'../../org.vertex.abap.ui/resources/metrics.html'),'utf8');
+ assert.match(page,/id="analysis-progress"[^>]*role="status"/);
+ assert.match(page,/function sdeAnalysisProgress\(text\)[\s\S]*hintBox\.textContent=text/);
+ assert.match(page,/\.hint\.busy::before/);
+});
 test('warning details are collapsed and progress follows the active request',()=>{
  const metrics=fs.readFileSync(path.join(__dirname,'../../org.vertex.abap.ui/resources/metrics.html'),'utf8');
  assert.match(metrics,/createElement\('details'\)/);assert.match(metrics,/max-height:180px/);

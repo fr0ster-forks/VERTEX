@@ -16,13 +16,14 @@ public class ToolsHandler extends AbstractHandler {
             project = selection.project.getName();
         } else {
             AdtEditor editor = AdtEditor.of(HandlerUtil.getActiveEditor(event));
-            if (editor != null && editor.project != null) {
-                name = editor.name; type = editor.type; project = editor.project.getName();
+            if (editor != null) {
+                name = editor.ownerName(); type = editor.kind();
+                project = editor.project == null ? "" : editor.project.getName();
             }
         }
         try {
             IWorkbenchPage page = HandlerUtil.getActiveWorkbenchWindowChecked(event).getActivePage();
-            String id = name == null ? null : MetricsView.encode(name, type, project, ++counter);
+            String id = name == null || name.isBlank() ? null : MetricsView.encode(name, type == null ? "" : type, project == null ? "" : project, ++counter);
             page.showView(viewId(), id, IWorkbenchPage.VIEW_ACTIVATE);
         } catch (Exception e) { throw new ExecutionException("Cannot open VERTEX Tools", e); }
         return null;

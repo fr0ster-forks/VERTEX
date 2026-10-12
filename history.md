@@ -1,5 +1,63 @@
 # Release history
 
+## 2026-10-12 — UML and Metrics progress
+
+UML and Metrics now show an animated progress indicator with the current stage, processed object count and elapsed time. VS Code local folder analysis reuses parsed source when switching views and refreshes it after edits.
+
+## 2026-10-12 — VS Code session log report
+
+Added a 📜 button to the VERTEX sidebar. It opens a theme-aware report of the configured Anthropic-compatible JSONL logs, with session and token summaries, daily or all-date prompt tables, filters, details, refresh and a folder picker. The layout follows the local Claude-Tracker2 report; no price estimate is shown because VERTEX logs do not include tariff data.
+
+## 2026-10-12 — VS Code Metrics source beside the table
+
+Metrics method links now open code in the adjacent editor group and keep focus on Metrics. Package object tables resolve each method to its own object rather than the package name.
+
+## 2026-10-12 — VS Code UML source beside the diagram
+
+Clicking a UML method in VS Code now opens its source in the adjacent editor group and keeps focus on UML. This applies to local ABAP files and SAP objects; other source links retain their current navigation behavior.
+
+## 2026-10-12 — Interface implementations in UML
+
+UML class cards now list qualified methods implemented from interfaces. Previously classes with only `INTERFACES` declarations appeared to have no methods, even though their implementations were present.
+Method source links now bind to both Mermaid class renderers used by the shared UML view.
+
+## 2026-10-12 — UML method source links
+
+Methods in shared UML diagrams open their source in VS Code and Eclipse. VS Code supports both SAP objects and local ABAP folders; interface methods open their declarations when no implementation is present.
+
+## 2026-10-12 — Anthropic-compatible session log
+
+Direct Anthropic API, compatible API and Copilot SAP tool calls now enter the optional Claude-compatible JSONL session log when tool logging is enabled. The existing question, answer and token settings still apply; raw provider HTTP payloads are not logged.
+Each direct API or Copilot model round now writes its own Anthropic-compatible assistant record with per-call usage where available. Claude Code and Codex subscriptions write one aggregate record per VERTEX CLI invocation. LLM Providers now has a log folder picker and a gear that opens log settings; the log path setting also links to the picker.
+
+## 2026-10-12 — Package Metrics object toggle
+
+Added an Expand all / Collapse all button above the package Metrics object list in the shared Eclipse and VS Code view. The button follows individual object toggles and uses the host theme.
+
+## 2026-10-12 — VS Code 0.8.10 API token usage
+
+The chat now displays token usage reported by Mistral and other OpenAI-compatible APIs. Input, cached input and output tokens are normalized to the chat format and summed across model calls in one answer.
+
+## 2026-10-12 — VS Code 0.8.10 local package analysis
+
+An Explorer folder can be opened as a local ABAP package. UML covers its classes and interfaces; Metrics summarizes its recognized `.abap` files recursively. Diagram source links open the local files. No SAP connection is needed.
+Local source lookup now prefers the active file's folder. A selected tree with duplicate object names in different folders reports the ambiguity instead of silently opening the wrong source.
+The package analysis command can also be launched from the Command Palette, where it presents a folder picker for custom Explorer views.
+The VS Code Tools type selector now offers Local Folder. It opens a folder picker and renders local package UML and Metrics in the current Tools window.
+
+## 2026-10-12 — Large analysis diagrams
+
+Raised Mermaid's edge limit for shared Value Origin and FLOW diagrams in Eclipse and VS Code. Graphs above the previous 500-edge default can render; the existing Metrics, Logic and Calls renderer already used a higher limit.
+Eclipse Tools also takes the active ADT class or program when opened without an object selection.
+
+## 2026-10-12 — VS Code 0.8.10 local rebuild: local ABAP navigation and analysis
+
+Local `.abap` programs and classes now support VERTEX editor navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis without an ADT connection. Diagram links return to local source. Backward usage scans workspace text for calls; SAP-dependent actions remain connected-system features. Eclipse unchanged.
+
+## 2026-10-12 — VS Code 0.8.10 local rebuild: bulk model selection and local ABAP chat
+
+Added a Clear all / Select all control to each provider's model list in LLM Providers. It updates only that provider's checkboxes; Save still requires at least one enabled model for an enabled provider. The chat now reads the active local ABAP editor text, including unsaved edits, and can explain it without a configured SAP system. Eclipse unchanged.
+
 ## 2026-10-12 — VS Code 0.8.12: named API keys
 
 Each API provider can now keep multiple named keys in VS Code SecretStorage. The active key is selected manually in LLM Providers. Existing single keys appear as `DEFAULT` and continue to work without reentry. Eclipse unchanged.

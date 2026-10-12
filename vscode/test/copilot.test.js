@@ -29,14 +29,17 @@ test("Copilot model uses VERTEX tools and returns a navigation plan", async () =
     [new ToolCallPart("2", "submit_vertex_answer", { answer: "Готово", navigation: null })]
   ]);
   assert.deepEqual(await copilot.models(vscode), [{ id: "copilot-test", label: "Copilot Test" }]);
-  const calls = [];
+  const calls = [], rounds = [];
   const result = await copilot.ask(vscode, { model: "copilot-test", instructions: "SAP instructions",
     prompt: "Read class", schema: { type: "object" },
+    onModelCall: round => rounds.push(round),
     tools: [{ name: "read_sap_object", description: "Read", inputSchema: { type: "object" } }],
     callTool: async (name, args) => { calls.push([name, args]); return { source: "CLASS zcl_test." }; } });
   assert.deepEqual(calls, [["read_sap_object", { object_name: "ZCL_TEST" }]]);
   assert.deepEqual(result.plan, { answer: "Готово", navigation: null });
   assert.equal(requests.length, 2);
+  assert.equal(rounds.length, 2);
+  assert.equal(rounds[1].text, "Готово");
   assert.equal(requests[0].token.isCancellationRequested, false);
   assert.match(requests[0].messages[0].content, /SAP instructions.*Read class/s);
   assert.equal(requests[1].messages[2].content[0].callId, "1");

@@ -69,7 +69,7 @@ dialog label{display:block;margin:8px 0}
 <button id="chat-toggle" title="Show or hide the assistant" aria-expanded="false">Ask AI</button>
 <button id="back" title="Back to the previous VERTEX source" hidden>← Back</button>
 <select id="object-type" aria-label="Object type"></select>
-<div id="object-field"><input id="object-name" placeholder="Object name or mask: Z_VX*" aria-label="Object name" title="Enter an object name and press Enter; a name with * or + lists what matches" spellcheck="false"><button id="find-requests" type="button" title="Find transport requests" aria-label="Find transport requests"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10 10 4 4"/></svg></button><div id="object-matches" role="listbox"></div></div>
+<div id="object-field"><input id="object-name" placeholder="Object name or mask: Z_VX*" aria-label="Object name" title="Enter an object name and press Enter; a name with * or + lists what matches" spellcheck="false"><button id="find-requests" type="button" title="Find transport requests" aria-label="Find transport requests"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.5"/><path d="m10 10 4 4"/></svg></button><div id="object-matches" role="listbox"></div></div><button id="browse-local" type="button" hidden>Browse...</button>
 <select id="function" aria-label="Function"></select>
 </header><div id="notice" role="status"></div><div id="work"><aside id="tparts" aria-label="Parts"></aside><div id="tsplit" title="Drag to resize the parts"></div><div id="results" aria-label="Function result"></div></div></main>
 <dialog id="request-dialog"><form method="dialog"><strong>Find transport requests</strong>
@@ -83,6 +83,7 @@ dialog label{display:block;margin:8px 0}
 const bundle = /*BUNDLE*/{};
 const initial = /*INIT*/null/*INIT*/;
 let current = VertexObjects.normalize(initial || {});
+let localFolderState = null;
 let sequence = 0, activeRequest = null, queue = [], assistantTarget = null, navigation = [];
 const typeBox = document.getElementById("object-type"), nameBox = document.getElementById("object-name");
 const actionBox = document.getElementById("function"), results = document.getElementById("results");
@@ -129,9 +130,12 @@ document.getElementById("chat-split").addEventListener("mousedown",e=>{
 });
 function notice(text){document.getElementById("notice").textContent=text;}
 VertexObjects.objects.forEach(o=>typeBox.add(new Option(o[1],o[0])));
+if(typeof sdeLocalFolder==="function"&&!initial?.boundObject)typeBox.add(new Option("Local Folder","LOCAL_FOLDER"),typeBox.querySelector('option[value="TR"]'));
 function fields(){
-  typeBox.value=current.type; nameBox.value=current.name; actionBox.replaceChildren();
-  VertexObjects.objects.find(o=>o[0]===current.type)[2].forEach(a=>actionBox.add(new Option(VertexObjects.labels[a],a)));
+  typeBox.value=localFolderState?"LOCAL_FOLDER":current.type; nameBox.value=localFolderState?localFolderState.folder:current.name;
+  nameBox.readOnly=!!localFolderState;nameBox.style.textTransform=localFolderState?"none":"";
+  document.getElementById("browse-local").hidden=!localFolderState;actionBox.replaceChildren();
+  VertexObjects.objects.find(o=>o[0]===current.type)[2].filter(a=>!(initial?.local||localFolderState)||["uml","metrics","scheme","flow"].includes(a)).forEach(a=>actionBox.add(new Option(VertexObjects.labels[a],a)));
   actionBox.value=current.action;
   findButton.style.display = current.type === "TR" ? "inline-block" : "none";
 }
@@ -141,6 +145,9 @@ function navigate(value,remember){
   try{if(remember!==false&&current.name)navigation.push(Object.assign({},current));current=VertexObjects.normalize(value);
     if(current.part)choosePart(current.part);backButton.hidden=!navigation.length;fields();if(current.name) run();}
   catch(e){notice(e.message);}
+}
+function sdeFollowEditor(value){
+  if(!current.name&&value&&value.name)navigate({name:value.name,type:value.type||"CLAS",action:value.type==="CLAS"?"uml":"metrics"},false);
 }
 backButton.onclick=()=>{const previous=navigation.pop();if(previous)navigate(previous,false);backButton.hidden=!navigation.length;};
 /* ---------- the parts, one list for every function ---------- */
@@ -263,6 +270,7 @@ function showsParts(state){
 function loadParts(state,then){
   const identity=partsIdentity(state);
   const box=document.getElementById("tparts");
+  if((initial?.local||localFolderState)&&state.type==="DEVC"){box.classList.remove("shown");then();return;}
   // Read for every function of an object that has parts - Diff too, which
   // hides the list but still reports and follows the choice.
   // A function module shows the list only when it has local FORMs after it.
@@ -289,7 +297,7 @@ function loadParts(state,then){
 }
 
 function run(){
-  try{current=VertexObjects.normalize({type:typeBox.value,name:nameBox.value,action:actionBox.value});}
+  try{current=VertexObjects.normalize(localFolderState?{type:"DEVC",name:current.name,action:actionBox.value}:{type:typeBox.value,name:nameBox.value,action:actionBox.value});}
   catch(e){notice(e.message);return;}
   if(!current.name){notice("Enter an object name.");return;}
   if(typeof sdeVertexContext==="function")sdeVertexContext(JSON.stringify({workspace:current}));
@@ -347,7 +355,7 @@ function mount(service,state,afterLoad){
   frame.dataset.part=selectedPart?selectedPart.key:"";
   // Run Select opens SelecTor on a SELECT's table with its WHERE as selection lines - once, on that table.
   const plan=service==="table"&&initial&&initial.selectorPlan&&String(initial.selectorPlan.table).toUpperCase()===String(state.name).toUpperCase()?initial.selectorPlan:null;
-  const init=service==="table"?(plan||state.name):Object.assign({},state,latestEditorCursor?{cursorLine:latestEditorCursor.line}:initial&&initial.cursorLine?{cursorLine:initial.cursorLine}:{},carry?{part:selectedPart}:{},withParts?{partsOutside:true}:{});
+  const init=service==="table"?(plan||state.name):Object.assign({},state,initial?.local||localFolderState?{local:true}:{},latestEditorCursor?{cursorLine:latestEditorCursor.line}:initial&&initial.cursorLine?{cursorLine:initial.cursorLine}:{},carry?{part:selectedPart}:{},withParts?{partsOutside:true}:{});
   source=source.replace(["/*INIT*/","null","/*INIT*/"].join(""),()=>JSON.stringify(init).replace(/</g,"\\u003c"));
   const bootstrap="<script>parent.connect(window,"+JSON.stringify(service)+","+generation+");<"+"/script>";
   // The window's list stands in for each page's own, so a page drawn beside
@@ -416,7 +424,7 @@ function connect(child,service,generation){
   child.sdeAnthropicApi=()=>typeof sdeAnthropicApi==="function"&&sdeAnthropicApi();
   child.sdeSelectObject=value=>navigate(value);
   child.sdeBrowse=url=>sdeBrowse(url);
-  if(initial&&initial.boundObject&&typeof sdeOpenToolSource==="function")child.sdeOpenToolSource=value=>sdeOpenToolSource(JSON.stringify(value));
+  if((initial?.boundObject||localFolderState)&&typeof sdeOpenToolSource==="function")child.sdeOpenToolSource=value=>sdeOpenToolSource(JSON.stringify(value));
   child.sdeOpen=name=>navigate({type:"TABL",name,action:"data"});
   child.sdeProject=()=>enqueue({path:"project"},reply,live);
   // In Eclipse the services read over ADT in this window are always there, whatever VERTEX's ABAP on the system
@@ -516,7 +524,18 @@ function sdeAssistant(raw){
   try{const data=JSON.parse(raw);if(!data.error&&data.plan&&data.plan.navigation)navigate(data.plan.navigation);}
   catch(e){notice(e.message);}
 }
-typeBox.onchange=()=>{current=VertexObjects.normalize({type:typeBox.value,name:nameBox.value});fields();};
+function sdeLocalFolderReady(value){
+  if(!value||value.error){if(value?.error)notice(value.error);fields();return;}
+  localFolderState={folder:value.folder};
+  current=VertexObjects.normalize(value);
+  fields();run();
+}
+document.getElementById("browse-local").onclick=()=>sdeLocalFolder(false);
+typeBox.onchange=()=>{
+  if(typeBox.value==="LOCAL_FOLDER"){sdeLocalFolder(false);return;}
+  if(localFolderState){localFolderState=null;sdeLocalFolder(true);}
+  current=VertexObjects.normalize({type:typeBox.value,name:""});fields();
+};
 findButton.onclick=()=>requestDialog.showModal();
 document.getElementById("request-find").onclick=()=>{findRequests();};
 /* A name with * or +: ADT's quick search lists what matches, of the chosen

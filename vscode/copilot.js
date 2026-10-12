@@ -29,11 +29,15 @@ async function ask(vscode, options) {
     for await (const part of response.stream) { parts.push(part); }
     const calls = parts.filter(part => part instanceof vscode.LanguageModelToolCallPart);
     const final = calls.find(call => call.name === "submit_vertex_answer");
-    if (final) { return { plan: final.input, model: model.id, usage: null }; }
+    if (final) {
+      if (options.onModelCall) options.onModelCall({ model: model.id, usage: null, text: final.input?.answer || "" });
+      return { plan: final.input, model: model.id, usage: null };
+    }
+    const responseText = parts.filter(part => part instanceof vscode.LanguageModelTextPart)
+      .map(part => part.value || "").join("").trim();
+    if (options.onModelCall) options.onModelCall({ model: model.id, usage: null, text: responseText });
     if (!calls.length) {
-      const answer = parts.filter(part => part instanceof vscode.LanguageModelTextPart)
-        .map(part => part.value || "").join("").trim();
-      if (answer) { return { plan: { answer, navigation: null }, model: model.id, usage: null }; }
+      if (responseText) { return { plan: { answer: responseText, navigation: null }, model: model.id, usage: null }; }
       throw new Error("Copilot answered without text or a VERTEX plan.");
     }
     messages.push(vscode.LanguageModelChatMessage.Assistant(parts));

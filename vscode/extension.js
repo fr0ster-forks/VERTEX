@@ -822,6 +822,7 @@ function withDebugger(sapCode, debugTools) {
 function activate(context) {
   const sapCode = require("./code-workbench").register(vscode, context, { active, password, pin: pinTo,
     pinned: () => pinnedSystem.getStore() || "", systems });
+  require("./local-navigation").register(vscode, context);
   frontendAnalysisRequest = sapCode.frontendRequest;
   frontendTableRequest = sapCode.tableRequest;
   frontendTableWrite = sapCode.tableWrite;
@@ -1013,7 +1014,13 @@ function activate(context) {
     try { await dbg.advance(kind); }
     catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
   };
-  context.subscriptions.push(vscode.commands.registerCommand("vertex.tools", showTools));
+  context.subscriptions.push(vscode.commands.registerCommand("vertex.tools", initial => {
+    if (!initial && require("./local-analysis").isLocalAbap(vscode.window.activeTextEditor?.document)) {
+      const object = require("./local-analysis").sourceObject(vscode.window.activeTextEditor.document);
+      return vscode.commands.executeCommand(object?.object_type === "CLAS" ? "vertex.tools.uml" : "vertex.tools.metrics");
+    }
+    return showTools(initial);
+  }));
   require('./tools-context').register(vscode, context, sapCode, showTools);
   context.subscriptions.push(
     vscode.commands.registerCommand("vertex.openVisualDebug", openVisualDebug),
@@ -1025,6 +1032,7 @@ function activate(context) {
   require("./sidebar").register(vscode, context, active,
     require("./chat").create(vscode, chatTools, tools, context.secrets, () => latestDebugContext, () => require("./value-origin-view").originContext()), systems,
     () => withShownDiff(context, latestToolsContext));
+  require("./log-report").register(vscode, context);
   serveTools(context, tools);
   // External clients cannot trigger a VS Code MCP provider. Start on activation
   // so a registered Codex/Claude connection also works after a window reload.
@@ -1035,10 +1043,14 @@ function activate(context) {
   }
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("vertex.ai.chooseLogFolder", () => require("./model-config").chooseLogFolder(vscode)),
     vscode.commands.registerCommand("vertex.open", function () {
       showTools({ type: "TABL" });
     }),
     vscode.commands.registerCommand("vertex.metrics", function () {
+      if (require("./local-analysis").isLocalAbap(vscode.window.activeTextEditor?.document)) {
+        return vscode.commands.executeCommand("vertex.tools.metrics");
+      }
       showTools({ type: "CLAS", action: "metrics" });
     }),
     vscode.commands.registerCommand("vertex.versions", function () {

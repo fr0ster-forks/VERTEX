@@ -71,10 +71,24 @@ async function ask(options) {
   } })).concat([{ type: "function", function: { name: "submit_vertex_answer",
     description: "Submit the final VERTEX answer and navigation plan.", parameters: options.schema } }]);
   const messages = [{ role: "system", content: options.instructions }, { role: "user", content: options.prompt }];
+  let usage = null;
   for (let round = 0; round < 12; round += 1) {
     const response = await request(id, options.apiKey, "/chat/completions", {
       model: options.model, messages, tools, stream: false
     });
+    let roundUsage = null;
+    if (response.usage) {
+      const raw = response.usage;
+      const cached = Number(raw.prompt_tokens_details?.cached_tokens ?? raw.cache_read_input_tokens ?? 0) || 0;
+      const created = Number(raw.cache_creation_input_tokens ?? 0) || 0;
+      const prompt = Number(raw.prompt_tokens ?? raw.input_tokens ?? 0) || 0;
+      const next = { input_tokens: raw.prompt_tokens == null ? prompt : Math.max(0, prompt - cached - created),
+        output_tokens: Number(raw.completion_tokens ?? raw.output_tokens ?? 0) || 0,
+        cache_read_input_tokens: cached, cache_creation_input_tokens: created };
+      roundUsage = next;
+      if (!usage) usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+      for (const key of Object.keys(usage)) usage[key] += next[key];
+    }
     const message = response.choices && response.choices[0] && response.choices[0].message;
     if (!message) { throw new Error(PROVIDERS[id].label + " answered without a chat message."); }
     const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
@@ -83,13 +97,19 @@ async function ask(options) {
       let plan;
       try { plan = JSON.parse(final.function.arguments || "{}"); } catch (_) { throw new Error(PROVIDERS[id].label + " returned an invalid VERTEX plan."); }
       if (typeof plan.answer !== "string") { throw new Error(PROVIDERS[id].label + " returned a VERTEX plan without an answer."); }
-      return { plan, model: options.model, usage: response.usage || null };
+      if (options.onModelCall) options.onModelCall({ model: response.model || options.model, usage: roundUsage, text: plan.answer });
+      return { plan, model: options.model, usage };
     }
     if (!calls.length) {
       const answer = typeof message.content === "string" ? message.content.trim() : "";
-      if (answer) { return { plan: { answer, navigation: null }, model: options.model, usage: response.usage || null }; }
+      if (answer) {
+        if (options.onModelCall) options.onModelCall({ model: response.model || options.model, usage: roundUsage, text: answer });
+        return { plan: { answer, navigation: null }, model: options.model, usage };
+      }
       throw new Error(PROVIDERS[id].label + " answered without text or a VERTEX plan.");
     }
+    if (options.onModelCall) options.onModelCall({ model: response.model || options.model, usage: roundUsage,
+      text: typeof message.content === "string" ? message.content : "" });
     messages.push({ role: "assistant", content: message.content || null, tool_calls: calls });
     for (const call of calls) {
       const name = call.function && call.function.name;

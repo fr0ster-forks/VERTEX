@@ -323,10 +323,12 @@ function codexCommand(options, dir) {
     "--output-schema", schema, "-o", answerFile,
     // No shell and nothing a plugin or an app would add.
     "--disable", "shell_tool", "--disable", "unified_exec",
-    "--disable", "plugins", "--disable", "apps",
-    "-c", "mcp_servers." + SERVER + ".url=" + options.url,
-    "-c", "mcp_servers." + SERVER + ".bearer_token_env_var=" + TOKEN_VAR
+    "--disable", "plugins", "--disable", "apps"
   ];
+  if (options.tools.length) {
+    args.push("-c", "mcp_servers." + SERVER + ".url=" + options.url,
+      "-c", "mcp_servers." + SERVER + ".bearer_token_env_var=" + TOKEN_VAR);
+  }
   if (options.model) {
     args.push("-m", options.model);
   }

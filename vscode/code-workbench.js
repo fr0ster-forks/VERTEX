@@ -75,6 +75,9 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   if (stopDecoration) context.subscriptions.push(stopDecoration);
   const mirroredEvents = new Set();
   const linterSources = async (document, target, progress, cancelled, activeOnly = false, onParsed = () => {}) => {
+    if (require("./local-analysis").isLocalAbap(document)) {
+      return require("./local-analysis").originSources(vscode, document, target, progress, cancelled, onParsed);
+    }
     const diagnostics = ['Loading policy: main source first; dependencies and class extras on demand. Full FLOW covers the loaded source closure.'];
     const selected = opened.get(document.uri.toString()) || await fileEntry(document.uri);
     const repo = selected.repo, parser = require('./value-origin-linter').createParser(cancelled);
@@ -233,19 +236,19 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   // A link from a diagram goes to the source where the reader already has it: an editor showing that document is
   // scrolled, not joined by a second copy in another column. Only a document not on screen is opened, in the column the
   // ABAP sources already live in.
-  async function revealSource(document, at, preserveFocus) {
+  async function revealSource(document, at, preserveFocus, beside) {
     const visible = vscode.window.visibleTextEditors || [];
     const shown = visible.find(editor => editor.document === document);
     // Where the reader was goes into VERTEX's navigation history first, so Back returns there.
     { const leaving = shown || visible.find(editor => editor.document && editor.document.uri && editor.document.uri.scheme === "vertex-sap" && editor.viewColumn); if (leaving) { navigation.push({ document: leaving.document, at: leaving.selection.active }); } }
     if (shown) {
-      const editor = await vscode.window.showTextDocument(document, { viewColumn: shown.viewColumn, preserveFocus: preserveFocus === true, preview: true });
+      const editor = await vscode.window.showTextDocument(document, { viewColumn: beside ? vscode.ViewColumn.Beside : shown.viewColumn, preserveFocus: preserveFocus === true, preview: true });
       editor.selection = new vscode.Selection(at, at);
       editor.revealRange(new vscode.Range(at, at), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
       return;
     }
     const home = visible.find(editor => editor.document && editor.document.uri && editor.document.uri.scheme === 'vertex-sap' && editor.viewColumn);
-    await vscode.commands.executeCommand('vscode.open', document.uri, { viewColumn: home ? home.viewColumn : vscode.ViewColumn.One,
+    await vscode.commands.executeCommand('vscode.open', document.uri, { viewColumn: beside ? vscode.ViewColumn.Beside : home ? home.viewColumn : vscode.ViewColumn.One,
       selection: new vscode.Range(at, at), preview: true, preserveFocus: preserveFocus === true });
   }
   async function openToolSource(args) {
@@ -254,12 +257,16 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       || await sourceDocument(repo, { object_name: args.name, object_type: args.type || 'CLAS' });
     const lines = entry.document.getText().split(/\r?\n/);
     const routine = String(args.method || '').toUpperCase();
-    const row = routine ? lines.findIndex(text => {
+    let row = routine ? lines.findIndex(text => {
       const match = /^\s*(?:METHOD|FORM|FUNCTION)\s+([^\s.]+)/i.exec(text);
       return match && match[1].toUpperCase() === routine;
     }) : -1;
+    if (row < 0 && routine) row = lines.findIndex(text => {
+      const match = /^\s*(?:CLASS-)?METHODS\s+([^\s.(]+)/i.exec(text);
+      return match && match[1].toUpperCase() === routine;
+    });
     const at = new vscode.Position(Math.max(0,Math.min(entry.document.lineCount-1,Number.isInteger(args.line)?args.line-1:row)),0);
-    await revealSource(entry.document, at, args.preserveFocus);
+    await revealSource(entry.document, at, args.preserveFocus, args.beside);
   }
   async function openOrigin({ source: sourceId, location, line }) {
     if (!lastOrigin) { throw new Error('Run the analysis first: its sources are what a link opens.'); }
@@ -1441,6 +1448,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     navigation.push({ document: editor.document, at: editor.selection.active });
     // Replace the current clean editor tab; unsaved work stays open.
     if (result.document !== editor.document && !editor.document.isDirty
+        && !require("./local-analysis").isLocalAbap(editor.document)
         && vscode.window.activeTextEditor?.document === editor.document) {
       await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
     }
@@ -1457,7 +1465,8 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       return;
     }
     const activeEditor = vscode.window.activeTextEditor;
-    if (activeEditor && previous.document !== activeEditor.document && !activeEditor.document.isDirty) {
+    if (activeEditor && previous.document !== activeEditor.document && !activeEditor.document.isDirty
+        && !require("./local-analysis").isLocalAbap(activeEditor.document)) {
       await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
     }
     const editor = previous.document === (activeEditor && activeEditor.document)
@@ -1473,6 +1482,12 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const editor = chosenEditor || vscode.window.activeTextEditor;
     const at = chosenPosition || (editor && editor.selection && editor.selection.active);
     if (!editor || !at) { return; }
+    if (require("./local-analysis").isLocalAbap(editor.document)) {
+      const result = await require("./local-navigation").resolve(vscode, editor.document, at);
+      if (result) await moveTo(editor, result);
+      else if (!quiet) vscode.window.showInformationMessage("VERTEX: no local definition found at the cursor.");
+      return;
+    }
     // F12 walks the branches; the double-click (QUIET) jumps to the end.
     const structure = structuralTarget(editor.document, at, !quiet);
     if (structure) { await moveTo(editor, structure); return; }
@@ -1632,7 +1647,8 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   }
   if (vscode.languages && typeof vscode.languages.registerDocumentSymbolProvider === "function") {
     context.subscriptions.push(vscode.languages.registerDocumentSymbolProvider(
-      [{ scheme: "vertex-sap", language: "abap" }, { scheme: "vertex-source", language: "abap" }],
+      [{ scheme: "vertex-sap", language: "abap" }, { scheme: "vertex-source", language: "abap" },
+        { scheme: "file", language: "abap" }, { scheme: "untitled", language: "abap" }],
       { provideDocumentSymbols: document => outline(document.getText()) }));
   }
   if (vscode.languages && typeof vscode.languages.registerDefinitionProvider === "function") {
@@ -2161,9 +2177,11 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   // Backward Usage Analysis: where the values of the routine at the cursor go in its callers, up through theirs. SAP's
   // where-used finds the calls in the saved sources; each customer object found is read as a tab, standard code is not.
   command("vertex.backwardUsage", async () => {
-    const editor = vscode.window.activeTextEditor, document = editor && editor.document, own = document && tabSource(document);
-    if (!own) { throw new Error("Open a SAP source tab first: Backward Usage Analysis starts in a VERTEX ABAP source."); }
-    if (document.isDirty) { throw new Error("The tab has changes that are not in SAP. Save & Activate first: where-used searches the saved source."); }
+    const editor = vscode.window.activeTextEditor, document = editor && editor.document;
+    const local = document && require("./local-analysis").isLocalAbap(document);
+    const own = document && (local ? { entry: { data: require("./local-analysis").sourceObject(document) } } : tabSource(document));
+    if (!own) { throw new Error("Open an ABAP source tab first."); }
+    if (!local && document.isDirty) { throw new Error("The tab has changes that are not in SAP. Save & Activate first: where-used searches the saved source."); }
     const { variableAt, literalAt, customerObject } = require("./value-origin");
     const text = document.getText(), offset = document.offsetAt(editor.selection.active);
     const variable = literalAt(text, offset) ? "" : (variableAt(text, offset) || "");
@@ -2179,8 +2197,10 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     };
     try {
     const start = await sourceOf(document, own.entry.data), repo = own.entry.repo;
+    const localWhereUsed = local && require("./local-analysis").whereUsed(vscode, document, sourceOf);
     // SAP's where-used at a name in a source, as places in sources VERTEX reads; what it cannot read or will not follow is named.
     const whereUsed = async (source, line, column) => {
+      if (local) return localWhereUsed(source, line, column);
       const tab = tabSource(await vscode.workspace.openTextDocument(vscode.Uri.parse(source.id)));
       if (!tab) { throw new Error(source.objectName + " is not a SAP source tab: where-used cannot be asked there."); }
       const places = [], skipped = [];

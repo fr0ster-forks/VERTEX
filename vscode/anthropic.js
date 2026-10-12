@@ -72,16 +72,21 @@ async function ask(options) {
         + (answer && answer.error && answer.error.message || response.text.substring(0, 500)));
     }
     for (const key of Object.keys(usage)) { usage[key] += Number(answer.usage && answer.usage[key]) || 0; }
+    const roundUsage = answer.usage || null;
     const calls = (answer.content || []).filter(block => block.type === "tool_use");
     const final = calls.find(call => call.name === "submit_vertex_answer");
-    if (final) { return { plan: final.input, model: options.model, usage }; }
+    if (final) {
+      if (options.onModelCall) options.onModelCall({ model: answer.model || options.model, usage: roundUsage, text: final.input?.answer || "" });
+      return { plan: final.input, model: options.model, usage };
+    }
+    const responseText = (answer.content || []).filter(block => block.type === "text")
+      .map(block => block.text || "").join("\n").trim();
+    if (options.onModelCall) options.onModelCall({ model: answer.model || options.model, usage: roundUsage, text: responseText });
     if (!calls.length) {
       // The Messages API is allowed to answer with text even when tools were
       // offered. A concise explanation of a supplied method is already a
       // useful completed answer; only navigation is absent in that case.
-      const text = (answer.content || []).filter(block => block.type === "text")
-        .map(block => block.text || "").join("\n").trim();
-      if (text) { return { plan: { answer: text, navigation: null }, model: options.model, usage }; }
+      if (responseText) { return { plan: { answer: responseText, navigation: null }, model: options.model, usage }; }
       throw new Error("Anthropic API answered without text or a VERTEX plan.");
     }
     messages.push({ role: "assistant", content: answer.content });

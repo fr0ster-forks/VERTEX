@@ -52,3 +52,23 @@ test("oversized Anthropic payload is rejected before any network request", async
   await assert.rejects(anthropic.ask({ apiKey: "fake", prompt: "x".repeat(70000), instructions: "", schema: {}, tools: [] }), /nothing was sent/);
   assert.equal(network.mock.callCount(), 0);
 });
+
+test("Anthropic reports each model round to the common session logger", async t => {
+  const replies = [
+    { content: [{ type: "tool_use", id: "tool-1", name: "read_sap_object", input: { object_name: "ZCL_A" } }],
+      usage: { input_tokens: 10, output_tokens: 2 } },
+    { content: [{ type: "text", text: "Done" }], usage: { input_tokens: 20, output_tokens: 3 } }
+  ];
+  t.mock.method(https, "request", (_options, callback) => {
+    const req = new EventEmitter(); req.setTimeout = () => {}; req.end = () => {
+      const res = new EventEmitter(); res.statusCode = 200; res.setEncoding = () => {};
+      callback(res); res.emit("data", JSON.stringify(replies.shift())); res.emit("end");
+    }; return req;
+  });
+  const rounds = [];
+  const result = await anthropic.ask({ apiKey: "fake", model: "test", instructions: "", prompt: "Read",
+    tools: [{ name: "read_sap_object", description: "Read", inputSchema: {} }], schema: {},
+    callTool: async () => ({ source: "CLASS zcl_a." }), onModelCall: round => rounds.push(round) });
+  assert.equal(result.plan.answer, "Done");
+  assert.deepEqual(rounds.map(round => round.usage.input_tokens), [10, 20]);
+});

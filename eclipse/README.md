@@ -28,6 +28,8 @@ In an ADT source editor's context menu, as in VS Code:
 
 Both read the active source over ADT and analyse it in the window; nothing of VERTEX's ABAP is
 needed.
+The FLOW and Value Origin diagrams can render large graphs with more than 500 edges.
+Opening VERTEX Tools while an ADT class or program editor is active selects that object automatically.
 
 ## Versions and code review
 
@@ -159,6 +161,11 @@ dump opens the same way.
 UML, metrics, Calls, Logic, Parts and Value Origin use standard ADT source reads
 and the shared abaplint analysis engine. The SAP connection belongs to the
 selected Eclipse project. See Versions and code review above for review storage.
+Package Metrics has an **Expand all / Collapse all** button above Objects for the method tables.
+UML and Metrics show the current analysis stage, object count and elapsed time while a package is processed.
+UML and Metrics show the current analysis stage, object count and elapsed time while a package is processed.
+Click a method in UML to open its ADT source.
+UML shows interface method implementations in their implementing classes.
 
 Tools offers Metrics, Logic and Calls for function modules. Clicking a method
 of a class local to a program opens that program at the method. Logic follows

@@ -92,6 +92,7 @@
   .section { margin: 12px 10px 0; border: 1px solid var(--border); }
   .section h3 { margin: 0; padding: 6px 8px; font-size: 12px;
                 background: var(--surface); border-bottom: 1px solid var(--border); }
+  .section h3.package-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .section .scroll { overflow: auto; }
   tr.total, tr.total:nth-child(even) { background: var(--surface); font-weight: 600; }
   details.class-group { border-top: 1px solid var(--line); }
@@ -211,6 +212,11 @@
     background: var(--bg); color: var(--fg); }
   #diagram svg { max-width: none; height: auto; }
   #diagram .hint { color: #666666; font-family: "Segoe UI", system-ui, sans-serif; }
+  .analysis-progress{display:flex;align-items:center;gap:9px;padding:6px 10px;color:var(--vscode-descriptionForeground,var(--fg));font-size:12px}
+  .analysis-progress[hidden]{display:none}
+  .analysis-spinner,#diagram .hint.busy::before{display:inline-block;width:13px;height:13px;flex:none;border:2px solid var(--vscode-focusBorder,#0a66c2);border-right-color:transparent;border-radius:50%;animation:analysis-spin .8s linear infinite}
+  #diagram .hint.busy::before{content:"";margin-right:8px;vertical-align:-2px}
+  @keyframes analysis-spin{to{transform:rotate(360deg)}}
   #diagram .failed { color: #a5292a; white-space: pre-wrap;
                      font-family: Consolas, monospace; }
   /* ACE marks a node it can open in the source window. Here there is no
@@ -291,6 +297,8 @@ g.node.code-selected rect,g.node.code-selected polygon,g.node.code-selected path
   <button id="metricshelp" title="What each metric means and how it is counted">?</button>
 
 </div>
+
+<div id="analysis-progress" class="analysis-progress" role="status" aria-live="polite" hidden><span class="analysis-spinner" aria-hidden="true"></span><span id="analysis-progress-text"></span><span id="analysis-elapsed"></span></div>
 
 <div class="missing" id="missing" hidden></div>
 <div class="totals hidden" id="totals"></div>
@@ -436,6 +444,21 @@ function publishContext() {
 function status(text) {
   document.getElementById("status").textContent = text || "";
 }
+var analysisStarted=0,analysisTimer=null;
+function beginAnalysis(text) {
+  var box=document.getElementById("analysis-progress");
+  if(box.hidden){
+    analysisStarted=Date.now();
+    document.getElementById("analysis-elapsed").textContent="· 0 s";
+    analysisTimer=setInterval(function(){document.getElementById("analysis-elapsed").textContent="· "+Math.floor((Date.now()-analysisStarted)/1000)+" s";},1000);
+  }
+  box.hidden=false;
+  document.getElementById("analysis-progress-text").textContent=String(text||"").replace(/ · \d+ s$/,"");
+}
+function endAnalysis() {
+  clearInterval(analysisTimer);analysisTimer=null;
+  document.getElementById("analysis-progress").hidden=true;
+}
 
 function message(text) {
   var root = document.getElementById("root");
@@ -475,6 +498,7 @@ function load() {
   if (mode === "scheme") { hint("Pick a method on the left."); }
   callStart = null;
   status("reading " + name + " ...");
+  beginAnalysis("Reading " + name + " ...");
   waiting = "metrics";
   // Returns at once. The host answers later by calling sdeReady.
   sdeLoad(name, objectType());
@@ -487,6 +511,8 @@ function loadClassDiagram() {
   hint(String(loadedType).toUpperCase().indexOf("DEVC") === 0
     ? "Reading the classes and interfaces of package " + loadedObject + " ..."
     : "Reading the class definition of " + loadedObject + " ...");
+  document.querySelector("#diagram .hint").classList.add("busy");
+  beginAnalysis("Reading " + loadedObject + " ...");
   waiting = "class";
   sdeClass(loadedObject, loadedType);
 }
@@ -518,10 +544,18 @@ function fillTypes(chosen) {
    running three megabytes of library, or laying out a diagram, while the
    pump waits is how Edge ends up giving up on the operation. So the answer
    is picked up here and handled on the next task. */
-function sdeAnalysisProgress(text){status(text);}
+function sdeAnalysisProgress(text){
+  status(text);
+  if(waiting==="class"||waiting==="metrics"){
+    beginAnalysis(text);
+    var hintBox=waiting==="class"&&document.querySelector("#diagram .hint.busy");
+    if(hintBox)hintBox.textContent=text;
+  }
+}
 function sdeReady() {
   var kind = waiting;
   waiting = null;
+  if(kind==="class"||kind==="metrics")endAnalysis();
   var raw = sdeTake();
   setTimeout(function () { answered(kind, raw); }, 0);
 }
@@ -652,6 +686,8 @@ function drawClass(raw) {
   if (!mermaidLoaded) {
     pendingClass = raw;
     hint("Loading the diagram library ...");
+    document.querySelector("#diagram .hint").classList.add("busy");
+    beginAnalysis("Loading the diagram library ...");
     waiting = "asset";
     sdeAsset("mermaid");
     return;
@@ -691,9 +727,11 @@ function drawClass(raw) {
       if(arrow)lines.push(node(e.source)+" "+arrow+" "+node(e.target));
     });
     lastMermaid=lines.join("\n"); lastCaption=nodes.length+" classes / interfaces"; refit=true; hint("Drawing " + lastCaption + " ...");
+    document.querySelector("#diagram .hint").classList.add("busy");
+    beginAnalysis("Drawing " + lastCaption + " ...");
     // Mermaid works without yielding: the note is painted first, then the drawing starts.
     requestAnimationFrame(function () { setTimeout(draw, 0); });
-  } catch (e) { failed("Invalid class definition: " + e.message); }
+  } catch (e) { endAnalysis(); failed("Invalid class definition: " + e.message); }
 }
 
 /* An answer the host never left behind. Whatever went wrong, it must not take
@@ -831,12 +869,12 @@ function metricGrade(key,value){
  var limit=METRIC_LIMITS[key];if(!limit||value===''||!Number.isFinite(Number(value)))return '';
  var n=Number(value);return key==='mi'?(n===0?'':n>=85?'good':n>=65?'warning':'bad'):(n<=10?'good':n<=20?'warning':n<=50?'high':'bad');
 }
-function makeTable(columns, rows, total, isClass, ordering) {
+function makeTable(columns, rows, total, isClass, ordering, sourceContext) {
   var table = document.createElement("table"), thead = document.createElement("thead"), tr = document.createElement("tr");
   columns.forEach(function (column) {
     var th=document.createElement("th");th.textContent=column.text;th.tabIndex=0;
     if(ordering&&ordering.key===column.key){th.className="sorted";th.textContent+=ordering.down?" ▼":" ▲";th.setAttribute("aria-sort",ordering.down?"descending":"ascending");}
-    const sort=function(){var down=ordering&&ordering.key===column.key?!ordering.down:column.num;var sortedRows=rows.slice().sort(function(a,b){var x=column.num?Number(a[column.key]||0):String(a[column.key]||'');var y=column.num?Number(b[column.key]||0):String(b[column.key]||'');return (x<y?-1:x>y?1:0)*(down?-1:1);});table.replaceWith(makeTable(columns,sortedRows,total,isClass,{key:column.key,down:down}));};
+    const sort=function(){var down=ordering&&ordering.key===column.key?!ordering.down:column.num;var sortedRows=rows.slice().sort(function(a,b){var x=column.num?Number(a[column.key]||0):String(a[column.key]||'');var y=column.num?Number(b[column.key]||0):String(b[column.key]||'');return (x<y?-1:x>y?1:0)*(down?-1:1);});table.replaceWith(makeTable(columns,sortedRows,total,isClass,{key:column.key,down:down},sourceContext));};
     th.addEventListener("click",sort);th.addEventListener("keydown",function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();sort();}});tr.appendChild(th);
   });
   thead.appendChild(tr); table.appendChild(thead);
@@ -849,8 +887,8 @@ function makeTable(columns, rows, total, isClass, ordering) {
       var cell=document.createElement("td");cell.textContent=cellValue(row,column.key,isClass);
       if(column.num){cell.className="num metric-"+metricGrade(column.key,row[column.key]);var limits=METRIC_LIMITS[column.key];if(limits)cell.title=column.key==='mi'?"Green ≥ "+limits[0]+"; yellow ≥ "+limits[1]+"; red below":"ACE risk: LOW ≤ 10; MEDIUM ≤ 20; HIGH ≤ 50; CRITICAL > 50";}
       if(column.key==='unit_name'&&typeof sdeOpenToolSource==='function'){
-        var button=document.createElement("button");button.className="metric-source";button.textContent=cell.textContent;button.title="Open source in the left editor";
-        button.addEventListener("click",function(){var name=String(row.unit_name||''),split=name.split('=>');sdeOpenToolSource({name:split.length>1?split[0]:loadedObject,type:isClass?'CLAS':loadedType,method:split.pop()});});cell.textContent='';cell.appendChild(button);
+        var button=document.createElement("button");button.className="metric-source";button.textContent=cell.textContent;button.title="Open source";
+        button.addEventListener("click",function(){var name=String(row.unit_name||''),split=name.split('=>');sdeOpenToolSource({name:split.length>1?split[0]:(sourceContext?sourceContext.name:loadedObject),type:sourceContext?sourceContext.type:(isClass?'CLAS':loadedType),method:split.pop(),beside:true,preserveFocus:true});});cell.textContent='';cell.appendChild(button);
       }
       line.appendChild(cell);
     });
@@ -932,10 +970,27 @@ function renderPackage(data) {
   renderTotals(totals);
   var root = document.getElementById("root"); root.className = ""; root.innerHTML = "";
   var section = document.createElement("section"); section.className = "section";
-  var heading = document.createElement("h3"); heading.textContent = "Objects (" + (data.objects || []).length + ")"; section.appendChild(heading);
+  var heading = document.createElement("h3"); heading.className = "package-heading";
+  var label = document.createElement("span"); label.textContent = "Objects (" + (data.objects || []).length + ")"; heading.appendChild(label);
+  var toggle = document.createElement("button"); toggle.type = "button"; toggle.textContent = "Expand all";
+  toggle.setAttribute("aria-label", "Expand all objects"); heading.appendChild(toggle); section.appendChild(heading);
   var scroll = document.createElement("div"); scroll.className = "scroll";
+  var blocks = [];
+  function updateToggle() {
+    var allOpen = blocks.length > 0 && blocks.every(function (block) { return block.open; });
+    toggle.textContent = allOpen ? "Collapse all" : "Expand all";
+    toggle.setAttribute("aria-label", toggle.textContent + " objects");
+    toggle.setAttribute("aria-expanded", String(allOpen));
+    toggle.disabled = !blocks.length;
+  }
+  toggle.onclick = function () {
+    var open = !blocks.every(function (block) { return block.open; });
+    blocks.forEach(function (block) { block.open = open; });
+    updateToggle();
+  };
   (data.objects || []).forEach(function (object) {
     var block = document.createElement("details"); block.className = "class-group";
+    blocks.push(block); block.addEventListener("toggle", updateToggle);
     var summary = document.createElement("summary");
     summary.textContent = String(object.object || "") + " · " + String(object.object_type || "").toUpperCase();
     var caption = document.createElement("span"); caption.className = "class-caption";
@@ -945,9 +1000,11 @@ function renderPackage(data) {
     var rows = object.unit_rows || [];
     var objectIsClass = String(object.object_type || "").toUpperCase() === "CLAS";
     block.appendChild(makeTable(objectIsClass ? CLASS_COLUMNS : COLUMNS, rows,
-      rows.length ? unitTotal(rows) : null, objectIsClass));
+      rows.length ? unitTotal(rows) : null, objectIsClass, null,
+      { name: String(object.object || ""), type: String(object.object_type || "") }));
     scroll.appendChild(block);
   });
+  updateToggle();
   section.appendChild(scroll); root.appendChild(section);
   status((data.objects || []).length + " objects");
 }
@@ -1556,6 +1613,37 @@ function plainLabels(svg) {
     if (now !== was) text.textContent = now;
   });
 }
+function linkUmlMethods(svg) {
+  if (!svg || !umlDiagram || typeof sdeOpenToolSource !== "function") return;
+  svg.querySelectorAll("g.classGroup, g.node").forEach(function (group) {
+    var id = /^classId-n(\d+)-/.exec(group.id || "");
+    var owner = id && umlDiagram.nodes[Number(id[1])];
+    if (!owner) {
+      var title = group.querySelector(".classTitle, tspan.title");
+      var name = title && String(title.textContent || "").trim().toUpperCase();
+      owner = umlDiagram.nodes.find(function (node) { return String(node.name).toUpperCase() === name; });
+    }
+    if (!owner) return;
+    var methods = new Map((owner.methods || []).map(function (name) { return [String(name).replace(/~/g, "_").toUpperCase(), name]; }));
+    // Mermaid puts each method in a tspan of the class's method text block.
+    // Newer renderers may emit a separate text node for each method.
+    group.querySelectorAll("text tspan, text").forEach(function (entry) {
+      if (entry.querySelector("tspan")) return;
+      var match = String(entry.textContent || "").trim().match(/^[+#~\-]?\s*([^\s(]+)\s*\(/);
+      var method = match && methods.get(match[1].toUpperCase());
+      if (!method) return;
+      entry.dataset.umlOwner = owner.name;
+      entry.dataset.umlType = owner.kind === "interface" ? "INTF" : "CLAS";
+      entry.dataset.umlMethod = method;
+      entry.setAttribute("tabindex", "0");
+      entry.setAttribute("role", "link");
+      entry.setAttribute("aria-label", "Open " + owner.name + "->" + method);
+      entry.style.cursor = "pointer";
+      entry.style.textDecoration = "underline";
+      entry.style.fill = "var(--vscode-textLink-foreground, #0a66c2)";
+    });
+  });
+}
 function draw(preserveViewport) {
   var diagramText=mode==="scheme"&&logicOnly&&lastLogicMermaid?lastLogicMermaid:lastMermaid;
   var isClass = /^classDiagram\b/.test(diagramText);
@@ -1592,6 +1680,7 @@ function draw(preserveViewport) {
     if(generation!==diagramSeq)return;
     pane.innerHTML = out.svg;
     plainLabels(pane.querySelector("svg"));
+    if (isClass) linkUmlMethods(pane.querySelector("svg"));
     if (priorViewport) {
       pane.scrollTop = priorViewport.top;
       pane.scrollLeft = priorViewport.left;
@@ -1641,7 +1730,9 @@ function draw(preserveViewport) {
     installUmlLens(pane, !isClass);
     status(lastCaption);
     if(mode==="scheme"){if(latestCodeCursor)sdeCodeCursor(latestCodeCursor);else if(INITIAL&&INITIAL.cursorLine)sdeCodeCursor({name:loadedObject,line:INITIAL.cursorLine,endLine:INITIAL.cursorLine});}
+    endAnalysis();
   }, function (e) {
+    endAnalysis();
     dropMermaidLeftovers(drawId);
     failed("mermaid could not draw this diagram." + String.fromCharCode(10)
            + (e && e.message ? e.message : String(e)));
@@ -1804,6 +1895,11 @@ function naturalSize(svg) {
 }
 
 function onDiagramClick(e) {
+  var umlLink=e.target.closest&&e.target.closest('[data-uml-method]');
+  if(mode==='class'&&umlLink&&typeof sdeOpenToolSource==='function'){
+    e.preventDefault();e.stopPropagation();
+    sdeOpenToolSource({name:umlLink.dataset.umlOwner,type:umlLink.dataset.umlType,method:umlLink.dataset.umlMethod,beside:true,preserveFocus:true});return;
+  }
   var callLink=e.target.closest&&e.target.closest('a[data-call-method]');
   if(callLink&&typeof sdeOpenToolSource==='function'){e.preventDefault();e.stopPropagation();if(callLink.dataset.callOwner)sdeOpenToolSource({name:callLink.dataset.callOwner,type:'CLAS',method:callLink.dataset.callMethod});else sdeOpenToolSource({name:loadedObject,type:loadedType,line:Number(callLink.dataset.callLine)});return;}
   if(mode==='scheme'&&typeof sdeOpenToolSource==='function'){
@@ -1884,9 +1980,10 @@ var afterAbout = null;
 var ABOUT_NOTE = "Checking what this SAP system offers ...";
 function askAbout(then) {
   if (typeof sdeAbout !== "function") { then(); return; }
+  if (INITIAL && INITIAL.local) ABOUT_NOTE = "Checking local ABAP analysis ...";
   afterAbout = then;
   waiting = "about";
-  status("checking what this system has ...");
+  status(INITIAL && INITIAL.local ? "checking local analysis ..." : "checking what this system has ...");
   // The diagram pane is still hidden here - no mode is chosen yet - so the list area says it.
   message(ABOUT_NOTE);
   sdeAbout();
@@ -2151,6 +2248,9 @@ document.getElementById("depth").addEventListener("input",function(){clearTimeou
 document.getElementById("depth").addEventListener("change",function(){clearTimeout(depthTimer);applyDepth();});
 
 document.getElementById("diagram").addEventListener("click", onDiagramClick);
+document.getElementById("diagram").addEventListener("keydown", function(e) {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches('[data-uml-method]')) onDiagramClick(e);
+});
 document.getElementById('logic-only').addEventListener('click',function(){logicOnly=!logicOnly;this.classList.toggle('on',logicOnly);this.setAttribute('aria-pressed',String(logicOnly));if(lastMermaid){refit=true;draw();}});
 var sourceScrollTimer,lastScrollLine,codeFollowingUntil=0;
 document.getElementById('diagram').addEventListener('pointerdown',function(){followCode=false;});

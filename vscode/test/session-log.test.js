@@ -53,3 +53,18 @@ test("questions, answers and tool calls are logged by choice, and code only when
   const codeWithoutTools = await session({ code: true });
   assert.doesNotMatch(codeWithoutTools.raw, /SECRET/);
 });
+
+test("direct Anthropic-style assistant tools keep the result and log the call", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-log-"));
+  try {
+    const log = sessionLog.create(root, "anthropic-api", "direct", { tools: true });
+    const result = await sessionLog.assistantTool(log, "read_sap_object", { object_name: "ZCL_A" },
+      async () => ({ object_name: "ZCL_A", source: "CLASS zcl_a." }));
+    assert.equal(result.source, "CLASS zcl_a.");
+    const lines = fs.readFileSync(log.file, "utf8").trim().split("\n").map(JSON.parse);
+    assert.deepEqual(lines.map(line => line.type), ["assistant", "user"]);
+    assert.equal(lines[0].message.content[0].name, "read_sap_object");
+    assert.equal(lines[1].message.content[0].tool_use_id, lines[0].message.content[0].id);
+    assert.doesNotMatch(JSON.stringify(lines), /CLASS zcl_a/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

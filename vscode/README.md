@@ -337,6 +337,51 @@ answers scroll above them, questions and answers in different colours. Asking fo
 function — *open table SFLIGHT*, *show the diff of ZCL_FOO* — opens a **VERTEX Tools** window on
 it.
 
+With a local `.abap` file active, the chat receives its current editor text, including unsaved
+edits (up to 24,000 characters). It can explain that source without a configured SAP system;
+SAP search, changes, tests and debugger actions require a system.
+For API-key providers, the chat displays the provider's input, cached and output token counts
+for the complete answer, including model requests made around tool calls when reported by the API.
+Set `vertex.ai.logPath` to write a Claude-compatible JSONL conversation log in its
+`claude_compatible` subfolder. `vertex.ai.log.questions`, `.answers`, `.tools` and `.code`
+control which content is retained. Direct Anthropic API tool calls are included when `.tools`
+is on. Each direct Anthropic, compatible API and Copilot model call gets a separate assistant
+record with its reported usage; Claude Code and Codex subscriptions have one record per VERTEX
+CLI invocation because their internal model calls are not exposed. The format is the same for
+every provider and does not capture raw HTTP payloads. Use **Choose log folder...** in LLM
+Providers or the folder link beside `vertex.ai.logPath` in Settings; the gear opens the log settings.
+The 📜 button beside **LLM Providers** opens the session report inside VS Code. It reads the
+configured log folder and shows sessions, prompts and token usage by day or across all dates.
+Filter by provider, model or prompt text; click a row to inspect any answer and tool details
+retained by the log settings. The report has a refresh button and a log-folder picker.
+
+Local ABAP programs and classes also have VERTEX navigation in the editor: Outline,
+Go to Definition for local method and class calls, and Back. The **VERTEX Tools** context
+menu opens UML for classes, metrics, Logic and Calls diagrams from local source using the
+bundled ABAP parser. **Forward Usage Analysis** and **Backward Usage Analysis** run on local
+workspace files and include unsaved editor text. Backward usage locates callers by textual
+call matching within the workspace, so check ambiguous calls. Diagram links return to local
+source lines. Diff/version history, SAP where-used, tests, ATC, debugger and activation
+require a configured SAP system.
+For a folder of local ABAP files, choose **VERTEX Tools: Analyze Local ABAP Package**
+from its Explorer context menu. UML includes its classes and interfaces; Metrics summarizes
+all recognized `.abap` objects in that folder and subfolders. Source links open files from
+the selected tree. If the same object name appears in more than one subfolder, select the
+specific package folder. For navigation from a single file, its own folder is searched first.
+If the folder is shown in a custom Explorer view, run **VERTEX Tools: Analyze Local ABAP Package**
+from the Command Palette and select the folder in the dialog.
+In the main **VERTEX Tools** window, choose **Local Folder** from the object type list
+to pick a folder directly. The selected folder stays visible beside a **Browse...** button;
+switch between UML diagram and Metrics in the function list.
+Both views show analysis progress, the object count and elapsed time. Switching views reuses parsed local source until a file changes.
+Both views show analysis progress, the object count and elapsed time. Switching views reuses parsed local source until a file changes.
+In package Metrics, **Expand all / Collapse all** above Objects opens or closes every object's method table.
+Click a method in UML to open its source, whether the object is in SAP or a local ABAP folder.
+The source opens beside UML while focus stays on the diagram.
+Metrics method links also open source beside the table and keep focus on Metrics.
+UML shows interface method implementations in their implementing classes.
+The FLOW and Value Origin diagrams can render large graphs with more than 500 edges.
+
 The chat also runs the two checks the editor has: *run the tests for ZCL_FOO* runs ABAP Unit on
 the object and answers with how many test methods passed, how many failed and why, and *run ATC
 on ZCL_FOO* answers with the variant and the findings by priority. Both need no open tab, both
@@ -370,7 +415,9 @@ switches at once and clears the chosen model (`vertex.ai.provider`, `vertex.ai.m
 
 **LLM Providers** shows every provider with its own checkbox, **In use** switch,
 and a fold button for its model list. Each provider can be expanded or collapsed
-independently. Only the ticked models appear in the model lists; with no model
+independently. **Clear all / Select all** switches that provider's model checks
+in one click; after clearing, tick the models you want before saving. Only the
+ticked models appear in the model lists; with no model
 chosen, the first enabled model is used. A provider switched off
 keeps its model ticks but is left out of every provider choice; the one in use cannot be switched
 off - choose another first. Save refuses a provider with no model ticked, and resets a chosen

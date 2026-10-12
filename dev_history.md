@@ -1,5 +1,68 @@
 # Development history
 
+## 2026-10-12 — Package analysis progress and local cache
+
+The shared Metrics/UML webview now shows a live spinner, stage, processed/total objects and elapsed time. The frontend analysis yields before synchronous diagram and metrics construction so the status can paint. VS Code local package sessions keep one analysis API object to reuse the frontend parser cache across UML/Metrics requests and invalidate on document-version changes. Focused analysis-progress and local-analysis tests: 24 passed. A local 17-object folder measured about 3 s for a cold UML request and 4 s for subsequent Metrics; no previous-build baseline was available.
+
+## 2026-10-12 — VS Code session log viewer
+
+Added a sidebar scroll button and a report webview that reads the configured `claude_compatible/*.jsonl` files. The parser groups human prompts with model usage, answers and tool records, skips tool-result continuations as prompts, and deduplicates model message IDs. The report uses VS Code theme variables and DOM text insertion for log content. Focused tests cover parsing, token totals, button registration and the report panel.
+Verified eight focused tests and the report script syntax. Rebuilt VS Code 0.8.10; the VSIX archive verification includes the new report module and page.
+
+## 2026-10-12 — Metrics method navigation
+
+Passed `beside` and `preserveFocus` from Metrics source links to the existing VS Code source bridge. Package tables also supply the row's object name and type, retained through sorting. A focused test checks a qualified interface method in a package table.
+Verified 13 focused tests and rebuilt the VS Code 0.8.10 VSIX; package validation passed.
+
+## 2026-10-12 — VS Code UML side-by-side source
+
+UML method clicks send `beside` and `preserveFocus` through the existing source bridge. Both the local file navigator and the SAP source navigator honor these options; the latter also moves a source already visible in the UML group to the adjacent editor group. Focused tests cover both paths and the click payload.
+Verified 12 focused tests and rebuilt VS Code 0.8.10; the VSIX archive passed packaging checks.
+
+## 2026-10-12 — Interface methods in UML class cards
+
+Extended the shared frontend declaration graph to collect qualified `METHOD interface~name` implementations alongside directly declared methods. Verified the result against the `debugger_tests/src` package: all `ZCL_MOD_*` classes show `APPLY` and `NAME`, and `ZCL_PRICE_ROAD` shows `CALCULATE_BASE`. A focused test also preserves private declared methods.
+The previous UML link binding only covered Mermaid's `g.classGroup` renderer; the visible cards use `g.node` with a `.classTitle`. Linked both forms, added a renderer-variant test, and rebuilt VS Code 0.8.10 and Eclipse update site `0.8.8.20261012130953`.
+
+## 2026-10-12 — UML method navigation
+
+Marked Mermaid UML method labels as keyboard-accessible source links and routed them through each host's existing source navigation bridge. Both VS Code and Eclipse now fall back to method declarations for interfaces. A focused test checks class and interface link targets.
+Verified the focused VS Code analysis and UML tests (21 passed), packaged VS Code 0.8.10, and built Eclipse update site `0.8.8.20261012125919`.
+
+## 2026-10-12 — Direct assistant tool logging
+
+The VS Code chat already logged user and assistant messages through `session-log.js`, but direct provider `callTool` handlers bypassed its tool wrapper. Added an adapter around the existing `codeTools.execute` that emits Claude-compatible `tool_use` and `tool_result` entries while preserving return values and errors. A focused test verifies linked IDs and source redaction.
+Follow-up: direct Anthropic, compatible API and Copilot adapters call `onModelCall` for each model round, so `chat.js` logs every observable round in the common JSONL schema instead of only the final answer. The CLI subscription adapters still expose only a VERTEX invocation aggregate. Added a native folder picker in LLM Providers and a command link in the log path setting, with tests for per-round callbacks and folder selection.
+
+## 2026-10-12 — Package Metrics object toggle
+
+Added a bulk toggle to the shared metrics page's package object section. It opens all object details when any are closed and closes all when every object is open; its label and accessibility state follow individual details changes. Verified embedded page syntax and analysis tests.
+Built VS Code 0.8.10 and Eclipse update site `0.8.8.20261012123230`; both package archives completed successfully.
+
+## 2026-10-12 — API token accounting
+
+The compatible API adapter previously passed `prompt_tokens` and `completion_tokens` through unchanged, while chat.html reads `input_tokens` and `output_tokens`, displaying zero. Normalize usage on every response, subtract cached prompt tokens from uncached input, and sum all rounds of a tool-using answer. A Mistral-style two-round test verifies the totals.
+
+## 2026-10-12 — Local folder as package
+
+Added a VS Code Explorer command that gathers `.abap` files recursively, reads current editor buffers, and supplies the objects to the existing package UML and metrics frontend. Local package source links resolve to the gathered documents. A focused test covers two classes in nested folders and excludes files outside the selected folder. Rebuilt VS Code as 0.8.10.
+Follow-up: source lookup caches by object type and name and prefers the active file's directory before other workspace files. A recursive package scan rejects duplicate type/name pairs across folders so a graph link cannot silently target another package. Focused tests cover both cases.
+The package command now opens a native folder picker when invoked without an Explorer URI. This covers custom Explorer views that do not expose the standard folder context menu. A command test checks the picker and UML initialization.
+The generic VS Code Tools page now offers Local Folder in its type selector, invokes the host folder picker, binds a local analysis session to the existing window and enables source links. A Browse button permits repicking; switching back to an SAP type clears the local session. The option is injected only when the VS Code bridge is present, keeping Eclipse's shared Tools list unchanged.
+
+## 2026-10-12 — Mermaid edge limit in both hosts
+
+The shared `vertex-flow.js` renderer and the Value Origin page initializer still used Mermaid's 500-edge default, while `metrics.html` and Visual Debug already set 100,000. Set 100,000 in the missing initializers and added a generated-page regression check. The shared script is packaged for VS Code and included in Eclipse resources.
+Eclipse Tools now initializes from the active ADT editor when its secondary view ID has no object, and follows a newly activated editor if the window is still empty. Built the Eclipse update site as `0.8.8.20261012112215`; Java compilation and archive verification passed. The update site was not copied to `docs/`.
+
+## 2026-10-12 — Local ABAP navigation and analysis
+
+Bound Tools context commands to the active local ABAP document and supplied its current text to the existing abaplint-based frontend analysis. Added local source resolution for related class files and diagram links; version history is explicitly unavailable for local files. Editor Outline, Go to Definition and Back now work on local source. Forward usage loads local source and workspace dependencies through the existing demand-based pipeline. Backward usage scans local workspace calls and parses matching files; the scan is textual, so ambiguous calls can require inspection. Rebuilt VS Code 0.8.10 locally; Eclipse unchanged.
+
+## 2026-10-12 — VS Code 0.8.10 local rebuild: bulk model toggle and local ABAP context
+
+The LLM Providers webview now offers a stateful Clear all / Select all button above each loaded model table. It updates the provider's in-memory row state and visible checkboxes without reloading model data. The existing save validation remains in force. The chat supplies up to 24,000 characters of active local ABAP source, including unsaved edits. With no SAP system configured, SAP tool schemas are withheld, and Codex does not receive the MCP server. The version is locally rebuilt as 0.8.10 at the user's request; Eclipse unchanged.
+
 ## 2026-10-12 — Named API key profiles
 
 Added per-provider key profile metadata and separately stored secret values, with active-profile selection in LLM Providers. Existing scalar keys are exposed as `DEFAULT` without migration or reentry. Chat model loading and API requests use the active profile; changing it invalidates the model cache. Targeted tests cover separate keys, manual selection and legacy-key compatibility. VS Code moves to 0.8.12; Eclipse unchanged.
