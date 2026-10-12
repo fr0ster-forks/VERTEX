@@ -3,6 +3,7 @@
 ## 2026-10-12 — Package analysis progress and local cache
 
 The shared Metrics/UML webview now shows a live spinner, stage, processed/total objects and elapsed time. The frontend analysis yields before synchronous diagram and metrics construction so the status can paint. VS Code local package sessions keep one analysis API object to reuse the frontend parser cache across UML/Metrics requests and invalidate on document-version changes. Focused analysis-progress and local-analysis tests: 24 passed. A local 17-object folder measured about 3 s for a cold UML request and 4 s for subsequent Metrics; no previous-build baseline was available.
+Built Eclipse update site 0.8.8.20261012135444 and verified VS Code VSIX 0.8.10 after shared resource preparation.
 
 ## 2026-10-12 — VS Code session log viewer
 
