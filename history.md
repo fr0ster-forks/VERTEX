@@ -1,5 +1,19 @@
 # Release history
 
+## 2026-10-12 — VS Code 0.8.12: named API keys
+
+Each API provider can now keep multiple named keys in VS Code SecretStorage. The active key is selected manually in LLM Providers. Existing single keys appear as `DEFAULT` and continue to work without reentry. Eclipse unchanged.
+
+## 2026-10-12 — VS Code 0.8.11: API providers and collapsible model lists
+
+LLM Providers now collapses each provider's models independently. Added API-key providers for OpenAI, Mistral, Gemini, Groq, Cerebras, OpenRouter and NVIDIA alongside Anthropic. Keys stay in VS Code SecretStorage; the built-in Assistant lists models and calls its SAP tools through each provider's API. Eclipse unchanged.
+
+## 2026-10-12 — VS Code 0.8.10: Copilot in the built-in Assistant
+
+Added GitHub Copilot models exposed by VS Code to LLM Providers and the built-in VERTEX Assistant, with the Assistant's SAP tools and navigation plan. The Eclipse Assistant remains on Codex or Claude Code. Removed unrelated and redundant ABAP setup text from Getting started; the misplaced source-navigation paragraph is absent from the packaged README.
+
+The local 0.8.10 VSIX was rebuilt after the first Copilot request exposed an invalid cancellation-token reference. Copilot requests now use a VS Code `CancellationTokenSource`.
+
 ## 2026-10-12 — Documentation cleanup
 
 Removed rebuild reports, source-fix announcements and conversational version notes from user documentation. Retained current setup and capability descriptions. Archived the Eclipse README's older development and test-build notes in this history.

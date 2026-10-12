@@ -3,6 +3,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const assistant = require("../assistant");
 const chat = require("../chat");
+const copilot = require("../copilot");
+const compatible = require("../openai-compatible");
 
 function fakeVscode(settings) {
   return {
@@ -36,6 +38,44 @@ test("the VS Code chat sends the conversation so far, and a new conversation sta
   ask.newConversation();
   await ask("hello");
   assert.doesNotMatch(prompts[2], /show Z_CALC|Answer 1/);
+});
+
+test("the VERTEX chat routes Copilot through VS Code with its SAP tools", async (t) => {
+  let received;
+  t.mock.method(copilot, "models", async () => [{ id: "model-one", label: "Model One" }]);
+  t.mock.method(copilot, "ask", async (vscode, options) => {
+    received = options;
+    return { plan: { answer: "Done", navigation: null }, model: options.model, usage: null };
+  });
+  const tools = { schemas: [{ name: "read_sap_object", description: "Read", inputSchema: {} }],
+    instructions: "Read SAP", editorContext: () => null, execute: async () => ({ source: "ok" }) };
+  const ask = chat.create(fakeVscode({ provider: "copilot", model: "" }), tools,
+    { start: async () => { throw new Error("Copilot must not start an MCP server"); } });
+  assert.equal((await ask("explain this class")).answer, "Done");
+  assert.equal(received.model, "model-one");
+  assert.deepEqual(received.tools.map(tool => tool.name), ["read_sap_object"]);
+  assert.deepEqual(await received.callTool("read_sap_object", {}), { source: "ok" });
+});
+
+test("the VERTEX chat routes a key provider through its API with SAP tools", async (t) => {
+  let received;
+  t.mock.method(compatible, "models", async id => {
+    assert.equal(id, "groq-api"); return [{ id: "groq-test", label: "Groq Test" }];
+  });
+  t.mock.method(compatible, "ask", async options => {
+    received = options;
+    return { plan: { answer: "Done", navigation: null }, model: options.model, usage: null };
+  });
+  const tools = { schemas: [{ name: "read_sap_object", description: "Read", inputSchema: {} }],
+    instructions: "Read SAP", editorContext: () => null, execute: async () => ({ source: "ok" }) };
+  const ask = chat.create(fakeVscode({ provider: "groq-api", model: "" }), tools,
+    { start: async () => { throw new Error("API provider must not start an MCP server"); } },
+    { get: async key => key === "vertex.provider.groq-api.apiKey" ? "secret" : null });
+  assert.equal((await ask("explain this class")).answer, "Done");
+  assert.equal(received.assistant, "groq-api");
+  assert.equal(received.apiKey, "secret");
+  assert.equal(received.model, "groq-test");
+  assert.deepEqual(received.tools.map(tool => tool.name), ["read_sap_object"]);
 });
 
 test("a selected fragment from an external ADT editor is sent to VERTEX chat", async (t) => {

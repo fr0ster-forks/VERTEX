@@ -34,10 +34,6 @@ function secretKey(system) {
   return "vertex.password." + system.name;
 }
 
-function providerSecretKey(provider) {
-  return "vertex.provider." + String(provider).toLowerCase() + ".apiKey";
-}
-
 /* ---------- what each service asks for ----------
 
    One entry per view in the Eclipse plugin, and the path builders are the same
@@ -571,7 +567,7 @@ async function assistantModels(context, args) {
     // What Config models in the VERTEX panel leaves switched on; versions are
     // added there too, so the page offers no field of its own for them.
     return { assistant: id, models: require("./model-config").apply(vscode, id, id === "anthropic-api"
-      ? await anthropic.models(await context.secrets.get(providerSecretKey("anthropic")))
+      ? await anthropic.models((await require("./key-profiles").getActiveKey(context.secrets, id)).key)
       : await assistant.models({ assistant: id, extensionPath: assistantExtension(id) })) };
   } catch (e) {
     return { assistant: id, error: e.message };
@@ -1113,11 +1109,18 @@ function activate(context) {
         "VERTEX: the stored password for " + chosen.system.name + " was removed.");
     }),
     vscode.commands.registerCommand("vertex.configureApiKey", async function () {
+      const api = require("./openai-compatible");
       const provider = await vscode.window.showQuickPick([
         { label: "Anthropic", id: "anthropic" },
-        { label: "OpenAI", id: "openai" }
+        ...Object.entries(api.PROVIDERS).map(([id, value]) => ({ label: value.label, id }))
       ], { title: "Which AI provider?" });
       if (!provider) { return; }
+      const profile = await vscode.window.showInputBox({
+        title: "Key name for " + provider.label,
+        value: "DEFAULT", ignoreFocusOut: true,
+        validateInput: value => String(value || "").trim() ? undefined : "Enter a key name."
+      });
+      if (profile === undefined) { return; }
       const value = await vscode.window.showInputBox({
         title: "API key for " + provider.label,
         prompt: "The key is stored in VS Code SecretStorage, never in settings.json.",
@@ -1126,24 +1129,22 @@ function activate(context) {
         validateInput: text => String(text || "").trim() ? undefined : "Enter an API key."
       });
       if (value === undefined) { return; }
-      await context.secrets.store(providerSecretKey(provider.id), value.trim());
-      vscode.window.showInformationMessage(provider.label + " API key saved securely.");
+      await require("./key-profiles").save(context.secrets,
+        provider.id === "anthropic" ? "anthropic-api" : provider.id, profile, value);
+      vscode.window.showInformationMessage(provider.label + " API key '" + profile.trim() + "' saved securely.");
     }),
     vscode.commands.registerCommand("vertex.selectProvider", async function () {
-      const values = [
-        ["Claude subscription (Claude Code)", "claude-subscription"],
-        ["ChatGPT subscription (Codex)", "codex-subscription"],
-        ["Copilot", "copilot"],
-        ["Anthropic API (key)", "anthropic-api"],
-        ["OpenAI API", "openai-api"]
-      ];
+      const values = require("./model-config").PROVIDERS.map(provider => [provider.label, provider.setting]);
       const current = vscode.workspace.getConfiguration("vertex.ai").get("provider", "codex-subscription");
       const picked = await vscode.window.showQuickPick(values.map(item => ({
         label: item[0], picked: item[1] === current, id: item[1]
       })), { title: "Select VERTEX AI provider" });
       if (!picked) { return; }
-      await vscode.workspace.getConfiguration("vertex.ai").update(
-        "provider", picked.id, vscode.ConfigurationTarget.Global);
+      const settings = vscode.workspace.getConfiguration("vertex.ai");
+      if (picked.id !== current) {
+        await settings.update("provider", picked.id, vscode.ConfigurationTarget.Global);
+        await settings.update("model", "", vscode.ConfigurationTarget.Global);
+      }
       vscode.window.showInformationMessage("VERTEX: using " + picked.label + ".");
     })
   );

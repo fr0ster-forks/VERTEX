@@ -10,6 +10,8 @@
 // marked on are on; after that, enabled says which.
 
 const assistant = require("./assistant");
+const compatible = require("./openai-compatible");
+const keyProfiles = require("./key-profiles");
 
 // id is the assistant, setting what vertex.ai.provider holds. The label names
 // what is paid for and, in brackets, what it runs through; short is for the
@@ -17,7 +19,11 @@ const assistant = require("./assistant");
 const PROVIDERS = [
   { id: "claude", setting: "claude-subscription", label: "Claude subscription (Claude Code)", short: "Claude" },
   { id: "codex", setting: "codex-subscription", label: "ChatGPT subscription (Codex)", short: "ChatGPT" },
-  { id: "anthropic-api", setting: "anthropic-api", label: "Anthropic API (key)", short: "Anthropic API" }
+  { id: "copilot", setting: "copilot", label: "GitHub Copilot (VS Code)", short: "Copilot" },
+  { id: "anthropic-api", setting: "anthropic-api", label: "Anthropic API (key)", short: "Anthropic API" },
+  ...Object.entries(compatible.PROVIDERS).map(([id, provider]) => ({
+    id, setting: id, label: provider.label + " API (key)", short: provider.label + " API"
+  }))
 ];
 
 function shortLabel(setting) {
@@ -89,10 +95,12 @@ function open(vscode, full, extensionPath, forget, secrets) {
   const post = message => panel.webview.postMessage(message);
 
   async function load(id) {
+    const profiles = (id === "anthropic-api" || compatible.PROVIDERS[id]) && secrets
+      ? await keyProfiles.list(secrets, id) : null;
     try {
-      post({ provider: id, rows: rows(await full(id), read(vscode, id), id) });
+      post({ provider: id, rows: rows(await full(id), read(vscode, id), id), profiles });
     } catch (e) {
-      post({ provider: id, error: e.message, needKey: id === "anthropic-api" });
+      post({ provider: id, error: e.message, profiles });
     }
   }
 
@@ -102,13 +110,27 @@ function open(vscode, full, extensionPath, forget, secrets) {
     if (!PROVIDERS.some(p => p.id === id)) { return; }
     if (message.action === "load") { await load(id); return; }
     if (message.action === "key") {
-      if (id !== "anthropic-api" || !secrets) { return; }
-      const key = await vscode.window.showInputBox({ prompt: "Anthropic API key (stored in VS Code SecretStorage)",
+      if ((id !== "anthropic-api" && !compatible.PROVIDERS[id]) || !secrets) { return; }
+      const provider = PROVIDERS.find(item => item.id === id);
+      const profile = await vscode.window.showInputBox({ prompt: "Name for the " + provider.label + " key (existing name replaces that key)",
+        value: "DEFAULT", ignoreFocusOut: true,
+        validateInput: name => !String(name || "").trim() ? "Enter a name." : undefined });
+      if (profile === undefined) { return; }
+      const key = await vscode.window.showInputBox({ prompt: provider.label + " (stored in VS Code SecretStorage)",
         password: true, ignoreFocusOut: true });
       if (key && key.trim()) {
-        await secrets.store("vertex.provider.anthropic.apiKey", key.trim());
+        try { await keyProfiles.save(secrets, id, profile, key); }
+        catch (e) { post({ provider: id, saveError: e.message }); return; }
         forget(id);
       }
+      await load(id);
+      return;
+    }
+    if (message.action === "select-key") {
+      if (!secrets || (id !== "anthropic-api" && !compatible.PROVIDERS[id])) { return; }
+      try { await keyProfiles.select(secrets, id, String(message.name || "")); }
+      catch (e) { post({ provider: id, saveError: e.message }); return; }
+      forget(id);
       await load(id);
       return;
     }
@@ -131,12 +153,16 @@ function open(vscode, full, extensionPath, forget, secrets) {
       if (!use) { fail("Choose the provider in use."); return; }
       const mine = plan.find(p => p && p.id === use.id);
       if (!mine || !mine.on) { fail(use.label + " is in use and stays switched on. Switch to another provider first."); return; }
+      const api = use.id === "anthropic-api" || compatible.PROVIDERS[use.id];
+      if (api && (!secrets || !(await keyProfiles.getActiveKey(secrets, use.id)).key)) {
+        fail("Enter the " + use.label + " key first."); return;
+      }
       for (const p of plan) {
         const known = PROVIDERS.find(x => x.id === (p && p.id));
         if (!known) { fail("Unknown provider."); return; }
         // At least one model stays on: an empty list would leave the provider
         // with nothing to ask.
-        if (Array.isArray(p.rows) && !p.rows.some(r => r && r.on)) {
+      if (p.on && Array.isArray(p.rows) && !p.rows.some(r => r && r.on)) {
           fail(known.label + ": keep at least one model switched on."); return;
         }
       }
@@ -181,6 +207,8 @@ button.primary { color: var(--vscode-button-foreground); background: var(--vscod
 .prov { margin: 0 0 14px; }
 .phead { display: flex; gap: 8px; align-items: center; padding: 5px 8px; font-weight: 600; max-width: 600px;
          background: var(--vscode-sideBar-background, transparent); border: 1px solid var(--vscode-panel-border); }
+.phead .fold { padding: 0 3px; border: 0; color: var(--vscode-foreground);
+               background: transparent; font-weight: 600; }
 .phead .use { margin-left: auto; font-weight: normal; display: flex; gap: 4px; align-items: center; }
 .pbody { margin-left: 22px; }
 .prov.off .pbody { opacity: .55; }
@@ -201,7 +229,7 @@ const INIT = ${init};
 let use = INIT.use;
 // Per provider: on, and its rows once read (null while loading or when it could not be read).
 const state = {};
-INIT.providers.forEach(p => { state[p.id] = { label: p.label, on: p.on, rows: null }; });
+INIT.providers.forEach(p => { state[p.id] = { label: p.label, on: p.on, rows: null, profiles: null, expanded: p.id === INIT.use }; });
 const $ = id => document.getElementById(id);
 function say(text, kind) { $("said").textContent = text || ""; $("said").className = kind || "note"; }
 function el(tag, props) { return Object.assign(document.createElement(tag), props || {}); }
@@ -211,6 +239,11 @@ function build() {
     const s = state[p.id];
     const box = el("div", { className: "prov" + (s.on ? "" : " off") });
     const head = el("div", { className: "phead" });
+    const fold = el("button", { className: "fold", type: "button", textContent: s.expanded ? "▾" : "▸",
+      title: s.expanded ? "Collapse models" : "Expand models" });
+    fold.setAttribute("aria-expanded", String(s.expanded));
+    fold.addEventListener("click", () => { s.expanded = !s.expanded; build(); });
+    head.appendChild(fold);
     const on = el("input", { type: "checkbox", checked: s.on, disabled: use === p.id,
       title: use === p.id ? "In use - switch to another provider first" : "Offer this provider" });
     on.addEventListener("change", () => { s.on = on.checked; say(""); build(); });
@@ -223,20 +256,31 @@ function build() {
     useLabel.appendChild(radio); useLabel.appendChild(document.createTextNode("In use"));
     head.appendChild(useLabel);
     box.appendChild(head);
-    box.appendChild(el("div", { className: "pbody", id: "body-" + p.id }));
+    const body = el("div", { className: "pbody", id: "body-" + p.id });
+    body.hidden = !s.expanded;
+    box.appendChild(body);
     tree.appendChild(box);
     fill(p.id);
   });
 }
 function fill(id) {
   const s = state[id], body = $("body-" + id); body.innerHTML = "";
+  if (id === "anthropic-api" || id.endsWith("-api")) {
+    const row = el("div", { className: "row" });
+    const profiles = s.profiles || { names: [], active: "" };
+    if (profiles.names.length) {
+      const picker = el("select", { title: "Active API key" });
+      profiles.names.forEach(name => picker.appendChild(el("option", { value: name, textContent: name })));
+      picker.value = profiles.active;
+      picker.addEventListener("change", () => api.postMessage({ action: "select-key", provider: id, name: picker.value }));
+      row.appendChild(picker);
+    }
+    const key = el("button", { textContent: "Add or replace key" });
+    key.addEventListener("click", () => api.postMessage({ action: "key", provider: id }));
+    row.appendChild(key); body.appendChild(row);
+  }
   if (s.error) {
     body.appendChild(el("div", { className: "error", textContent: s.error }));
-    if (s.needKey) {
-      const key = el("button", { textContent: "Enter API key" });
-      key.addEventListener("click", () => api.postMessage({ action: "key", provider: id }));
-      body.appendChild(el("div", { className: "row" })).appendChild(key);
-    }
     return;
   }
   if (!s.rows) { body.appendChild(el("div", { className: "note", textContent: "Loading ..." })); return; }
@@ -283,7 +327,8 @@ $("save").addEventListener("click", () => {
 window.addEventListener("message", event => {
   const m = event.data; if (!m || !state[m.provider]) { return; }
   const s = state[m.provider];
-  if (m.error) { s.error = m.error; s.needKey = m.needKey; fill(m.provider); return; }
+  if (m.profiles) { s.profiles = m.profiles; }
+  if (m.error) { s.error = m.error; fill(m.provider); return; }
   if (m.rows) { s.error = null; s.rows = m.rows; fill(m.provider); return; }
   if (m.probed) {
     s.rows.push({ id: m.probed.id, label: m.probed.label, version: true, on: true }); fill(m.provider);

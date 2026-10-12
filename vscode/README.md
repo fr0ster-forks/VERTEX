@@ -41,11 +41,16 @@ Recommended companion extension:
 
 Open Welcome with **VERTEX: Get Started** in the Command Palette.
 
+For the built-in VERTEX Assistant, choose Claude Code, Codex, GitHub Copilot or
+an API provider in **LLM Providers**. Copilot uses the models available from a
+signed-in GitHub Copilot extension through VS Code; it can call the same SAP
+tools as the other providers. API providers are Anthropic, OpenAI, Mistral,
+Gemini, Groq, Cerebras, OpenRouter and NVIDIA. This is separate from Copilot
+Chat's MCP setup.
+
 Every Get Started step has an **ⓘ Info** button opening its explanation: SAP
 system import, connection testing, assistant choice and MCP capabilities.
 
-VERTEX registers the ABAP language itself. Opening SAP source or a code draft
-does not require another ABAP extension.
 Claude Code uses the executable bundled with its installed VS Code extension,
 or, when that extension is absent, the native CLI from `PATH` or `~/.local/bin`.
 Restart VS Code after installing the CLI so it inherits the updated environment.
@@ -64,14 +69,6 @@ saving a transport's review to SAP. It carries the `ZAVE_REVIEW` table, which AV
 and activate it. On a system without it, reviews are saved to files (see *Code review of a
 transport*), and the review page says so. Everything else - Code Explorer, Value Origin, SelecTor,
 the version history, its diff and building a review - reads SAP over ADT and needs no backend.
-
-## VS Code prerequisite
-
-[SAP ABAP Development Tools](https://marketplace.visualstudio.com/items?itemName=SAPSE.adt-vscode)
-is recommended for the ABAP editor, navigation and standard ADT commands. It
-is optional: VERTEX can connect to SAP through ADT HTTP by itself and opens
-source in a normal VS Code text editor when SAP ADT is not installed.
-
 
 ## First run
 
@@ -354,23 +351,27 @@ for a position in the source, not for a name, so the chat says which key does it
 |---|---|---|
 | **Claude subscription (Claude Code)** | Your Claude subscription | The Claude Code extension, signed in |
 | **ChatGPT subscription (Codex)** | Your ChatGPT subscription | The Codex (OpenAI) extension, signed in |
+| **GitHub Copilot (VS Code)** | Your Copilot access | The Copilot extension, signed in |
 | **Anthropic API (key)** | Tokens, billed to the API key | Nothing — only the key |
+| **OpenAI, Mistral, Gemini, Groq, Cerebras, OpenRouter, NVIDIA APIs** | Usage billed by the selected provider | That provider's API key |
 
-A subscription has no public API: it is used only through the vendor's own client, with the
-login made there. VERTEX runs the copy of the CLI that ships inside that VS Code extension, so
-without the extension a subscription provider does not work — VERTEX says which extension is
-missing. It never reads or reuses the client's login token. The Anthropic API calls
-`api.anthropic.com` directly; the key is asked for when that provider is first chosen and is
-kept only in VS Code SecretStorage.
+A subscription is used through its installed client. VERTEX runs the Claude Code
+or Codex CLI from its VS Code extension or a native installation. Copilot models
+come from VS Code's Language Model API. VERTEX never reads the clients' login
+tokens. Each API provider can keep several named keys in VS Code SecretStorage.
+Choose the active name manually in **LLM Providers**; VERTEX uses that key for
+model loading and requests. Existing single keys appear as `DEFAULT`. API
+requests go directly to the selected provider.
 
-The panel shows the short name — Claude, ChatGPT, Anthropic API. Changing the provider there
+The panel shows the provider's short name. Changing the provider there
 switches at once and clears the chosen model (`vertex.ai.provider`, `vertex.ai.model`).
 
 ### Which models are offered
 
-**LLM Providers** shows every provider at once as a tree: the provider with its own checkbox and
-an **In use** switch, its models underneath with a checkbox each. Only the ticked models appear in
-the model lists, and with no model chosen the weakest ticked one is used. A provider switched off
+**LLM Providers** shows every provider with its own checkbox, **In use** switch,
+and a fold button for its model list. Each provider can be expanded or collapsed
+independently. Only the ticked models appear in the model lists; with no model
+chosen, the first enabled model is used. A provider switched off
 keeps its model ticks but is left out of every provider choice; the one in use cannot be switched
 off - choose another first. Save refuses a provider with no model ticked, and resets a chosen
 model that is no longer offered. The choice is kept in `vertex.ai.modelConfig`.
@@ -382,7 +383,10 @@ model that is no longer offered. The choice is kept in `vertex.ai.modelConfig`.
   answered one short request with it.
 - **ChatGPT subscription** lists the catalog Codex reports. A model named in
   `~/.codex/config.toml` is offered too, because VERTEX runs Codex without that file.
-- **Anthropic API** lists what `GET /v1/models` returns for the key.
+- **API providers** list models returned by their `/models` endpoint. Add or
+  replace named keys in that provider's section, then select the active key.
+  VERTEX does not rotate keys automatically. Models without chat and tool
+  calling support may appear in a provider's catalog; leave those unticked.
 
 ### Several systems
 

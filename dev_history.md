@@ -1,5 +1,19 @@
 # Development history
 
+## 2026-10-12 — Named API key profiles
+
+Added per-provider key profile metadata and separately stored secret values, with active-profile selection in LLM Providers. Existing scalar keys are exposed as `DEFAULT` without migration or reentry. Chat model loading and API requests use the active profile; changing it invalidates the model cache. Targeted tests cover separate keys, manual selection and legacy-key compatibility. VS Code moves to 0.8.12; Eclipse unchanged.
+
+## 2026-10-12 — OpenAI-compatible providers and model-list folding
+
+Added fixed HTTPS endpoints corresponding to the seven OpenAI-compatible providers seeded by ABAP-AI-Code's `Z_ABAP_AI_KEYS`. The VERTEX chat lists provider models, sends requests with private SAP function tools, and reads each key from SecretStorage. LLM Providers shows a separate expand/collapse button and key action for each API provider. Manifest and lockfile move to VS Code 0.8.11; Eclipse build metadata remains unchanged.
+
+## 2026-10-12 — Copilot Language Model adapter for VS Code 0.8.10
+
+The built-in VERTEX chat now lists signed-in Copilot models through `vscode.lm.selectChatModels`, sends its existing context, runs private SAP tool calls and accepts a structured navigation plan or plain answer. Added provider configuration and adapter tests. VS Code manifest and lockfile move to 0.8.10; the Eclipse host is unchanged. The current Marketplace README begins Getting started without the unrelated source-navigation text shown in an older screenshot. Removed the redundant ABAP registration sentence and optional SAP ADT prerequisite paragraph from that section.
+
+The first live Copilot request revealed that `vscode.CancellationToken.None` is undefined. Replaced it with a per-request `CancellationTokenSource`, disposed after the tool loop, and tightened the adapter test to require a real token argument. Repacked the local 0.8.10 VSIX with the corrected adapter.
+
 ## 2026-10-12 — Implementation targets and tab reuse
 
 The ADT foreign-definition fallback returned METHODS for chained instance calls. It now recognizes the method invocation at the cursor, reads assembled class source and targets METHOD; an unavailable implementation does not silently substitute the declaration. Navigation closes only the active clean source tab before opening the destination as preview, and Back uses the same policy. Unsaved tabs are preserved. Regression covers NEW-to-method navigation with ADT pointing to its declaration.

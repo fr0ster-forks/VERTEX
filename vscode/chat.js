@@ -3,6 +3,9 @@
 const assistant = require("./assistant");
 const modelConfig = require("./model-config");
 const anthropic = require("./anthropic");
+const copilot = require("./copilot");
+const compatible = require("./openai-compatible");
+const keyProfiles = require("./key-profiles");
 const sessionLog = require("./session-log");
 const directSearch = require("./direct-search");
 const objectTools = require("./object-tools");
@@ -16,7 +19,9 @@ function subscriptionProvider(vscode) {
   if (selected === "claude-subscription") { return "claude"; }
   if (selected === "codex-subscription") { return "codex"; }
   if (selected === "anthropic-api") { return "anthropic-api"; }
-  throw new Error("Select ChatGPT subscription, Claude subscription or Anthropic API before using chat.");
+  if (selected === "copilot") { return "copilot"; }
+  if (compatible.PROVIDERS[selected]) { return selected; }
+  throw new Error("Select a supported provider in VERTEX: LLM Providers before using chat.");
 }
 
 function extensionPath(vscode, id) {
@@ -108,14 +113,18 @@ function create(vscode, codeTools, server, secrets, debugContext, originContext)
   // Every model the provider has, asked once per provider; the switched-off
   // ones are left out each time, so a change in Config models counts at once.
   async function fullModels(id) {
-    if (!full.has(id)) {
+    const apiKey = (id === "anthropic-api" || compatible.PROVIDERS[id]) && secrets
+      ? (await keyProfiles.getActiveKey(secrets, id)).key : undefined;
+    if (!full.has(id) || full.get(id).key !== apiKey) {
       const models = id === "anthropic-api"
-        ? await anthropic.models(secrets && await secrets.get("vertex.provider.anthropic.apiKey"))
+        ? await anthropic.models(apiKey)
+        : id === "copilot" ? await copilot.models(vscode)
+        : compatible.PROVIDERS[id] ? await compatible.models(id, apiKey)
         : await assistant.models({ assistant: id, extensionPath: extensionPath(vscode, id) });
       if (!models.length) { throw new Error("The " + id + " model list is empty."); }
-      full.set(id, models);
+      full.set(id, { key: apiKey, models });
     }
-    return full.get(id);
+    return full.get(id).models;
   }
   // No model chosen in the settings means the weakest one switched on, not the CLI's own default.
   async function defaultModel(id) {
@@ -197,8 +206,14 @@ function create(vscode, codeTools, server, secrets, debugContext, originContext)
         // program to reach its breakpoints; three minutes are too few for that.
         ...(toolSchemas.length ? { timeout: 600000 } : {})
       };
-      const result = await (id === "anthropic-api"
-        ? anthropic.ask({ ...requestOptions, apiKey: secrets && await secrets.get("vertex.provider.anthropic.apiKey"),
+      const result = await (compatible.PROVIDERS[id]
+        ? compatible.ask({ ...requestOptions, apiKey: (await keyProfiles.getActiveKey(secrets, id)).key,
+          tools: toolSchemas, callTool: (name, args) => codeTools.execute(name, args) })
+        : id === "copilot"
+        ? copilot.ask(vscode, { ...requestOptions, tools: toolSchemas,
+          callTool: (name, args) => codeTools.execute(name, args) })
+        : id === "anthropic-api"
+        ? anthropic.ask({ ...requestOptions, apiKey: (await keyProfiles.getActiveKey(secrets, id)).key,
           tools: toolSchemas, callTool: (name, args) => codeTools.execute(name, args) })
         : (async () => { const started = await server.start(); return assistant.ask({ ...requestOptions,
           url: server.route ? server.route(started.url.replace(/\/mcp$/, "/chat")) : started.url.replace(/\/mcp$/, "/chat"),
@@ -227,10 +242,17 @@ function create(vscode, codeTools, server, secrets, debugContext, originContext)
     const current = ask.state().provider;
     const picked = await vscode.window.showQuickPick(values.map(x => ({ label: x[0], id: x[1], picked: x[1] === current })), { title: "Select AI provider" });
     if (picked) {
-      await vscode.workspace.getConfiguration("vertex.ai").update("provider", picked.id, vscode.ConfigurationTarget.Global);
-      if (picked.id === "anthropic-api" && secrets) {
-        const key = await vscode.window.showInputBox({ prompt: "Anthropic API key (stored in VS Code SecretStorage)", password: true, ignoreFocusOut: true });
-        if (key && key.trim()) { await secrets.store("vertex.provider.anthropic.apiKey", key.trim()); }
+      if ((picked.id === "anthropic-api" || compatible.PROVIDERS[picked.id]) && secrets) {
+        if (!(await keyProfiles.getActiveKey(secrets, picked.id)).key) {
+          const key = await vscode.window.showInputBox({ prompt: picked.label + " API key (stored in VS Code SecretStorage)", password: true, ignoreFocusOut: true });
+          if (!key || !key.trim()) { return ask.state(); }
+          await keyProfiles.save(secrets, picked.id, "DEFAULT", key);
+        }
+      }
+      const settings = vscode.workspace.getConfiguration("vertex.ai");
+      if (picked.id !== current) {
+        await settings.update("provider", picked.id, vscode.ConfigurationTarget.Global);
+        await settings.update("model", "", vscode.ConfigurationTarget.Global);
       }
     }
     return ask.state();
@@ -256,12 +278,13 @@ function create(vscode, codeTools, server, secrets, debugContext, originContext)
     const chosen = modelConfig.PROVIDERS.find(p => p.setting === setting);
     if (!modelConfig.isOn(vscode, chosen.id)) { throw new Error(chosen.label + " is switched off in LLM Providers."); }
     const config = vscode.workspace.getConfiguration("vertex.ai");
-    if (setting === "anthropic-api" && secrets && !await secrets.get("vertex.provider.anthropic.apiKey")) {
-      const key = await vscode.window.showInputBox({ prompt: "Anthropic API key (stored in VS Code SecretStorage)",
+    const api = setting === "anthropic-api" || compatible.PROVIDERS[setting];
+    if (api && secrets && !(await keyProfiles.getActiveKey(secrets, setting)).key) {
+      const key = await vscode.window.showInputBox({ prompt: chosen.label + " API key (stored in VS Code SecretStorage)",
         password: true, ignoreFocusOut: true });
       if (!key || !key.trim()) { return ask.state(); }
-      await secrets.store("vertex.provider.anthropic.apiKey", key.trim());
-      full.delete("anthropic-api");
+      await keyProfiles.save(secrets, setting, "DEFAULT", key);
+      full.delete(chosen.id);
     }
     if (config.get("provider", "") !== setting) {
       await config.update("provider", setting, vscode.ConfigurationTarget.Global);

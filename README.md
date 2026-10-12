@@ -15,6 +15,14 @@ VERTEX is a set of plugins for VS Code and Eclipse ADT: an AI assistant with MCP
 editor, an AI-driven ADT debugger, and explorers for code, versions and data. Each window reads over
 the developer's existing ADT connection and renders as HTML.
 
+In VS Code, the built-in VERTEX Assistant can use Codex, Claude Code, a signed-in
+GitHub Copilot model or API keys for Anthropic, OpenAI, Mistral, Gemini, Groq,
+Cerebras, OpenRouter and NVIDIA. Provider model lists can be collapsed independently.
+Each API provider can have several named keys, with one selected manually.
+Eclipse's built-in
+Assistant uses Codex or Claude Code; Copilot Chat in Eclipse connects separately
+through MCP.
+
 ![VERTEX architecture: VS Code and Eclipse ADT connect to shared VERTEX Web UI tools, with an MCP server for AI assistants and an optional SAP backend](docs/architecture.jpg)
 
 The ABAP side is this repository's `src/`. It is optional: in VS Code everything works over ADT

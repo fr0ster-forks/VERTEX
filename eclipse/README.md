@@ -63,7 +63,9 @@ ADT editor. That change to the plugin was not built for Eclipse.
 ![VERTEX architecture: VS Code and Eclipse ADT, the VERTEX MCP server between them and the AI assistants (Claude Code, Codex, GitHub Copilot), the six VERTEX Web UI tools, and the ADT hub on SAP at /sap/bc/adt/vertex/*](../docs/architecture.jpg)
 
 The Selector and Versions Assistant panels launch Codex or Claude Code directly.
-Copilot is not involved. The existing standalone MCP registration is independent.
+Copilot and the additional API-key providers in the built-in VERTEX Assistant
+are limited to VS Code. Eclipse
+Copilot Chat can connect through the separate standalone MCP registration.
 
 For **GitHub Copilot Chat in Eclipse**, see [VERTEX MCP setup](MCP.md).
 The standalone transport-review MCP server needs standard ADT and the shared
