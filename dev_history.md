@@ -1,5 +1,9 @@
 # Development history
 
+## 2026-10-12 — Implementation targets and tab reuse
+
+The ADT foreign-definition fallback returned METHODS for chained instance calls. It now recognizes the method invocation at the cursor, reads assembled class source and targets METHOD; an unavailable implementation does not silently substitute the declaration. Navigation closes only the active clean source tab before opening the destination as preview, and Back uses the same policy. Unsaved tabs are preserved. Regression covers NEW-to-method navigation with ADT pointing to its declaration.
+
 ## 2026-10-12 — Keep development reports in histories
 
 Cleaned repository, Marketplace and landing-page documentation of local rebuild narratives and implementation-fix reports. Reorganized VS Code setup under Getting started. Replaced Eclipse's accumulated changelog sections with current feature and installation descriptions; the original notes are archived in history.md. Runtime sources unchanged.

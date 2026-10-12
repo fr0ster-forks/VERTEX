@@ -1440,7 +1440,8 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   async function moveTo(editor, result) {
     navigation.push({ document: editor.document, at: editor.selection.active });
     // Replace the current clean editor tab; unsaved work stays open.
-    if (result.document !== editor.document && !editor.document.isDirty) {
+    if (result.document !== editor.document && !editor.document.isDirty
+        && vscode.window.activeTextEditor?.document === editor.document) {
       await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
     }
     const target = result.document === editor.document ? editor : await vscode.window.showTextDocument(result.document, {
@@ -1456,6 +1457,9 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       return;
     }
     const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor && previous.document !== activeEditor.document && !activeEditor.document.isDirty) {
+      await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+    }
     const editor = previous.document === (activeEditor && activeEditor.document)
       ? activeEditor : await vscode.window.showTextDocument(previous.document, {
         preview: true,
