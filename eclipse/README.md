@@ -1,6 +1,6 @@
 # Built-in Eclipse Assistant
 
-The shared SelecTor source now offers **Technical names / Text** for Selection labels and table headers. The choice is remembered; Eclipse receives this change when its plugin is rebuilt.
+SelecTor offers **Technical names / Text** for selection labels and table headers. The choice is remembered.
 
 The plugin depends on none of the projects VERTEX grew out of - Simple Data Explorer, ACE, AVE:
 nothing from them has to be installed, and none of their code is called. Code Explorer and Value
@@ -66,6 +66,10 @@ The Selector and Versions Assistant panels launch Codex or Claude Code directly.
 Copilot is not involved. The existing standalone MCP registration is independent.
 
 For **GitHub Copilot Chat in Eclipse**, see [VERTEX MCP setup](MCP.md).
+The standalone transport-review MCP server needs standard ADT and the shared
+Node dependencies (`npm ci` in `vscode/`), without VERTEX's ABAP classes. It reads
+saved `ZAVE_REVIEW` data or builds an unsaved review from ADT version history;
+it cannot save or approve reviews.
 
 1. Install Node.js 22 or newer.
 2. Install and log in to Codex CLI or Claude Code. The assistant runs on your
@@ -109,27 +113,22 @@ metadata template, and creates a new timestamped site and ZIP under `target/`.
 It refreshes bundled resources, sources, versions and SHA-256 download checksums.
 Install via **Help > Install New Software > Add > Archive** and restart Eclipse.
 
-### Shared diagram help
+### Diagram help
 
-The shared Tools pages include help for source links, Logic only, procedure exits, range and loop-frame highlighting, direction, zoom and the magnifier. The VS Code 0.8.1 release preparation also updates Visual Debug and embedded Tools navigation. The 0.8.1 test archive is built below; it has not been published or checked in a running Eclipse.
+Tools pages include help for source links, Logic, procedure exits, range and
+loop highlighting, direction, zoom and the magnifier.
 
-## Eclipse 0.8.1 — Visual Flow Analysis
+## Visual Flow Analysis
 
-A separate **VERTEX: Visual Flow Analysis** editor-context command opens static Calls with Classes / Methods and a **Logic** toggle. Logic uses the standard Tools page and follows the selected routine in the ADT editor. Source links open ADT source and reveal the requested line or method. Value Origin now bundles the shared ABAP control and call modules required by FLOW.
+**VERTEX: Visual Flow Analysis** in the ADT editor context menu opens Calls with
+Classes / Methods and a Logic toggle. Logic follows the selected routine in the
+ADT editor. Source links open the requested object and reveal its line or method.
+Eclipse uses its own navigation Back command.
 
-0.8.1 still used Eclipse's SAP ACE analysis endpoints; later builds replaced them with standard ADT reads and abaplint (see *Eclipse Tools: standard ADT analysis* below). Runtime debugging was outside 0.8.1; it now lives in *Visual Debug* below.
+For building and exporting the plugin, see [BUILD.md](../BUILD.md).
+Install an update-site archive with **Help > Install New Software > Add > Archive**.
 
-### Export 0.8.1
-
-Run `node eclipse/prepare.js`, refresh the UI and feature projects in Eclipse, then export `org.vertex.abap.feature` as a deployable feature/update site. Bundle and feature versions are **0.8.1.qualifier**, with Java 21 as the export target. Export to a new directory; install into a test Eclipse before replacing the published update site.
-
-Verify Visual Flow Analysis, Classes / Methods, Logic toggling, cursor and range highlighting, cross-object source navigation, Value Origin FLOW, and both light and dark themes. Eclipse uses its own navigation Back command; it is not the VS Code Alt+Left host implementation.
-
-### Prepared test archive
-
-Java sources compiled successfully with `--release 21` against the installed Eclipse/ADT bundle pool. The packaging script completed and verified the install archive: [vertex-eclipse-0.8.1.20261006202315.zip](../target/eclipse-0.8.1.20261006202315/vertex-eclipse-0.8.1.20261006202315.zip). Install via **Help > Install New Software > Add > Archive**, restart, and run the export checks above. No live Eclipse/SAP validation or publication has been performed.
-
-### Visual Debug (replaces Debug Monitor)
+## Visual Debug
 
 **VERTEX: Open Visual Debug** in an ADT editor's context menu opens the VS Code Visual Debug page
 in Eclipse. It does not open a debugger of its own: it drives the ADT debug session Eclipse
@@ -152,74 +151,22 @@ is not shortened). **Run** needs an active breakpoint: it switches on ADT debugg
 breakpoints to SAP and starts the object in Eclipse's embedded SAP GUI instead of WebGUI. A short
 dump opens the same way.
 
-Status: Java 21 compilation and archive packaging passed
-(`target/eclipse-0.8.8.20261010103956`), as did the Node adapter and analysis checks. **Not checked
-yet:** a live ADT session - how the stack and values update on each step - and light/dark rendering
-in Eclipse.
 
+## Code and data views
 
-### Eclipse Tools: standard ADT analysis
+UML, metrics, Calls, Logic, Parts and Value Origin use standard ADT source reads
+and the shared abaplint analysis engine. The SAP connection belongs to the
+selected Eclipse project. See Versions and code review above for review storage.
 
-Tools UML, metrics, Calls, Logic and Parts now use the shared VS Code frontend-analysis and abaplint parser in a browser worker. Source and package reads use the selected Eclipse project’s standard ADT session. These analysis views no longer require `/sap/bc/adt/vertex/class`, `/metrics`, `/flow` or `/versions` handlers. Versions/Diff, Review and other backend services retain their existing routes. Value Origin also uses standard ADT source and the shared abaplint worker. Eclipse/SAP runtime and light/dark rendering remain unverified.
+Tools offers Metrics, Logic and Calls for function modules. Clicking a method
+of a class local to a program opens that program at the method. Logic follows
+the visible routine in the ADT editor.
 
+Value Origin reads the chosen value's slice. Full / BSE, Depth and Expand /
+Collapse control the displayed tree; the node menu can show a branch from a
+selected point. Calls depth starts at 1. Analysis is available for global and
+local class code, including test classes.
 
-Eclipse follow-up: corrected Debug Monitor / Visual Flow Analysis registration under `org.eclipse.ui.views`. Value Origin now reads standard ADT source and uses the shared abaplint worker; it no longer requests the custom origin endpoint or requires ZCL_VX_ADT_RES_FLOW. Java compilation and archive creation passed; live Eclipse/SAP behavior is pending.
-
-Eclipse Origin fix: ADT metadata reads now send `Accept: */*`; source reads send `Accept: text/plain`, including class includes. This fixes the server’s “Accept header missing” rejection. Live SAP verification is pending.
-
-Eclipse Tools fix: standard ADT object metadata uses `Accept: */*`, matching the VS Code ADT client; `application/xml` was rejected by servers requiring ADT vendor media types. Source reads remain `text/plain`. This Java transport change does not affect VS Code.
-
-Eclipse ADT bridge: added String content handlers for standard SAP vendor XML metadata, including programs v3, classes and interfaces. Shared by Tools, Visual Flow Analysis, Debug Monitor and Origin; negotiated vendor XML versions are registered on response. This change is confined to Java transport. Live SAP verification is pending.
-
-Eclipse browser bundle fix: UMD dependencies now receive the local module loader as `require`, fixing “require is not defined” during abaplint initialization. The VS Code runtime is unchanged.
-
-Eclipse module loader: failed initialization no longer leaves partial exports in the cache. This prevents a failed abaplint load from turning subsequent requests into misleading “MemoryFile is not a constructor” errors. Restart the PDE runtime or installed Eclipse after updating generated resources.
-
-Eclipse browser runtime: added the Buffer.from hex/UTF-8 operations used by abaplint built-in constants, allowing dependent class parsing to continue. Origin reports its ADT + abaplint engine correctly. VS Code runtime unchanged; live SAP verification pending.
-
-Eclipse browser bundler: generated module imports now use a distinct loader name, avoiding collision with frontend-analysis’s SAP source load function. This fixes Calls palette and Logic module loading; shared VS Code analysis sources are unchanged.
-
-### Shared with VS Code 0.8.7
-
-The VERTEX Tools window offers Metrics, Logic diagram and Calls diagram for a function module too, and opens it on Metrics; before, only Diff.
-
-Value origin's FLOW, with a variable chosen, goes into a call only where the value is computed, and for a method's local variable shows that method alone; between breakpoints it shows the routine they stand in and everything it calls.
-
-In the Calls diagram, a click on a method of a class local to a program opens that program at the method; before, Eclipse looked for a global class of that name ("ZCL_AVE_POPUP (Class) does not exist").
-
-### Eclipse editor menu
-
-Eclipse: the VERTEX items - VERTEX Tools, VERTEX: Activate, Forward Usage Analysis (then called Analyze Variable Value Origin), Visual Flow Analysis, Debug Monitor - are in the context menu of the ADT class and program editors again (with ADT 3.60 in Eclipse 2025-03 none of them showed there). In a class's Global Class tab the analyses are offered too: ADT 3.60 labels that tab otherwise than CLAS/OC, so the object's kind is also read from its ADT address. In build 0.8.1.20261008145448.
-
-Value origin, Visual Flow Analysis and Debug Monitor are offered in every ADT editor, and Value origin runs in a class's method code: ADT 3.60 opens a class's Global Class tab as its main include (CLAS/I), which is now taken for the class itself. The local types, local implementations and test classes of a class are analysed too; a command that cannot run on an object says so and names its type and address.
-
-Value origin reads only what the chosen value's slice reaches, as in VS Code - not every customer object the source names, which for a local variable meant half the system and a window that seemed to hang.
-
-### Shared with VS Code 0.8.5
-
-The Logic diagram is the shared page: RETURN, LEAVE PROGRAM and an EXIT outside a loop end their branch and are drawn in the theme's error colour, instead of a line across the whole diagram to ENDMETHOD. In build 0.8.1.20261008145448. SAP system setup is VS Code only: Eclipse takes its systems from the ABAP project.
-
-### Shared with VS Code 0.8.4 (Value origin page)
-
-FLOW tree: switching between Full and BSE keeps the branches open as Expand all / Collapse all and Depth set them (BSE used to show everything collapsed). The tree's root keeps Expand all and Depth even when nothing is left under it, so the depth slider no longer disappears. Depth for calls starts at 1. In build 0.8.1.20261008145448.
-
-Logic diagram: a TRY is drawn as a branch - the TRY body and each CATCH start from the TRY and meet at ENDTRY. A RETURN inside a CATCH no longer ends the whole diagram; the method goes on after ENDTRY.
-
-Eclipse: opening a function module from VERTEX (Tools, the chat) failed with "Function module ... was not found" for every function module; it opens now, a standard one too: when the search by type leaves it out, the exact name is searched without the type, as in VS Code.
-
-Eclipse chat, as in VS Code: names in a list of found objects are links that open the object, and every answer has a Copy button that copies its Markdown through Eclipse's clipboard.
-
-2 pane (version diff and review): the new version is always on the left and the old one on the right, and the heading names the new one first.
-
-Review: the Inline | 2 pane switch of the version diff is in a request's review too; in 2 pane each block's bar with Approve, Decline and Comment spans both columns above its change. The choice is shared with the version diff.
-
-Tools: while the window asks the SAP system what it offers, the page says so in its main area (it used to say it only in the small status line).
-
-ABAP: the ACE core (`ZCL_VX_ACE_*`, `ZIF_VX_ACE_*`, `Z_VX_ACE_SCHEME_TEST`) and the hub routes that served it - `metrics`, `class`, `package`, `flow` (`ZCL_VX_ADT_RES_METRICS`, `_CLASS`, `_PACKAGE`, `_FLOW`) - are removed from the repository. VS Code and Eclipse compute UML, metrics, Calls, Logic, FLOW and the statement map themselves from ADT source with abaplint. The other routes stay: table, join, versions, review, prepare, requests, about. Installs older than the move to client-side analysis still ask for the removed routes.
-
-### Shared with VS Code 0.8.3 (Value origin page)
-
-The Eclipse plugin's Value origin runs the VS Code page and flow builder, so plugin build 0.8.1.20261008145448 carries the FLOW changes of VS Code 0.8.3 and the Value origin fixes below: the Classes / Methods / Logic / Statements switch, the node menu (Show from here, Expand / Collapse this branch), Auto direction, labels written as in the code, and theme-following frames.
-
-Tools Logic now follows the ADT editor while it scrolls, as in VS Code 0.8.3: the line a third down the visible range is sent to the page, and when it lies in another method that method's logic diagram replaces the shown one. Also in build 0.8.1.20261008145448.
-
+Chat object names are links to their ADT editors. Copy copies an answer as Markdown.
+In a two-pane diff the new version is on the left; review blocks offer Approve,
+Decline and Comment. Inline / 2 pane is shared with the version diff.

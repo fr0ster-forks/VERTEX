@@ -134,6 +134,24 @@ function host(savedState = {}) {
     fireBreakpoints: change => breakpointListeners.forEach(fn => fn(change)), nativePoints, removedNative, savedState,
     restoreDocument: uri => vscode.workspace.openTextDocument(uri) };
 }
+test("chained constructor method navigation opens implementation and replaces a clean tab", async () => {
+  const h = host();
+  await h.tools.execute("open_sap_object", { object_name: "ZTEST", object_type: "PROG" });
+  const document = h.documents[0];
+  document.text = "REPORT ztest.\nDATA(result) = NEW zcl_calc_facade( )->run( ).";
+  document.saved = document.text;
+  h.api.elementInfo = async () => null;
+  h.api.definition = async () => ({ url: "/sap/bc/adt/oo/classes/zcl_calc_facade/source/main", line: 3, column: 12 });
+  h.api.sourceAt = async () => "CLASS zcl_calc_facade DEFINITION.\n  PUBLIC SECTION.\n    METHODS run.\nENDCLASS.";
+  document.selection = { active: { line: 1, character: document.text.split("\n")[1].indexOf("run") + 1 } };
+  await h.commands.get("vertex.goToClassMethod")();
+  assert.equal(h.errors.length, 0);
+  assert.ok(h.documents.length > 1, JSON.stringify({ infos: h.infos, diffs: h.diffs }));
+  assert.equal(h.documents.at(-1).selection.start.line, 5);
+  assert.ok(h.diffs.some(item => item[0] === "workbench.action.closeActiveEditor"));
+  assert.equal(h.diffs.at(-1)[1].preview, true);
+});
+
 test("an AI change goes into the object's tab unsaved; nothing reaches SAP until the user saves", async () => {
   const h = host();
   const result = await h.tools.execute("modify_sap_object", { object_name: "ZTEST", object_type: "PROG", source: "REPORT ztest. WRITE 'fixed'." });

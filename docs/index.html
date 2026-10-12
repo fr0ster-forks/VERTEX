@@ -222,6 +222,23 @@
   and includes LLM Providers and Tools windows. The extension also hands transport
   reviews to the AI assistants in the editor &mdash; Copilot, Claude Code, Codex
   &mdash; over MCP.
+  VERTEX registers ABAP itself; opening SAP source does not require another ABAP extension.
+  Claude Code detection also accepts its native CLI in PATH or ~/.local/bin when
+  the Claude Code VS Code extension is absent; restart VS Code after installation.
+  LLM Providers checks Claude availability before offering models and reports a
+  missing executable when settings are opened.
+  Codex also detects a standalone native CLI or its global npm native executable
+  through PATH without the openai.chatgpt extension. Restart VS Code after installation.
+  Windows detection also checks %APPDATA%/npm.
+  MCP setup offers Codex or Claude Code and copies both review and debugger
+  registrations together. Every Welcome step includes an Info button explaining
+  system import, connection testing, assistant choice or MCP capabilities.
+  Open Welcome with VERTEX: Get Started in the Command Palette.
+  Recommended optional VS Code companion:
+  <a href="https://marketplace.visualstudio.com/items?itemName=larshp.vscode-abap">ABAP (larshp.vscode-abap)</a>.
+  The two transport-review MCP tools use standard ADT without VERTEX ABAP classes:
+  they read saved reviews from ZAVE_REVIEW through data preview, or build unsaved
+  reviews from version history. They cannot save or approve reviews.
 </p>
 
 <p>

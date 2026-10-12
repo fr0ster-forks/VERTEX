@@ -25,7 +25,7 @@
     "codex",
     "reviewer"
   ],
-  "version": "0.8.8",
+  "version": "0.8.9",
   "publisher": "YuriiSychov",
   "engines": {
     "vscode": "^1.85.0"
@@ -44,6 +44,13 @@
   "icon": "images/icon.png",
   "main": "./extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "abap",
+        "aliases": ["ABAP", "abap"],
+        "extensions": [".abap"]
+      }
+    ],
     "breakpoints": [
       {
         "language": "abap"
@@ -155,7 +162,12 @@
       },
       {
         "command": "vertex.mcpAddress",
-        "title": "VERTEX: Add the VERTEX MCP server to Claude Code or Codex",
+        "title": "Add the VERTEX MCP server to Claude Code or Codex",
+        "category": "VERTEX"
+      },
+      {
+        "command": "vertex.getStarted",
+        "title": "Get Started",
         "category": "VERTEX"
       },
       {
@@ -480,6 +492,10 @@
         }
       ],
       "commandPalette": [
+        { "command": "vertex.launcher.focus", "when": "false" },
+        { "command": "vertex.visualDebug.focus", "when": "false" },
+        { "command": "workbench.view.extension.vertex", "when": "false" },
+        { "command": "workbench.view.extension.vertex-debug", "when": "false" },
         {
           "command": "vertex.openVisualDebug",
           "when": "resourceScheme == vertex-sap && editorLangId == abap"
@@ -628,7 +644,7 @@
           {
             "id": "systems",
             "title": "Import your SAP systems",
-            "description": "From SAP Logon and Eclipse ADT - no address to look up.\n[Import SAP Systems](command:vertex.importSystems)",
+            "description": "From SAP Logon and Eclipse ADT - no address to look up.\n[Import SAP Systems](command:vertex.importSystems)\n[ⓘ Info](command:vertex.systemsInfo)",
             "media": {
               "markdown": "walkthrough/systems.md"
             },
@@ -639,7 +655,7 @@
           {
             "id": "test",
             "title": "Test the connection",
-            "description": "Log on to each system and see what is wrong, if anything.\n[Test SAP Systems](command:vertex.testSystems)",
+            "description": "Log on to each system and see what is wrong, if anything.\n[Test SAP Systems](command:vertex.testSystems)\n[ⓘ Info](command:vertex.testInfo)",
             "media": {
               "markdown": "walkthrough/test.md"
             },
@@ -650,7 +666,7 @@
           {
             "id": "ai",
             "title": "Choose the assistant",
-            "description": "Claude Code, Codex or the Anthropic API, in the VERTEX panel.\n[Open the VERTEX Panel](command:vertex.showPanel)",
+            "description": "Claude Code, Codex or the Anthropic API, in the VERTEX panel.\n[Open the VERTEX Panel](command:vertex.showPanel)\n[ⓘ Info](command:vertex.aiInfo)",
             "media": {
               "markdown": "walkthrough/ai.md"
             },
@@ -661,7 +677,7 @@
           {
             "id": "mcp",
             "title": "VERTEX MCP in Claude Code or Codex (optional)",
-            "description": "Use VERTEX's SAP tools from Claude Code or Codex themselves.\n[Add the VERTEX MCP server](command:vertex.mcpAddress)",
+            "description": "Use VERTEX's SAP tools from Claude Code or Codex themselves.\n[Add the VERTEX MCP server](command:vertex.mcpAddress)\n[ⓘ Info](command:vertex.mcpInfo)",
             "media": {
               "markdown": "walkthrough/mcp.md"
             },

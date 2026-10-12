@@ -228,7 +228,8 @@ function request(system, pw, requestPath, extra) {
     const secure = base.protocol === "https:";
     const headers = {
       Authorization: "Basic " + Buffer.from(system.user + ":" + pw).toString("base64"),
-      Accept: "application/json"
+      Accept: requestPath.split("?")[0] === "/sap/bc/adt/discovery"
+        ? "application/atomsvc+xml" : "application/json"
     };
     Object.keys(settings.headers || {}).forEach(function (name) {
       headers[name] = settings.headers[name];
@@ -630,16 +631,21 @@ function serveTools(context, server) {
   const shown = version && version.packageJSON ? version.packageJSON.version : "0";
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("vertex.getStarted", async function () {
+      await vscode.commands.executeCommand("workbench.action.openWalkthrough",
+        "YuriiSychov.vertex-abap#vertex.start", false);
+    }),
+    ...["systems", "test", "ai", "mcp"].map(step =>
+      vscode.commands.registerCommand("vertex." + step + "Info", async function () {
+        await vscode.commands.executeCommand("markdown.showPreview",
+          vscode.Uri.file(path.join(__dirname, "walkthrough", step + ".md")));
+      })),
     vscode.commands.registerCommand("vertex.mcpAddress", async function () {
-      const picked = await vscode.window.showQuickPick(["Codex", "Claude Code",
-        "Codex - debugger", "Claude Code - debugger"], {
+      const picked = await vscode.window.showQuickPick(["Codex", "Claude Code"], {
         title: "Connect VERTEX to which assistant?"
       });
       if (!picked) { return; }
-      // The debugger is its own server entry, so the review registration and
-      // what it offers stay as they are.
-      const debug = / - debugger$/.test(picked);
-      const client = picked.replace(/ - debugger$/, "");
+      const client = picked;
       let running;
       try {
         running = await server.start();
@@ -654,18 +660,18 @@ function serveTools(context, server) {
       // User scope, not the default local one: local ties the server to the
       // directory Claude Code happens to be started in, and this one belongs
       // to the machine, not to a folder.
-      const name = debug ? "vertex-debug" : "vertex";
-      const url = debug ? running.url.replace(/\/mcp$/, "/debug") : running.url;
-      const line = client === "Codex"
+      const entries = [{ name: "vertex", url: running.url },
+        { name: "vertex-debug", url: running.url.replace(/\/mcp$/, "/debug") }];
+      const line = entries.map(({ name, url }) => client === "Codex"
         ? '[mcp_servers.' + name + ']\nurl = "' + url
           + '"\nhttp_headers = { Authorization = "Bearer ' + server.token + '" }\n'
         : 'claude mcp add --transport http ' + name + ' --scope user ' + url
-                 + ' --header "Authorization: Bearer ' + server.token + '"';
+                 + ' --header "Authorization: Bearer ' + server.token + '"').join("\n");
       await vscode.env.clipboard.writeText(line);
       vscode.window.showInformationMessage(
         (client === "Codex"
-          ? "Copied Codex configuration. Paste into ~/.codex/config.toml, replacing any existing [mcp_servers." + name + "] section, then restart the Codex extension and start a new conversation. "
-          : "Copied the Claude Code terminal command. If " + name + " is already registered, run claude mcp remove " + name + " --scope user first. ")
+          ? "Copied Codex configuration for review and debugger. Paste into ~/.codex/config.toml, replacing existing [mcp_servers.vertex] and [mcp_servers.vertex-debug] sections, then restart Codex and start a new conversation. "
+          : "Copied two Claude Code terminal commands for review and debugger. If already registered, first run claude mcp remove vertex --scope user and claude mcp remove vertex-debug --scope user. ")
         + (vscode.workspace.getConfiguration("vertex").get("mcp.port", 37777) === 0
           ? "Port 0 changes the address on reload. Set vertex.mcp.port for a stable connection."
           : "The port and token persist across window reloads."));

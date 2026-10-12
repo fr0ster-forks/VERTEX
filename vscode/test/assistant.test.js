@@ -178,9 +178,9 @@ test("a run that does not answer is stopped and says so", async () => {
 });
 
 test("an assistant that is not there is named, not guessed", async () => {
-  await assert.rejects(assistant.ask(common(spawner(() => {}), "claude", { extensionPath: "" })),
-                       /Claude Code is not installed in this VS Code \(extension anthropic\.claude-code\)/);
   const empty = folder("vertex-ext-");
+  await assert.rejects(assistant.ask(common(spawner(() => {}), "claude", { extensionPath: empty })),
+                       /has no executable at/);
   await assert.rejects(assistant.ask(common(spawner(() => {}), "codex", { extensionPath: empty })),
                        /has no executable at/);
   await assert.rejects(assistant.ask(common(spawner(() => {}), "copilot")),
@@ -212,7 +212,7 @@ test("Codex's model list starts with its weakest model and marks the one config.
 });
 
 test("Claude's list is versions by full id, the newest of each family on and the weakest first", async () => {
-  const list = await assistant.models({ assistant: "claude" });
+  const list = await assistant.models({ assistant: "claude", extensionPath: extension("claude") });
   assert.deepEqual(list.filter(m => m.on).map(m => m.id),
     ["claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1"]);
   assert.ok(list.every(m => /^claude-/.test(m.id)));

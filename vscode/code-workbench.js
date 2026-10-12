@@ -833,11 +833,22 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const klass = /^\/sap\/bc\/adt\/oo\/classes\/([^/]+)\/(?:source\/main|includes\/(definitions|implementations|macros|testclasses))$/i.exec(foreign.url);
     const program = /^\/sap\/bc\/adt\/programs\/programs\/([^/]+)\/source\/main$/i.exec(foreign.url);
     const face = /^\/sap\/bc\/adt\/oo\/interfaces\/([^/]+)\/source\/main$/i.exec(foreign.url);
+    const word = wordAt(document, at);
+    const sourceLine = document.getText().split(/\r?\n/)[at.line] || "";
+    const methodCall = klass && word && /(?:->|=>)\s*$/.test(sourceLine.slice(0, word.from))
+      && /^\s*\(/.test(sourceLine.slice(word.to));
     const target = klass || program || face
       ? (await sourceDocument(foreign.repo, { object_type: klass ? "CLAS" : program ? "PROG" : "INTF",
-        object_name: decodeURIComponent((klass || program || face)[1]).toUpperCase(), ...(klass && klass[2] ? { include: klass[2] } : {}) })).document
+        object_name: decodeURIComponent((klass || program || face)[1]).toUpperCase(), ...(klass && klass[2] && !methodCall ? { include: klass[2] } : {}) })).document
       : await readOnlyView(foreign.source !== undefined ? foreign : { ...foreign, source: await foreign.repo.api.sourceAt(foreign.url) });
-    return { document: target, target: location(target.uri, foreign.line, foreign.column, wordAt(document, at).name.length) };
+    if (methodCall) {
+      const implementation = methodLine(target.getText(), word.name, true);
+      if (implementation < 0) { return undefined; }
+      const line = target.getText().split(/\r?\n/)[implementation];
+      return { document: target, target: location(target.uri, implementation,
+        Math.max(0, line.toUpperCase().indexOf(word.name.toUpperCase())), word.name.length) };
+    }
+    return { document: target, target: location(target.uri, foreign.line, foreign.column, word.name.length) };
   }
   function procedureAt(source, line) {
     let current;
@@ -1428,9 +1439,10 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   }
   async function moveTo(editor, result) {
     navigation.push({ document: editor.document, at: editor.selection.active });
-    // Context navigation is one reading flow.  It must not create a second
-    // editor group merely because the source tab is dirty; VS Code keeps that
-    // dirty tab in the same group and the user can still return with Back.
+    // Replace the current clean editor tab; unsaved work stays open.
+    if (result.document !== editor.document && !editor.document.isDirty) {
+      await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+    }
     const target = result.document === editor.document ? editor : await vscode.window.showTextDocument(result.document, {
       preview: true,
       viewColumn: vscode.ViewColumn.Active

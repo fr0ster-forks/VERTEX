@@ -6,6 +6,11 @@
   (the Eclipse update site and plugin), `history.md` (the release notes) and `dev_history.md`
   (the development history, a stage per landing). Do not state a version for a host that was
   not built.
+- Record descriptions of what changed only in `history.md` and `dev_history.md`.
+  User documentation, including `vscode/README.md` and `eclipse/README.md`, must
+  describe current capabilities and instructions, without development updates or
+  "what was done" notes. Update instructions when behavior changes, but keep the
+  change narrative in the histories.
 - In the VS Code extension, every interface element must use a theme-aware background color. Do not hard-code a light or dark background that breaks with the active VS Code theme; use VS Code theme variables or inherited colors.
 - Diagram and Lens mode controls use the shared compact toggle style already used by Visual Debug: adjacent modes form a group; an active mode uses the theme focus colour, while inactive modes remain quiet. Do not introduce a separate toggle appearance for a diagram or Lens.
 - Two shared toggle types are canonical: independent on/off controls use `vertex-toggle` / `.on`; mutually exclusive choices use `vertex-segment-toggle` / `.active`. Both live in `org.vertex.abap.ui/resources/vertex-controls.css` and are copied to `vscode/resources/` at packaging. Do not redefine either style in a view; use the class unchanged.

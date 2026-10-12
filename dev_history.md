@@ -1,5 +1,51 @@
 # Development history
 
+## 2026-10-12 — Keep development reports in histories
+
+Cleaned repository, Marketplace and landing-page documentation of local rebuild narratives and implementation-fix reports. Reorganized VS Code setup under Getting started. Replaced Eclipse's accumulated changelog sections with current feature and installation descriptions; the original notes are archived in history.md. Runtime sources unchanged.
+
+## 2026-10-12 — VS Code ABAP recommendation
+
+Added .vscode/extensions.json with larshp.vscode-abap in recommendations at the user's request. Updated repository, Marketplace and landing-page documentation with the optional companion link without making it a runtime dependency.
+
+## 2026-10-12 — Welcome command and command palette cleanup
+
+Registered vertex.getStarted to open the extension's vertex.start walkthrough. Hid generated launcher/debug view focus and container commands through commandPalette visibility conditions, preserving panel access. Removed the redundant title prefix on the categorized MCP command. Reset VS Code manifest and lockfile to 0.8.9 at the user's request; Eclipse metadata unchanged.
+
+## 2026-10-12 — Rebuild VS Code as 0.8.10
+
+Bumped the extension manifest and lockfile root versions from 0.8.9 to 0.8.10. Sixteen tests covering the extension host, assistant invocation/detection, ABAP language declaration and ADT Discovery passed. The reported 0.8.9 error was not specified, so this landing is a rebuild rather than a diagnosed runtime correction. Eclipse metadata unchanged.
+
+## 2026-10-11 — Shared Welcome information actions
+
+Generalized the MCP information action across all four walkthrough steps. Each Info button opens only its corresponding packaged Markdown page in VS Code preview. The host test invokes all four actions and verifies their preview paths; targeted tests passed. Native walkthrough buttons inherit VS Code theme styling.
+
+## 2026-10-11 — Combined MCP registration and Welcome information
+
+Removed the separate debugger choices from the assistant picker. The clipboard contains two Codex TOML sections or two Claude commands, retaining separate server names and endpoints. Updated the cancellation and clipboard regression checks. Added a Welcome information link that opens the packaged MCP walkthrough in Markdown preview with capabilities and setup instructions. Eclipse unchanged.
+
+## 2026-10-11 — Detect standalone Codex CLI
+
+Inspected the installed npm wrapper and platform package: its native executable is under `vendor/x86_64-pc-windows-msvc/bin/codex.exe`, rather than the older `codex/` subdirectory. Added the bin layout for each candidate package and a Windows APPDATA/npm fallback. Verified locate() returns the installed executable without launching it; twelve targeted tests passed.
+
+Extended the Claude native CLI fallback to Codex. A PATH directory is checked for the native executable and for Codex vendor binaries in legacy and platform-specific global npm layouts, including nested optional dependencies. The executable is launched directly with the existing argument and isolation handling, without invoking npm shell wrappers. Regression tests cover native Windows and three npm layouts.
+
+Local VSIX 0.8.9 rebuilt with Claude availability checked before loading models in settings. The packaging wrapper verified dependencies, archive contents and packaged Scheme navigation. Fifteen targeted tests passed. The broader suite recorded 457 passes and 30 failures; live VS Code/SAP verification remains pending.
+
+## 2026-10-11 — Register ABAP for the 0.8.9 VS Code build
+
+Claude detection previously required `anthropic.claude-code` even if the native CLI was installed separately. Added a native executable fallback through PATH and the standard ~/.local/bin directory when the extension is absent. Tests exercise both locations without depending on installed software and retain the existing assistant invocation checks (ten tests passed).
+
+The assistant's `ZV*LAB` search resolved one object and opened a document, but `setTextDocumentLanguage(document, "abap")` failed because the manifest declared ABAP breakpoint support without declaring the language. Added a language contribution with the ABAP aliases and `.abap` suffix, covering the existing source and draft paths without swallowing editor errors. Added a manifest regression test and bumped the VS Code manifest and lockfile to 0.8.9. Eclipse metadata unchanged.
+
+## 2026-10-11 — Correct ADT Discovery content negotiation
+
+The connection-test screenshot showed HTTP 406 with `application/atomsvc+xml` as the accepted type. The extension's HTTP helper defaulted to JSON for every resource, including discovery used by connection checks and CSRF-token retrieval. Discovery paths now select Atom service XML, including requests with a sap-client query; other resources retain JSON and explicit headers still override the default. The regression test simulates a server rejecting the wrong Accept type and checks both discovery uses and the other-resource default. Three targeted tests passed; no package was built or live SAP check performed.
+
+## 2026-10-11 — Align MCP setup with the ADT reader
+
+Checked `mcp/sap.js`: the logical `/vertex/review/` request is handled by `vscode/review-front.js`, not sent to a custom SAP resource. Corrected Eclipse Copilot prerequisites and troubleshooting, added `npm ci` in `vscode/`, replaced the obsolete standalone architecture diagram, and aligned the repository, Marketplace and update-site descriptions. Documented saved `ZAVE_REVIEW` reads and the unsaved review built from ADT history when no saved review exists. Documentation only; no packaging or host version change.
+
 ## 2026-10-10 — Eclipse live debug editor navigation
 
 The Eclipse Visual Debug host called `sdeReveal` after every native stop, causing repeated class editor openings while ADT was already navigating the active frame. The live-stop callback now updates the Visual Debug page without reopening the editor. Explicit links retain ADT navigation. The host regression test asserts that a stop records its picture and makes no editor-open call.

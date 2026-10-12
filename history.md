@@ -1,5 +1,50 @@
 # Release history
 
+## 2026-10-12 — Documentation cleanup
+
+Removed rebuild reports, source-fix announcements and conversational version notes from user documentation. Retained current setup and capability descriptions. Archived the Eclipse README's older development and test-build notes in this history.
+
+## 2026-10-12 — Recommended VS Code ABAP extension
+
+Added larshp.vscode-abap to workspace recommendations and linked it as an optional companion in VS Code installation documentation. VERTEX still registers ABAP independently; no new extension dependency.
+
+## 2026-10-12 — VS Code 0.8.9 local rebuild: Welcome command and palette cleanup
+
+Added VERTEX: Get Started to reopen Welcome, removed the duplicated VERTEX prefix from MCP setup and hid the generated panel focus/show commands from the palette. Rebuild numbered 0.8.9 at the user's explicit request, retaining the latest changes. Marketplace and Eclipse publication unchanged.
+
+## 2026-10-12 — VS Code 0.8.10 local rebuild
+
+Rebuilt the current extension sources under 0.8.10 at the user's request after an unspecified error in 0.8.9. Retains the connection, language, assistant detection, combined MCP setup and Welcome information changes. Sixteen targeted tests passed. No new runtime fix is claimed without the error details; Marketplace and Eclipse publication unchanged.
+
+## 2026-10-11 — VS Code 0.8.9: information for every Welcome step
+
+All four Get Started steps now offer the same Info button, opening the corresponding packaged Markdown guide. Covers system import, connection testing, assistant choice and MCP capabilities. Eclipse unchanged.
+
+## 2026-10-11 — VS Code 0.8.9: combined MCP setup and Welcome help
+
+MCP setup now offers only Codex and Claude Code. Each choice copies both the review and debugger registrations. Welcome adds an MCP capabilities information button explaining the two servers, setup and the built-in chat's automatic tools. Eclipse unchanged.
+
+## 2026-10-11 — VS Code 0.8.9: standalone Codex detection
+
+Corrected detection for the installed npm CLI's `vendor/<target>/bin/codex.exe` layout. Windows also checks `%APPDATA%/npm` independently of PATH. Detection was verified against the installed CLI, and twelve targeted tests passed.
+
+When the Codex VS Code extension is absent, VERTEX now looks for a native Codex CLI through PATH, including native executables in global npm package layouts. Extension-bundled executables retain priority. Restart VS Code after CLI installation. Eclipse version unchanged.
+
+## 2026-10-11 — VS Code 0.8.9 preparation: register ABAP independently
+
+Claude Code detection now falls back to the native CLI in `PATH` or `~/.local/bin` when its VS Code extension is absent. Extension-bundled executables retain priority. Ten assistant/detection tests passed.
+LLM Providers also checks Claude's executable before loading its model list, reporting a missing installation in settings instead of waiting for a chat request.
+
+VERTEX now declares the `abap` language and `.abap` extension in its own manifest. Opening source from the assistant, including a wildcard search with one match, and opening code drafts no longer depend on another extension registering the language. Includes the ADT Discovery HTTP 406 fix. Packaging and live VS Code/SAP verification pending; Eclipse version unchanged.
+
+## 2026-10-11 — VS Code source: ADT Discovery HTTP 406 fix
+
+Test SAP Systems and CSRF-token discovery request `application/atomsvc+xml` instead of JSON from ADT Discovery. This fixes content negotiation on SAP systems that reject JSON with HTTP 406. Three targeted tests passed; live SAP verification and packaging remain pending. No host version change.
+
+## 2026-10-11 — MCP documentation correction
+
+Updated standalone and Eclipse Copilot MCP setup to match the standard ADT reader: no VERTEX ABAP classes or custom review resource are required. Added the shared Node dependency installation step and explained saved-review reads and unsaved reviews built from version history. Aligned repository, VS Code and Eclipse documentation and the update-site page. Documentation only; no host build or version change.
+
 ## 2026-10-10 — Eclipse plugin source 0.8.8.qualifier: Visual Debug replaces Debug Monitor
 
 Live debug stops now leave source-editor navigation to Eclipse. Visual Debug no longer opens an additional class tab on every step; explicit source links still navigate.
@@ -1512,3 +1557,273 @@ BSE identifies code relevant to the selected value. Predict can skip irrelevant 
 
 Selecting a variable on the left side of an assignment includes that assignment in its backward slice. Selecting an operand keeps the incoming-value analysis. This retains the selected calculation and its condition and dependencies in BSE. Copy log uses the VS Code host clipboard and displays success or failure instead of relying on webview clipboard permissions.
 
+
+## Archived Eclipse development notes (moved from user documentation on 2026-10-12)
+
+The following notes describe earlier source and test builds, not the current installation instructions.
+
+### Shared diagram help
+
+The shared Tools pages include help for source links, Logic only, procedure exits, range and loop-frame highlighting, direction, zoom and the magnifier. The VS Code 0.8.1 release preparation also updates Visual Debug and embedded Tools navigation. The 0.8.1 test archive is built below; it has not been published or checked in a running Eclipse.
+
+## Eclipse 0.8.1 — Visual Flow Analysis
+
+A separate **VERTEX: Visual Flow Analysis** editor-context command opens static Calls with Classes / Methods and a **Logic** toggle. Logic uses the standard Tools page and follows the selected routine in the ADT editor. Source links open ADT source and reveal the requested line or method. Value Origin now bundles the shared ABAP control and call modules required by FLOW.
+
+0.8.1 still used Eclipse's SAP ACE analysis endpoints; later builds replaced them with standard ADT reads and abaplint (see *Eclipse Tools: standard ADT analysis* below). Runtime debugging was outside 0.8.1; it now lives in *Visual Debug* below.
+
+### Export 0.8.1
+
+Run `node eclipse/prepare.js`, refresh the UI and feature projects in Eclipse, then export `org.vertex.abap.feature` as a deployable feature/update site. Bundle and feature versions are **0.8.1.qualifier**, with Java 21 as the export target. Export to a new directory; install into a test Eclipse before replacing the published update site.
+
+Verify Visual Flow Analysis, Classes / Methods, Logic toggling, cursor and range highlighting, cross-object source navigation, Value Origin FLOW, and both light and dark themes. Eclipse uses its own navigation Back command; it is not the VS Code Alt+Left host implementation.
+
+### Prepared test archive
+
+Java sources compiled successfully with `--release 21` against the installed Eclipse/ADT bundle pool. The packaging script completed and verified the install archive: [vertex-eclipse-0.8.1.20261006202315.zip](../target/eclipse-0.8.1.20261006202315/vertex-eclipse-0.8.1.20261006202315.zip). Install via **Help > Install New Software > Add > Archive**, restart, and run the export checks above. No live Eclipse/SAP validation or publication has been performed.
+
+### Visual Debug (replaces Debug Monitor)
+
+**VERTEX: Open Visual Debug** in an ADT editor's context menu opens the VS Code Visual Debug page
+in Eclipse. It does not open a debugger of its own: it drives the ADT debug session Eclipse
+already has, through SAP's `IAbapThread` / `IAbapStackFrame` / `IAbapVariable` and Eclipse debug
+events, so there is still one listener per user. The view keeps Debug Monitor's ID, so existing
+shortcuts open it.
+
+- Stack, frame switching, scopes, variables and table rows come from the stopped ADT thread.
+- Step Into / Over / Return / Continue and run-to-line call ADT's own stepping; Detach and
+  Terminate go to the same thread.
+- Breakpoints set or cleared in the page are ADT breakpoints, and ADT's own appear in the page.
+- The flow chart, recording and player run on the page as in VS Code; the stopped line opens in
+  the ADT editor and the Logic diagram follows it.
+- Eclipse handles source-editor navigation on each live stop; Visual Debug does not open another
+  class tab on every step. Explicit source links still open their requested object.
+- With several ADT debug threads, a thread selector appears in the page header.
+
+Differences from VS Code: no step prediction (Eclipse reads the stack at every suspend, so a step
+is not shortened). **Run** needs an active breakpoint: it switches on ADT debugging, sends the
+breakpoints to SAP and starts the object in Eclipse's embedded SAP GUI instead of WebGUI. A short
+dump opens the same way.
+
+Status: Java 21 compilation and archive packaging passed
+(`target/eclipse-0.8.8.20261010103956`), as did the Node adapter and analysis checks. **Not checked
+yet:** a live ADT session - how the stack and values update on each step - and light/dark rendering
+in Eclipse.
+
+
+### Eclipse Tools: standard ADT analysis
+
+Tools UML, metrics, Calls, Logic and Parts now use the shared VS Code frontend-analysis and abaplint parser in a browser worker. Source and package reads use the selected Eclipse project’s standard ADT session. These analysis views no longer require `/sap/bc/adt/vertex/class`, `/metrics`, `/flow` or `/versions` handlers. Versions/Diff, Review and other backend services retain their existing routes. Value Origin also uses standard ADT source and the shared abaplint worker. Eclipse/SAP runtime and light/dark rendering remain unverified.
+
+
+Eclipse follow-up: corrected Debug Monitor / Visual Flow Analysis registration under `org.eclipse.ui.views`. Value Origin now reads standard ADT source and uses the shared abaplint worker; it no longer requests the custom origin endpoint or requires ZCL_VX_ADT_RES_FLOW. Java compilation and archive creation passed; live Eclipse/SAP behavior is pending.
+
+Eclipse Origin fix: ADT metadata reads now send `Accept: */*`; source reads send `Accept: text/plain`, including class includes. This fixes the server’s “Accept header missing” rejection. Live SAP verification is pending.
+
+Eclipse Tools fix: standard ADT object metadata uses `Accept: */*`, matching the VS Code ADT client; `application/xml` was rejected by servers requiring ADT vendor media types. Source reads remain `text/plain`. This Java transport change does not affect VS Code.
+
+Eclipse ADT bridge: added String content handlers for standard SAP vendor XML metadata, including programs v3, classes and interfaces. Shared by Tools, Visual Flow Analysis, Debug Monitor and Origin; negotiated vendor XML versions are registered on response. This change is confined to Java transport. Live SAP verification is pending.
+
+Eclipse browser bundle fix: UMD dependencies now receive the local module loader as `require`, fixing “require is not defined” during abaplint initialization. The VS Code runtime is unchanged.
+
+Eclipse module loader: failed initialization no longer leaves partial exports in the cache. This prevents a failed abaplint load from turning subsequent requests into misleading “MemoryFile is not a constructor” errors. Restart the PDE runtime or installed Eclipse after updating generated resources.
+
+Eclipse browser runtime: added the Buffer.from hex/UTF-8 operations used by abaplint built-in constants, allowing dependent class parsing to continue. Origin reports its ADT + abaplint engine correctly. VS Code runtime unchanged; live SAP verification pending.
+
+Eclipse browser bundler: generated module imports now use a distinct loader name, avoiding collision with frontend-analysis’s SAP source load function. This fixes Calls palette and Logic module loading; shared VS Code analysis sources are unchanged.
+
+### Shared with VS Code 0.8.7
+
+The VERTEX Tools window offers Metrics, Logic diagram and Calls diagram for a function module too, and opens it on Metrics; before, only Diff.
+
+Value origin's FLOW, with a variable chosen, goes into a call only where the value is computed, and for a method's local variable shows that method alone; between breakpoints it shows the routine they stand in and everything it calls.
+
+In the Calls diagram, a click on a method of a class local to a program opens that program at the method; before, Eclipse looked for a global class of that name ("ZCL_AVE_POPUP (Class) does not exist").
+
+### Eclipse editor menu
+
+Eclipse: the VERTEX items - VERTEX Tools, VERTEX: Activate, Forward Usage Analysis (then called Analyze Variable Value Origin), Visual Flow Analysis, Debug Monitor - are in the context menu of the ADT class and program editors again (with ADT 3.60 in Eclipse 2025-03 none of them showed there). In a class's Global Class tab the analyses are offered too: ADT 3.60 labels that tab otherwise than CLAS/OC, so the object's kind is also read from its ADT address. In build 0.8.1.20261008145448.
+
+Value origin, Visual Flow Analysis and Debug Monitor are offered in every ADT editor, and Value origin runs in a class's method code: ADT 3.60 opens a class's Global Class tab as its main include (CLAS/I), which is now taken for the class itself. The local types, local implementations and test classes of a class are analysed too; a command that cannot run on an object says so and names its type and address.
+
+Value origin reads only what the chosen value's slice reaches, as in VS Code - not every customer object the source names, which for a local variable meant half the system and a window that seemed to hang.
+
+### Shared with VS Code 0.8.5
+
+The Logic diagram is the shared page: RETURN, LEAVE PROGRAM and an EXIT outside a loop end their branch and are drawn in the theme's error colour, instead of a line across the whole diagram to ENDMETHOD. In build 0.8.1.20261008145448. SAP system setup is VS Code only: Eclipse takes its systems from the ABAP project.
+
+### Shared with VS Code 0.8.4 (Value origin page)
+
+FLOW tree: switching between Full and BSE keeps the branches open as Expand all / Collapse all and Depth set them (BSE used to show everything collapsed). The tree's root keeps Expand all and Depth even when nothing is left under it, so the depth slider no longer disappears. Depth for calls starts at 1. In build 0.8.1.20261008145448.
+
+Logic diagram: a TRY is drawn as a branch - the TRY body and each CATCH start from the TRY and meet at ENDTRY. A RETURN inside a CATCH no longer ends the whole diagram; the method goes on after ENDTRY.
+
+Eclipse: opening a function module from VERTEX (Tools, the chat) failed with "Function module ... was not found" for every function module; it opens now, a standard one too: when the search by type leaves it out, the exact name is searched without the type, as in VS Code.
+
+Eclipse chat, as in VS Code: names in a list of found objects are links that open the object, and every answer has a Copy button that copies its Markdown through Eclipse's clipboard.
+
+2 pane (version diff and review): the new version is always on the left and the old one on the right, and the heading names the new one first.
+
+Review: the Inline | 2 pane switch of the version diff is in a request's review too; in 2 pane each block's bar with Approve, Decline and Comment spans both columns above its change. The choice is shared with the version diff.
+
+Tools: while the window asks the SAP system what it offers, the page says so in its main area (it used to say it only in the small status line).
+
+ABAP: the ACE core (`ZCL_VX_ACE_*`, `ZIF_VX_ACE_*`, `Z_VX_ACE_SCHEME_TEST`) and the hub routes that served it - `metrics`, `class`, `package`, `flow` (`ZCL_VX_ADT_RES_METRICS`, `_CLASS`, `_PACKAGE`, `_FLOW`) - are removed from the repository. VS Code and Eclipse compute UML, metrics, Calls, Logic, FLOW and the statement map themselves from ADT source with abaplint. The other routes stay: table, join, versions, review, prepare, requests, about. Installs older than the move to client-side analysis still ask for the removed routes.
+
+### Shared with VS Code 0.8.3 (Value origin page)
+
+The Eclipse plugin's Value origin runs the VS Code page and flow builder, so plugin build 0.8.1.20261008145448 carries the FLOW changes of VS Code 0.8.3 and the Value origin fixes below: the Classes / Methods / Logic / Statements switch, the node menu (Show from here, Expand / Collapse this branch), Auto direction, labels written as in the code, and theme-following frames.
+
+Tools Logic now follows the ADT editor while it scrolls, as in VS Code 0.8.3: the line a third down the visible range is sent to the page, and when it lies in another method that method's logic diagram replaces the shown one. Also in build 0.8.1.20261008145448.
+
+
+## Archived repository development notes (moved on 2026-10-12)
+
+## VS Code 0.8.8: SelecTor, Run Select and Versions without the backend
+
+Breakpoints set through Visual Debug or MCP appear as native VS Code points in VERTEX editor tabs. Clicking a gutter point removes it from SAP and Visual Debug too; conditions, disabled state and logpoint mode stay synchronized.
+
+- **Run Select.** New command **VERTEX: Run Select** (editor context menu of a VERTEX ABAP tab): the SELECT at the cursor runs through ADT's data preview, read only, as Eclipse's SQL console runs a query, and the rows open beside the code. What only the running program would supply is left out: INTO and FOR ALL ENTRIES go, UP TO n ROWS is the row limit (otherwise 100; SELECT SINGLE reads one), and a WHERE condition that reads a program value - a variable, a parameter, a select-option - is dropped, an OR holding one dropped whole. What was dropped is listed above the rows. A program value under NOT or outside WHERE, or a dynamic table, list or condition, refuses the SELECT and says why. The statement is parsed with abaplint, saved or not. A SELECT on one table whose WHERE select-options can say opens in SelecTor instead, its conditions filled in as selection lines and each program value as an empty line to fill in; any other SELECT runs in the plain window, which says why it did not open in SelecTor. A SELECT with INNER or LEFT OUTER joins opens in SelecTor's Join, its tables in order, their ON conditions and the SELECT list carried over, when SelecTor's join takes them - it joins only the tables the dictionary offers; the selection starts folded. In a table the selection panel is a list of fields, as SAP GUI's selection screen is, each with a Shown checkbox. From Run Select only the SELECT's fields are read at first; Show hidden reads every field of the table and leaves the ones the SELECT did not ask for unticked, still there to select on.
+- **SelecTor without the backend for a table.** SelecTor reads a table - its fields with their texts, and the rows under the select-options - through ADT's data preview, as Run Select does, instead of the VERTEX resource on SAP. The answer and the window are the same; a selection SAP refuses is now an error rather than an empty table. Joins and the pivot still need the ABAP backend.
+- **SelecTor's join without the backend.** The join is built and read through ADT's data preview too: the tables the dictionary offers (foreign keys out and in, text tables, from DD08L and DD05S), the proposed ON, the SELECT list and the selection, with the same window. A table the dictionary does not offer can now be joined as well, on the key fields it shares with the base or on an ON of your own - a self-join included. The pivot still needs the ABAP backend.
+- **SelecTor's pivot without the backend.** The pivot is read through ADT's data preview as well: one statement grouped by its rows and columns with the measures' aggregates, the column values spread into columns in the window. Run Select opens a SELECT with GROUP BY and aggregates in the pivot, its grouped fields as rows and COUNT, SUM, MIN, MAX and AVG as measures; HAVING, DISTINCT, UNION and expressions run in the plain window. Its columns are named by the fields and its values by their domains' texts, as the ABAP pivot named them; a smallest or largest date stays a date; its selection is the same field list.
+- **Versions without the backend.** The version history of a program or an include is read from ADT's revision feed, as Eclipse's Revision History reads it - number, author, time, transport - and the diff of two versions is computed in the window - VERTEX's own line differ, Myers' shortest edit script over whole lines as Eclipse's Text Compare computes it, written from the published algorithm because Eclipse's comparer is under the EPL and VERTEX under MIT; nothing is done on top of it, so a commented-out line no longer pairs with its original as in AVE; the switches for transports of copies, duplicates and case/indentation work as before. The task under a request is not shown: the feed does not carry it. A class is its sections, its methods and its local includes, as before: ADT keeps the versions of the whole class, and a section's or a method's history is the versions of the class where its text changed, cut out with abaplint - the first look at a long-lived class reads every version of it once. An interface, a function module and a CDS view read their own feeds; a function group is its main program, its function modules and its other includes, from TFDIR and TRDIR. Tables, structures, domains and data elements read their own feeds; a package is what TADIR keeps under it and a transport request what E071 holds for it and its tasks, each part opened from the feed of the object it belongs to. Finding a user's requests reads E070 through the data preview. A saved review is read through the data preview as well - the summary, the reviewers, the history and a part's blocks with their verdicts and threads, out of the ZAVE_REVIEW table AVE and VERTEX share; with none saved - or on a system without the table - the review of a request is built from ADT on the spot: each part it changed, paired by AVE's own rule - the request's newest version, or the active one when ADT records it under the request and no other request's version sits above, against the first older version that is not the request's - diffed and cut into blocks, to look at and not saved. Building a review into the table and approving, declining or commenting still go through the ABAP backend. Includes also get their parts list in VERTEX Tools.
+- **A review built from ADT can be saved.** The review of a request with none saved is built in the window, and the status line now says what it is reading (the request, then each part in turn). **Save** keeps it; a saved review takes Approve, Decline, comments and taking a verdict back, made the way AVE makes them (its ZCL_VX_REVIEW_STATE carried over), so AVE and VERTEX read the same review. Two saves of the same review at once do not overwrite each other: the second is refused.
+- **Where reviews are kept: `vertex.review.storage`.** `table` (default) writes SAP's `ZAVE_REVIEW` through a new resource of VERTEX's ABAP, `ZCL_VX_ADT_RES_STORE` - the one thing it is needed for in VS Code; `file` writes one JSON file per request under `vertex.review.folder` (default `.vertex/reviews` in the workspace, `<system>/<request>.json`); `both` writes both. On a system without VERTEX's ABAP reviews go to files, and the page says so. Approving, declining and commenting no longer go through `ZCL_VX_ADT_RES_REVIEW` in VS Code.
+- **The ABAP side is only the review store now.** `src/` holds `ZCL_VX_ADT_RES_STORE`, the `ZAVE_REVIEW` table, `ZCL_VX_ADT_RES_ABOUT` and the route registration; the version, diff, review and request classes and `Z_VX_DEBUGGER_TEST` are gone from it - pulling with abapGit does not delete them from a system, they are removed there by hand. Building a review on the ABAP side (Prepare) and the review against another system are no longer in VERTEX; AVE keeps both.
+- **The standalone MCP server reads the review over ADT.** `mcp/server.js` reads a saved review through ADT's data preview, or builds it from ADT, with the extension's own code; it no longer asks VERTEX's ABAP. It needs the extension's packages in the checkout (`npm ci` in `vscode/`).
+
+## VS Code 0.8.7: function modules in Tools
+
+- **Function modules in VERTEX Tools.** A function module offers Metrics, Logic diagram and Calls diagram, as a program does, and opens on Metrics; before, only Diff.
+- **Calls diagram navigation.** A click on a method of a class local to a program (or an include or function module) opens that program at the method, instead of looking for a global class of that name and failing.
+- **Value origin FLOW.** With a variable chosen, the flow goes into a call only where the value is computed; for a variable local to its method the flow is that method alone, without its callers or the rest of the class. The run no longer reads unrelated classes.
+- **Forward Usage Analysis.** Analyze Variable Value Origin is now **VERTEX: Forward Usage Analysis** (same keys and menus). With no variable under the cursor it draws the flow forward from that line, without a slice of a value. Breakpoints no longer bound the flow as a pair: the flow stops at each breakpoint it reaches, and VERTEX asks whether to stop the analysis there, continue to the next breakpoint or ignore the breakpoints.
+- **Backward Usage Analysis.** New command **VERTEX: Backward Usage Analysis** (editor context menu of a VERTEX ABAP tab): from the routine at the cursor up into its callers through SAP's where-used, following the value - a variable, else every parameter and used attribute, else the plain calls - on in each caller and up through the caller's own parameters. Standard SAP code is not followed. Breakpoints stop it a level of callers at a time, with the same three answers.
+- **Expression with conditions, working clicks.** Alternatives in Expression say when each holds: `{(iv_base * mv_rate) otherwise | ((iv_base * mv_rate) - 50) when lv_gross > 1000}` (ELSE reads as `NOT (…)`, a WHEN as `x = value`). A click on a node or on `</>` in a Value origin window opens the source again - a shared script had broken the page's own script, and with it every click. A script that fails in the window is now reported, and a node with no source to open says so.
+- **Interface methods.** A double-click on a call through an interface reference (`lo_strategy->calculate_base(`), or on a method name in an interface's METHODS, goes to its implementation as SAP's navigate-to-implementation names it, instead of stopping at the interface.
+
+## VS Code 0.8.5: SAP system setup, exits in Logic, long sources
+
+- **SAP system setup.** **VERTEX: Import SAP Systems** fills `vertex.systems` from what the machine already has: each system's host and instance from SAP Logon (a logon group through its message server's host), the client and user from an Eclipse ADT workspace - the recent workspaces of the Eclipse installations found on the machine are offered - and the ADT address found by trying the usual ports (443NN and 80NN for the instance, then 44300, 8000, 50001, 50000, 443, 80, 8443, 8080). Only addresses that answer are offered, and nothing is written before the reader picks. **VERTEX: Test SAP Systems** logs on to each system and says what is wrong; the password goes to the OS credential store, never to settings. The import also checks where the debugger can open WebGUI (`/sap/bc/gui/sap/its/webgui`): on the system's `url` it needs nothing; served on another address that answered - say `url` on HTTP 8000, WebGUI on HTTPS 44300 - or behind a redirect to a host this computer resolves, it writes that as `webgui`; found nowhere, it says so, and `webgui` is set by hand. Both are links under `vertex.systems` in Settings, and a start with no system configured offers the import.
+- **Logic diagram.** RETURN, LEAVE PROGRAM and an EXIT outside a loop end their branch and are drawn in the theme's error colour, instead of a line across the whole diagram to ENDMETHOD.
+- **Long sources.** SAP's analysis of a source - hover, Go to Definition, F1 - is refused only above 50,000 lines (was 20,000). Above that F1 still works: SAP is sent only the statement at the cursor (a whole chain, across its lines), cut out with abaplint.
+- **F1 and Go to Type Definition** wait for a hover's SAP analysis that is still running, as Go to Definition does, instead of failing with "SAP is still analysing the previous request".
+- **Chat and reviews.** A question asked while a Tools window shows an object of a review carries that object's changes - the changed lines with three around them, each review block marked with its number, author and verdict - as it already did for a version diff.
+
+## VS Code 0.8.4: FLOW tree in BSE
+
+- The FLOW tree in Value origin: switching between Full and BSE keeps the branches open as Expand all / Collapse all and Depth set them (BSE used to show everything collapsed). The tree's root keeps Expand all and Depth even when nothing is left under it, so the depth slider no longer disappears. Depth for calls starts at 1.
+- Chat: when a bare object name finds several objects, each name in the list is a link that opens the object, as a single match is opened.
+- Tools: the Logic only switch no longer shows in UML or Metrics while the window is still loading; it belongs to the Logic diagram only.
+- Tools UML: while a diagram loads, the diagram area says what is happening - checking the system, reading the class or the package's classes, loading the diagram library, drawing.
+- Chat: every answer has a Copy button under it; it copies the answer's Markdown through VS Code's clipboard and says Copied or why it failed.
+- Chat: "VERTEX:" stands on its own line, so an answer that starts with a heading or a list shows it as one.
+- ABAP: the ACE core (`ZCL_VX_ACE_*`, `ZIF_VX_ACE_*`, `Z_VX_ACE_SCHEME_TEST`) and the hub routes that served it - `metrics`, `class`, `package`, `flow` (`ZCL_VX_ADT_RES_METRICS`, `_CLASS`, `_PACKAGE`, `_FLOW`) - are removed from the repository. VS Code and Eclipse compute UML, metrics, Calls, Logic, FLOW and the statement map themselves from ADT source with abaplint. The other routes stay: table, join, versions, review, prepare, requests, about. Installs older than the move to client-side analysis still ask for the removed routes.
+- Review: the Inline | 2 pane switch of the version diff is in a request's review too; in 2 pane each block's bar with Approve, Decline and Comment spans both columns above its change. The choice is shared with the version diff.
+- Tools: while the window asks the SAP system what it offers, the page says so in its main area (it used to say it only in the small status line).
+- 2 pane (version diff and review): the new version is always on the left and the old one on the right, and the heading names the new one first.
+- Eclipse chat, as in VS Code: names in a list of found objects are links that open the object, and every answer has a Copy button that copies its Markdown through Eclipse's clipboard.
+- Eclipse: opening a function module from VERTEX (Tools, the chat) failed with "Function module ... was not found" for every function module; it opens now, a standard one too: when the search by type leaves it out, the exact name is searched without the type, as in VS Code.
+- Logic diagram: a TRY is drawn as a branch - the TRY body and each CATCH start from the TRY and meet at ENDTRY. A RETURN inside a CATCH no longer ends the whole diagram; the method goes on after ENDTRY.
+
+## VS Code 0.8.3: Predict past chains and loop tails, refused breakpoints
+
+- A breakpoint SAP does not accept (a declaration line, for example) is taken off the editor's gutter again; SAP's refusal is still shown. Before, the red dot stayed though the run would never stop there.
+- Predict with BSE passes a chained statement (`WRITE: / a, b, c.` over several lines) outside the slice in one F8 again. Every element of the chain was placed on the keyword's line, while SAP stops on each element's own line, so the page did not recognise the stop and stepped through the chain line by line, on every pass of a loop.
+- Predict with BSE skips the rest of a loop pass once the slice has nothing more in it: from the last place of the slice in the pass, one F8 to temporary points on the first statement of the loop body (the next pass) and after the loop (the last pass), instead of stepping to ENDLOOP every time. Not over a breakpoint, and a call that is in the slice is still entered. The run's summary counts the passes skipped this way.
+
+## VS Code 0.8.3: flow readings, diagram controls and types
+
+- Value origin draws again. The shared flow script used its identifier normaliser before defining it, and the page stopped after the heading.
+- FLOW readings: one switch, **Classes / Methods / Logic / Statements**, in Value origin and in Visual Debug. All four are readings of one source, drawn by the one shared builder. Value origin opens at Methods. A reading is built the first time it is shown. BSE has no Logic reading: Logic is hidden there, and a Logic view turns to Statements.
+- Toolbar: Tree / Diagram comes first. One Expand all / Collapse all button, whose SAP GUI chevrons show what a click does. Depth stands beside it at the root of a tree and beside Fit in the diagram. Every control explains itself on hover. The Analysis log is behind the bug control, with the other technical sections.
+- Node menu (right click on a node or a routine frame): **Show from here** draws only that branch, and a path bar above the diagram (or Esc) goes back. The branch is kept across readings. **Expand this branch** and **Collapse this branch** open or close one branch only.
+- Diagram direction **Auto** (default) draws the diagram both ways and shows the one that fits the window at the larger scale. Top-down and Left-right fix the direction by hand.
+- Diagram reading: WHEN is the label on the line from its CASE, not a second box. Edge labels stand on the editor background, so no line runs through them. Labels show the code as written — `<>`, `<fs>`, `=>`, `&` — in FLOW and in the Tools Logic diagram (no more `NE` or dots). In BSE a kept block keeps its ENDIF / ENDCASE / ENDLOOP.
+- Theme: diagram colours come from the editor theme only, and a missing theme colour is reported by name. Routine frames follow the theme in every layout: light blue on light themes. The magnifier keeps the diagram colours. Dragging the diagram no longer selects text.
+- Navigation: a click on a FLOW diagram label opens the code again. A click in a Tools diagram scrolls the editor that already shows that source instead of opening a second copy. Back (Alt+Left) returns from code opened from a diagram.
+- Types: the hover of a name declared inline (`DATA(x) = …`) shows the declaring statement and the type SAP gives it. **Go to Type Definition** opens the `TYPES` declaration of a variable's type in its class or interface.
+- Visual Debug: the separate Logic button (the Tools logic diagram of one method) is gone; Logic is a reading of the flow.
+- Tools Logic follows the editor while it scrolls: when the source scrolled to is another method, its logic diagram replaces the shown one (before, only a cursor move did that). The Eclipse plugin's Tools window does the same from the ADT editor's scrolling; it is in the Eclipse plugin build 0.8.1.20261008145448.
+
+## VS Code 0.8.1 — code diagrams and Visual Debug
+
+### Analysis and source navigation
+
+Metrics, UML, Calls, Logic and Value Origin read source through standard ADT and use bundled abaplint. Calls follows reached routines and enforces the selected depth during traversal; the default depth is 2. The entry routine is level 1 and each call adds one. A target at the boundary remains a leaf. Dynamic targets and unsupported constructs can remain unresolved; expand analysis warnings and copy the log for diagnostics.
+
+Right-click an ABAP editor or object and choose a VERTEX Tools action. Tools opens beside the source and selects the method under the cursor. Click a linked label to open its source; Alt+Left returns through VS Code navigation history. Breakpoint object:line labels also open source.
+
+### Visual Debug
+
+- **Classes / Methods** selects how the call graph is shown. Depth and expansion are retained when switching.
+- The separate **Logic** toggle embeds the standard **Tools Logic diagram** in the same panel. It starts from the active editor and follows the selected method, including changes to another ABAP object. Switch Logic off to return to the existing call graph.
+- **Detach** continues a stopped program and disconnects, or cancels listening for a run. It is disabled when there is no debugger connection. Breakpoints are kept. **Exit program** is available when the program is stopped.
+- The analysis status reports stage, source and parsed statement counts, and elapsed time every three seconds. Parsed counts describe analysis work, not executed steps. The bug button at the top right copies the diagnostic log.
+
+### Tools Logic diagram
+
+**Logic only** is on by default. It keeps branches, loops, procedure calls and control transfers; switch it off to show ordinary operations as well. Operations are shown individually. Nested IF / ELSEIF / ELSE branches retain their joins. RETURN points to the procedure end, and closing-line breakpoints remain part of FLOW.
+
+A condition stays in one diamond, including its AND / OR terms. External calls are marked with ↗ and linked method names; nested call arguments are abbreviated. If the target cannot be resolved, navigation opens the call site.
+
+Cursor and range selections highlight matching nodes. Selecting LOOP or ENDLOOP highlights the loop frame. The focused view drives scrolling; programmatic navigation is suppressed to avoid feedback.
+
+Choose **Top-down** or **Left-right**, use the **10–100% zoom slider**, or press **Fit**. The lens is disabled at 70% and above; below that it magnifies up to an effective 70% scale. Changing the colour theme preserves zoom and scroll position. Controls and highlights use theme colours.
+
+### Eclipse 0.8.1 export preparation
+
+Prepared 0.8.1.qualifier bundle/feature metadata, the shared FLOW dependencies and an Eclipse Visual Flow Analysis command with Calls / Logic and ADT editor selection/source navigation. Eclipse retains its existing ACE backend contract; the VS Code frontend-analysis adapter and runtime Debug are not claimed ported. See [Eclipse export guide](eclipse/README.md).
+
+### Eclipse Debug Monitor prototype
+
+**VERTEX: Debug Monitor** observes an existing SAP ADT debug session using exported SAP `IAbapThread` / `IAbapStackFrame` and Eclipse debug events. It does not establish a second connection or change breakpoints. Open it from an ABAP editor context menu after starting the normal ADT debugger. It reads stopped frames and up to 100 top-frame variables in background jobs; Refresh retries the read. If multiple threads are present, choose one explicitly. Large displayed values are truncated at 2,000 characters, and variable children are not fetched recursively.
+
+When an ABAP class frame supplies its class URI and absolute source line, the monitor passes that coordinate to the Tools Logic view. Include-local coordinates are not guessed. Editor selection remains available for source following. Step, Continue, terminate, recording, table expansion and frame-selection control remain in the normal ADT debugger for this prototype.
+
+The installed SAP ADT 3.60 interfaces were inspected locally, and Java 21 compilation and archive packaging passed. No live debug session or light/dark runtime check has been performed. Install the test archive before using this as a release feature.
+
+
+### Eclipse Tools: standard ADT analysis
+
+Tools UML, metrics, Calls, Logic and Parts now use the shared VS Code frontend-analysis and abaplint parser in a browser worker. Source and package reads use the selected Eclipse project’s standard ADT session. These analysis views no longer require `/sap/bc/adt/vertex/class`, `/metrics`, `/flow` or `/versions` handlers. Versions/Diff, Review and other backend services retain their existing routes. Value Origin also uses standard ADT source and the shared abaplint worker. Eclipse/SAP runtime and light/dark rendering remain unverified.
+
+
+Eclipse follow-up: corrected Debug Monitor / Visual Flow Analysis registration under `org.eclipse.ui.views`. Value Origin now reads standard ADT source and uses the shared abaplint worker; it no longer requests the custom origin endpoint or requires ZCL_VX_ADT_RES_FLOW. Java compilation and archive creation passed; live Eclipse/SAP behavior is pending.
+
+Eclipse Origin fix: ADT metadata reads now send `Accept: */*`; source reads send `Accept: text/plain`, including class includes. This fixes the server’s “Accept header missing” rejection. Live SAP verification is pending.
+
+Eclipse Tools fix: standard ADT object metadata uses `Accept: */*`, matching the VS Code ADT client; `application/xml` was rejected by servers requiring ADT vendor media types. Source reads remain `text/plain`. This Java transport change does not affect VS Code.
+
+Eclipse ADT bridge: added String content handlers for standard SAP vendor XML metadata, including programs v3, classes and interfaces. Shared by Tools, Visual Flow Analysis, Debug Monitor and Origin; negotiated vendor XML versions are registered on response. This change is confined to Java transport. Live SAP verification is pending.
+
+Eclipse browser bundle fix: UMD dependencies now receive the local module loader as `require`, fixing “require is not defined” during abaplint initialization. The VS Code runtime is unchanged.
+
+Eclipse module loader: failed initialization no longer leaves partial exports in the cache. This prevents a failed abaplint load from turning subsequent requests into misleading “MemoryFile is not a constructor” errors. Restart the PDE runtime or installed Eclipse after updating generated resources.
+
+Eclipse browser runtime: added the Buffer.from hex/UTF-8 operations used by abaplint built-in constants, allowing dependent class parsing to continue. Origin reports its ADT + abaplint engine correctly. VS Code runtime unchanged; live SAP verification pending.
+
+Eclipse browser bundler: generated module imports now use a distinct loader name, avoiding collision with frontend-analysis’s SAP source load function. This fixes Calls palette and Logic module loading; shared VS Code analysis sources are unchanged.
+
+Visual Debug Copy log now includes DEBUG HISTORY SLICE (recorded stops, selected-variable snapshots, watch reads, changes since prior reads, missing/error states) and DEBUG CONTEXT (the current assistant context). Export does not infer or carry forward values; a changed value does not identify an intervening culprit statement by itself.
+
+Visual Debug assistant context now includes actual recorded value history (up to the context limit), with missing/error states. Watch reads always include the chosen variable alongside relevant operands; previously only the route reached chat despite recorded values being available.
+
+Visual Debug replay slider now displays watch values read at the selected recorded stop, including missing/read-error states, rather than ignoring watch history and searching only routine scope snapshots.
+
+## VS Code 0.8.3 — recorded values and AI debug context
+
+Visual Debug brings the ABAP source, execution diagram and recorded variable values into one workspace.
+
+1. Choose **Steps & values** and select a variable for BSE analysis. Relevant stop reads include the selected variable and related operands; routine snapshots provide additional scope values.
+2. Use the history slider or replay buttons to revisit recorded stops. **Stack** shows the recorded location; **Variables** shows watch values read at that stop, or the available routine snapshot when there is no watch read.
+3. Ask the assistant to analyse the run. Its context includes the execution route and actual variable history, with missing reads and errors identified. The value history is limited to 150 stops in assistant context.
+4. Use **Copy log** to export the analysis, **DEBUG HISTORY SLICE** and **DEBUG CONTEXT** for a reproducible discussion.
+
+BSE identifies code relevant to the selected value. Predict can skip irrelevant statements and loop tails. A recording contains values at captured stops, not every intermediate execution state; inferred steps are not measured variable values. Differences between two reads alone do not prove which intervening statement caused an error.
+
+**Initials** is off by default. Enable it to display variables with initial values.
+### Value Origin: selected assignment and Copy log
+
+Selecting a variable on the left side of an assignment includes that assignment in its backward slice. Selecting an operand keeps the incoming-value analysis. This retains the selected calculation and its condition and dependencies in BSE. Copy log uses the VS Code host clipboard and displays success or failure instead of relying on webview clipboard permissions.

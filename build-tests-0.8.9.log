@@ -1,0 +1,1195 @@
+✔ the review of a request is read over ADT, without VERTEX's ABAP (28.1855ms)
+✔ invalid configuration fails on stderr without exposing password (410.0437ms)
+✔ VERTEX registers ABAP without requiring another extension (2.7647ms)
+✔ scheme preserves ACE method shape, CHECK sequencing and call styling (67182.1876ms)
+✔ IF and ELSEIF branches fan out and join before following work (96.6982ms)
+✔ CASE WHEN paths join on ENDCASE (40.2491ms)
+✖ plain loop folds and expands through existing aceexp action (66.0685ms)
+✔ nested loop structure uses a frame; trailing work remains outside it (41.2543ms)
+✔ TRY CATCH does not capture the enclosing IF branch owner (36.0028ms)
+✖ operations fold, expand and preserve side effects (167.9735ms)
+✔ same-line statements keep separate nodes and balanced branch joins (25.705ms)
+✖ empty method draws only its method node (21.8288ms)
+✔ nested IF false paths join their own ENDIF (26.3797ms)
+✔ labels keep the code as written: operators, => and field symbols; only " and | are replaced, < travels as U+E000 (34.0935ms)
+✔ a CATCH that returns leaves the TRY body going on after ENDTRY (23.332ms)
+✔ LEAVE PROGRAM and an EXIT outside a loop end their branch; an EXIT in a loop does not (28.0477ms)
+✔ ACE diagram colours adapt to both editor palettes and preserve distinct type hues (19.6518ms)
+✔ Calls retains ACE names, rounded shapes and type colours without HTML entities or synthetic root (67200.3728ms)
+✔ FORM to function adds one level and does not read a boundary function (9518.5637ms)
+✔ event to FORM to FORM increments depth inside the same source (3974.4433ms)
+✔ Calls does not traverse an unused report FORM or its foreign calls (2142.971ms)
+✔ Calls queue cancels the active traversal and retains only the newest pending Calls (2.1595ms)
+✔ superseded analysis exits without waiting for its current ADT read (111.2085ms)
+✔ increasing Calls depth reuses parsed objects and reads only the next level (9406.1178ms)
+✔ source cache is isolated per repository and shares concurrent reads (9631.197ms)
+✔ orientation redraws cached Mermaid without requesting another analysis (5.0316ms)
+✔ local analysis reports progress during a slow ADT read and then parsing/building (6123.0644ms)
+✔ warning details are collapsed and progress follows the active request (2.417ms)
+✔ sidebar line-count question sends the published method in one bounded Anthropic request (52.329ms)
+✔ oversized Anthropic payload is rejected before any network request (5.9711ms)
+✔ Claude Code runs shut in: no built-in tool, one MCP server, the token only in the environment (42.3433ms)
+✔ every model Claude Code reports is named, the one that wrote most first (23.0525ms)
+✔ Claude Code's own failure reaches the chat in its own words (69.3861ms)
+✔ Codex runs without the person's config, shell or plugins, and gets the rules with the request (50.134ms)
+✔ Codex's refusal comes through as the provider's sentence (82.8036ms)
+✔ a run that does not answer is stopped and says so (51.9859ms)
+✔ an assistant that is not there is named, not guessed (29.2479ms)
+✔ Codex's model list starts with its weakest model and marks the one config.toml names (26.9494ms)
+✔ Claude's list is versions by full id, the newest of each family on and the weakest first (1.1651ms)
+✔ a RETURNING parameter is followed into its callers and up through theirs (67005.5018ms)
+✔ an importing parameter is followed to where each caller took it from (4.9081ms)
+✔ with no variable every parameter is followed; with none, the calls are SAP's where-used (14.4761ms)
+✔ a local is followed through the parameters it reaches (6.8763ms)
+✔ the walk stops at a wave that reaches a breakpoint when the reader says stop (4.0778ms)
+✔ the window draws it as Forward does, turned inside out: the routine first, its callers under it (11.4743ms)
+✔ on the METHOD line the routine is analysed with no variable, whatever word the cursor is on (3.9ms)
+✔ shared call resolution is identical to Value Origin callSites for inferred receivers (66859.9454ms)
+✔ shared walker observes depth and entry breakpoint range before visiting bodies (89.1813ms)
+✔ Parts method selection replaces constructor as the Calls start (6.4527ms)
+✔ class Calls starts only at constructor, then at the explicitly selected method (66685.1636ms)
+✔ Calls uses Value Origin call enumeration for NEW receiver and nested assignment calls (72364.7453ms)
+✔ constructor expression types are not methods; NEW names the constructor (6.5047ms)
+✔ the VS Code chat sends the conversation so far, and a new conversation starts empty (6.5609ms)
+✔ a selected fragment from an external ADT editor is sent to VERTEX chat (3.1798ms)
+✔ the active editor's full source is never silently added to a chat prompt (0.9665ms)
+✔ an active UML view is sent as diagram context and is analysed without requesting an object (0.9604ms)
+✔ a question about the visible method keeps the tools and is told to answer from the screen (2.1668ms)
+✔ a bare object name is searched and opened without a model (2.6238ms)
+✔ a name pattern with one result opens it without asking again (1.0463ms)
+✔ multiple search results are returned as openable choices (0.9705ms)
+✔ the chat is given Visual Debug's record and analysis, each said to be what it is, and nothing when the window has neither (0.8433ms)
+✔ the open Value origin window reaches the question as the screen shows it, labelled as analysis (1.1536ms)
+✔ the Expression screen reaches the question as the steps and where they come from (0.592ms)
+✔ review escapes source and metadata, uses nonce CSP and emits valid script (7.2639ms)
+✔ both editor actions are scoped to SAP files (2.6113ms)
+✔ an AI change goes into the object's tab unsaved; nothing reaches SAP until the user saves (137.2421ms)
+✔ a breakpoint placed in the standard VERTEX editor gutter is synchronized to SAP (42.1416ms)
+✔ an AI change is refused while the tab holds edits SAP does not have (5.4933ms)
+✔ a new object is prepared as a draft; the UI applies the edited draft to the original system (14.6546ms)
+✔ SAP editor save activates original system and clears dirty state (6.435ms)
+✔ SAP save failure preserves unsaved editor contents (4.9868ms)
+✔ AI drafts use the same review and apply only from its save action (6.7594ms)
+✔ ASK AI opens a prompt with the chosen block without saving (5.8103ms)
+✔ full review updates editor saved state without another SAP write (4.5901ms)
+✔ partial review updates editor saved state without another SAP write (6.163ms)
+✔ declined review hunks stay dirty and are included in the next explicit save (10.9968ms)
+✔ editing while the confirmation is open prevents applying unreviewed text (5.8332ms)
+✔ open from chat opens editable source beside, preserves edits and supplies follow-up context (6.5448ms)
+✔ F12 moves between a class method declaration and its implementation (8.1486ms)
+✔ editor method hover shows its signature (11.6645ms)
+✔ VERTEX method navigation command opens the counterpart at the method name (5.4698ms)
+✔ structural navigation matches nested DO and LOOP blocks (7.6147ms)
+✔ structural navigation walks IF and CASE sibling branches without entering nested blocks (104.913ms)
+✔ class main source navigation is local and makes no second SAP read (2.1901ms)
+✔ an unqualified local method call goes to its implementation (1.7828ms)
+✔ a name's hover is what SAP says about it, asked at the cursor of the tab's source (4.313ms)
+✔ go to follows SAP's definition inside the tab, and back (3.9996ms)
+✔ a name declared in a type pool is described and opened from that pool's source (3.5962ms)
+✔ a name declared in an interface opens that interface as a VERTEX tab (2.7941ms)
+✔ an interface method invocation never falls back to its METHODS declaration (4.1179ms)
+✔ on the declaration itself SAP's info answer is not an error: the line is the declaration (5.6005ms)
+✔ NEW on a class opens its constructor (6.5683ms)
+✔ outline: a class is its sections and methods, each method at its implementation (3.907ms)
+✔ outline: a program is its events, forms, modules and local classes (2.7767ms)
+✔ a data element's hover names its domain, type and length (2.3799ms)
+✔ SAP failing to describe a name is said in the hover, not dropped (1.8451ms)
+✔ a keyword SAP answers with 400 for gets no hover (2.1892ms)
+✔ a static class call opens its method implementation (3.0294ms)
+✔ double-click on the method after => opens that method (35.4674ms)
+✔ a mouse drag that ends up covering one identifier does not navigate (48.1018ms)
+✔ an instance method call opens the class inferred from its local reference (3.0275ms)
+✔ a dirty source keeps contextual navigation in the active editor group (2.8682ms)
+✔ static class method hover loads and caches its signature (2.4778ms)
+✔ a class name in TYPE REF TO opens that class (2.0625ms)
+✔ CALL FUNCTION opens the function module source (2.0926ms)
+✔ a parameter SAP locates at its method is found in that METHODS statement (2.134ms)
+✔ Run ABAP Unit Tests reports each method in the Test Explorer, a failure at its line (3.7218ms)
+✔ Run ABAP Unit Tests refuses a tab with changes SAP does not have (2.6055ms)
+✔ run_abap_unit answers the assistant with the counts and the failures, not only the Test Explorer (2.5737ms)
+✔ run_abap_unit says an object has no test classes, and refuses what is not a class or a program (3.0612ms)
+✔ run_atc_check answers the assistant with the variant and the findings (3.9376ms)
+✔ the two run tools are offered to the assistant, each taking a system (2.5885ms)
+✔ Run ATC Check puts each finding in Problems at its line, by priority; a new run replaces the last (3.1466ms)
+✔ Run ATC Check on a function module checks its function group (2.1445ms)
+✔ where-used gives each place as a location in the tab of its object; a place VERTEX cannot open is named (3.0185ms)
+✔ where-used refuses a tab with changes SAP does not have (2.3314ms)
+✔ ABAP Documentation shows SAP's page for the cursor, without its scripts (2.4005ms)
+✔ a point removed in the debugger's window is removed from the editor too, or it returns with the next reload (10.0867ms)
+✔ SAP points appear in a restored tab after extension reload and can be removed (31.5431ms)
+✔ a restored point on an obsolete system URI moves to the current source tab (2.7201ms)
+✔ SAP points become clickable native points without resending them; gutter removal clears SAP (25.8353ms)
+✔ a point SAP refuses is taken off the editor's gutter, and the refusal is still reported (4.5466ms)
+✔ a name declared inline is described by SAP's element info: its statement, its type and its components (3.3133ms)
+✔ Go to Type Definition opens the TYPES statement of the type SAP's element info names (65198.1869ms)
+✔ a breakpoint URL follows the object type (4.3229ms)
+✔ a source URL names its object back, and a class's local include is not one (2.3467ms)
+✔ the window sees the stop without taking the assistant's news, and steps without taking it either (26.5146ms)
+✔ a table's rows are read for the window's grid (4.7547ms)
+✔ a condition is attached in a second round, on the line SAP placed (1.0631ms)
+✔ a line SAP refuses is reported and not kept (1.0413ms)
+✔ another debugger listening is not taken over silently (1.0116ms)
+✔ log breakpoints record and run on; a stop breakpoint waits; the end is reported (5.5628ms)
+✔ a table that changed shows its first rows; debug_read reads a range (2.5572ms)
+✔ a step that kills the run says whether it finished or dumped, and only for this user (9.9578ms)
+✔ the last window closing on a stop lets the program go, and says so (15.3812ms)
+✔ an assistant debugging with no window open keeps its stop (3.4066ms)
+✔ Detach lets the program go unwatched, and ST22 answers when it is asked (4.129ms)
+✔ a dump feed that never answers does not cost a stop (1.4326ms)
+✔ a run that ends without a dump says so, and does not wait for one (2.7075ms)
+✔ nothing is read or stepped without a stopped program (3.8321ms)
+✔ a run opens WebGUI on the system, and needs a breakpoint first (1.7573ms)
+✔ stop removes every breakpoint and the listener (1.178ms)
+✔ a deactivated breakpoint stays in the list and leaves SAP; activated, it goes back (1.3878ms)
+✔ detach lets go and stops listening, but keeps the breakpoints for the next run (0.6301ms)
+✔ the /debug set answers initialize with its instructions and lists only debug tools (26.2544ms)
+✔ the debugger follows the active system, and refuses to switch while debugging (1.8979ms)
+✔ a system's webgui address is where WebGUI opens; a bad one is refused (1.6257ms)
+✔ a quick step reads no variables, says how long it took, and still stops for the assistant (1.6751ms)
+✔ terminate ends the program and keeps the breakpoints and the listener (1.4332ms)
+✔ a predicted step takes the line it was given and does not ask for the stack (1.5511ms)
+✔ a predicted PERFORM adds its frame, a predicted ENDFORM takes it away, and settle asks SAP (1.5708ms)
+✔ run to a line: a point for the one run, F8, and the point gone before the stop is read (4.1181ms)
+✔ a function module or a class opens its test screen, with the name filled in (0.9238ms)
+✔ a class's method starts come from ADT's class structure, read once (2.2832ms)
+✔ discovery negotiates Atom service XML for connection checks and CSRF (7.2414ms)
+✔ Codex and Claude setup work without the Copilot MCP API (130.3817ms)
+✔ Versions finds requests by user on a resource of their own (4.3176ms)
+✔ formula follows a component through a structure transfer and keeps SQL only for selected fields (69.6846ms)
+✔ an alternative under IF says when it holds, the one it overrides says otherwise (45.7561ms)
+✔ an ELSE branch is the condition's negation (4.6379ms)
+✔ a WHEN branch reads as the CASE value equal to it (3.7068ms)
+✔ Formula diagram contains the calculations and operand edges rendered by Formula tree (152.812ms)
+✔ Formula diagram uses only nodes visible in the expanded Formula tree (13.6516ms)
+✔ Formula tree starts collapsed and the diagram defaults to left-right (12.1335ms)
+✔ Formula keeps configuration out of the derivation and reduces a SELECT to source and fields (235.8832ms)
+✔ switching visualizers preserves Formula and displays its tree again (10.2003ms)
+✔ Formula is bounded by the breakpoint pair, as every other Type is (11.011ms)
+✖ every Type carries the call-stack depth of its procedure, and the page can bound it (257.251ms)
+✔ in Formula the control bounds the derivation, not the call stack (162.5289ms)
+✔ FLOW carries statements that run, not declarations (37.352ms)
+✔ BSE scope is what BSE found and the path that led to it (513.135ms)
+✖ FLOW shows what a call passes, so nothing is lost with Code gone (399.0832ms)
+✔ the toolbar reads view, then Type, then what is shown (9.5742ms)
+✔ empty routines remain ACE metrics units (11208.4909ms)
+✔ ACE UML references come only from attributes and method declarations (178.3783ms)
+✔ ACE metric boundaries include FORM header and closing statement (79.9857ms)
+✔ report Parts retain named events and FORM types without synthetic GLOBAL (38.588ms)
+✔ implicit report processing is START-OF-SELECTION (19.9242ms)
+✔ GET PARAMETER is an operation, not a logical database event (39.6359ms)
+✔ function and dialog module remain distinct kinds (46.9286ms)
+✔ class methods remain qualified METHOD units (36.402ms)
+✔ each element of a chain is placed on the line where SAP stops for it, not on the keyword line (2650.3418ms)
+✔ edge cases (9.0633ms)
+✔ random pairs are exact and shortest (236.7755ms)
+✔ a key compares lines without case and indentation (1.0636ms)
+✔ large sources stay fast (108.703ms)
+✔ a word in a text literal has no value history (7.5202ms)
+✔ a variable on the same line is not in a literal (0.6997ms)
+✔ quotes inside quotes, back-quoted text and string templates (1.2346ms)
+✔ a comment has no value history either (0.5074ms)
+✔ only the line under the cursor decides (0.4618ms)
+✔ MCP authenticates, lists tools, reads a transport and survives reload (776.4745ms)
+✔ column 0 of an indented line anchors the analysis one statement too early (62.5335ms)
+✔ the variable's own column anchors it on the statement the line holds (6.3685ms)
+✔ a name that is not on the line anchors at its first character (2.2113ms)
+✔ the analysis starts from the last use of the value, wherever the run stands (20.029ms)
+✔ the column falls back to the structure's own name, then to the first character (0.9734ms)
+✔ the packaged Value origin page loads every script without a syntax error or a clash of global names (1278.7669ms)
+✔ parallel runner preserves order and bounds concurrency (57.1036ms)
+✔ Diff and Versions selection updates existing rows without rebuilding Parts (10.3024ms)
+✔ requests go one after another, and an error of one does not stop the next (22.868ms)
+✔ a session that is busy with something else is waited for, a few times, then reported (74.4161ms)
+✔ of a request made again and again only the newest is read while an older one waits (81.6749ms)
+✔ a stamp keeps every digit it was written with (4.8798ms)
+✔ blocks are cut as AVE cuts them: an open statement takes the line that closes it (3.0549ms)
+✔ the summary lists changed objects in AVE's order, with the verdicts on their blocks (76.6606ms)
+✔ a part's blocks carry their verdicts, notes and threads, and where they sit in the stored diff (3.8686ms)
+✔ with nothing saved - or no table at all - the review is built from ADT, live (21.4913ms)
+✔ a class part with no class name is placed under its class (0.6682ms)
+✔ the pair follows AVE: the request's newest version, the active one when it is the request's and nothing foreign is above (20.9202ms)
+✔ a request's program is reviewed as the diff of its pair, cut into blocks, with its author named (15.1745ms)
+✔ a payload read for writing goes back with its stamps as the numbers they were (5.562ms)
+✔ a stamp is GET TIME STAMP's TIMESTAMPL, in UTC (1.8728ms)
+✔ approve, decline, comment and take back change the review as AVE does (38.0517ms)
+✔ a review built from ADT is saved to a file, then approved there (97.2714ms)
+✔ analysis source reader fetches one version and caches metadata and requested includes (22.4628ms)
+✔ value origin reads only the configured pipeline for one scenario (3.1938ms)
+✔ activation runs after releasing the editing lock and can recover a saved draft (13.5677ms)
+✔ failed unlock prevents activation (3.0265ms)
+✔ working source changed after unlock is not activated (4.838ms)
+✔ $TMP object saves without a transport even if SAP lock omits IS_LOCAL (1.6773ms)
+✔ known inactive source is activated without a duplicate write (2.184ms)
+✔ existing inactive edits are read, reviewed and can be saved (2.119ms)
+✔ inactive edits changed after opening prevent preparing a stale review (1.5983ms)
+✔ matching inactive target does not bypass an active version conflict (2.5342ms)
+✔ PROG resolves by exact type/name and returns full source + revision (0.8882ms)
+✔ CLAS resolves by exact type/name and returns full source + revision (0.6586ms)
+✔ FUNC resolves by exact type/name and returns full source + revision (0.9391ms)
+✔ function module read falls back to an unfiltered exact FUGR search (2.6569ms)
+✔ class includes use their discovered source URL (0.9832ms)
+✔ no exact search match does not read another object (1.3156ms)
+✔ prepare never writes and application checks under lock, writes, activates, verifies and unlocks (1.5403ms)
+✔ changed active source aborts with no overwrite and releases lock (1.4356ms)
+✔ changed working source aborts with no overwrite and releases lock (5.4743ms)
+✔ syntax failure never writes; SAP lock failure never tries to unlock another user's lock (3.6168ms)
+✔ failed activation is reported as a saved source, never automatically retried (2.3838ms)
+✔ network failure on write leaves an uncertain state and prevents duplicate write (1.2406ms)
+✔ create PROG is deferred until apply with the right parent and type (1.6487ms)
+✔ create CLAS is deferred until apply with the right parent and type (0.6841ms)
+✔ create FUNC is deferred until apply with the right parent and type (0.5492ms)
+✔ same-name object created after preview cannot be overwritten (0.7266ms)
+✔ transport is sent with write; source verification failure is not reported as success (4.6864ms)
+✔ credentials cannot be redirected by a source URI (0.7827ms)
+✔ invalid bounds and missing revisions fail before writes (1.1052ms)
+✔ where-used counts a place inside a class method from where SAP says the method starts (1.3855ms)
+✔ a source over the line limit is refused before it is sent to SAP, and only one analysis runs at a time (8.2822ms)
+✔ a click on a name waits for the analysis already running, a hover does not (623.8145ms)
+✔ a data preview statement goes in lines of at most 200 characters, broken outside literals (4.9303ms)
+✔ Scheme loads sections, opens no method until one is picked, and retains Parts after another click (39.2678ms)
+✔ a known condition stays, a program value is left out, INTO and FOR ALL ENTRIES go, UP TO is the row count (5202.0402ms)
+✔ an OR with an unknown branch is left out whole and reported (86.0646ms)
+✔ old syntax: the list gets commas, SINGLE reads one row, a select-option is left out (49.8863ms)
+✔ an unknown value under NOT is refused to run as written, and opens in SelecTor as an empty excluding line (90.6137ms)
+✔ one table opens in SelecTor: known conditions filled, program values as empty lines (48.731ms)
+✔ what select-options cannot say stays out of SelecTor, with the reason (195.5679ms)
+✔ a dynamic table and a program value outside WHERE are refused (53.1392ms)
+✔ a statement that is not a SELECT is refused (34.4477ms)
+✔ a SELECT loop runs like a SELECT (33.6367ms)
+✔ a join becomes SelecTor's: tables in order as t1, t2, their type and ON renamed, fields and filters on its column names (22.7383ms)
+✔ a join SelecTor cannot build stays out, with the reason (77.067ms)
+✔ ABAP's two spellings of a comparison give the same selection line: >= and GE, <> and NE (53.6028ms)
+✔ GROUP BY with aggregates becomes SelecTor's pivot: the grouped fields its rows, the aggregates its measures (19.5349ms)
+✔ the base alone: the dictionary's neighbours offered, every field selected, no statement run without rows (29.1079ms)
+✔ an ON given is used as it is, and no field pairs are read for it (4.6809ms)
+✔ a taken table joins on its foreign key, keys selected once, filters on the join's column names (6.074ms)
+✔ a table nobody offers is taken by hand, with the caller's type and ON - a self-join included (2.641ms)
+✔ what the resource refused is refused here; a pivot is not this module's (7.6996ms)
+✔ cand=0 asks the dictionary for no tables around the base (6.6765ms)
+✔ a pivot groups by its dimensions in SAP and spreads the column values here (97.935ms)
+✔ COUNT( * ) is a measure, and with none the rows are counted; an aggregate a field cannot carry falls back (19.4066ms)
+✔ a pivot names its values by the domain and its columns by the fields; MAX of a date stays a date (33.6328ms)
+✔ the table answer has the ABAP resource's shape: no client field, typed values, dates formatted (36.3657ms)
+✔ filters keep select-option semantics and quote what the reader typed (6.4859ms)
+✔ what the ABAP resource refused is refused here, a missing table included (4.8731ms)
+✔ no filter, no WHERE (0.6856ms)
+✔ a list of names goes in as many statements as keep each under the data preview's line (3.1905ms)
+✔ pick=X reads and answers only the columns asked for, in their order, the rows in key order (3.084ms)
+✔ request metadata includes each mentioned table and the exact joined aliases (15.5524ms)
+✔ existing joins are retained and new tables follow dictionary candidate order (3.1937ms)
+✔ missing metadata is explicit and does not discard layouts that succeeded (2.6059ms)
+✔ changing the base supplies the requested join without inheriting the old join (4.0416ms)
+✔ the layout is asked for without a row count, so SAP reads no row (0.8105ms)
+✔ the tool gives fields for filters, tables to join and keys for the rest (1.8042ms)
+✔ a plan comes back written the way the page writes it (2.6576ms)
+✔ a plan naming what the dictionary does not have is refused with the reason (3.6377ms)
+✔ an empty table is an answer that changes nothing and reads nothing (10.2579ms)
+✔ the SelecTor endpoint serves its own tool and leaves the review on /mcp alone (496.5339ms)
+✔ no folder, no log (6.6893ms)
+✔ the minimal log is tokens only: no question, answer, tool call or code (25.6347ms)
+✔ questions, answers and tool calls are logged by choice, and code only when it is chosen too (121.5863ms)
+✔ SAP Logon entries give the host and instance; a logon group gives its message server's host (34.8993ms)
+✔ an Eclipse installation's recent workspaces are read from its Java properties value (46.2316ms)
+✖ a plan for one table loads it with its filters in the selection panel (24.0961ms)
+✖ a plan with a join goes to the join, with the filters (8.0529ms)
+✖ a pivot plan opens the pivot with its slots filled (8.0357ms)
+✖ the host's answer puts the plan on the page and says what was done (8.0762ms)
+✖ an error or an answer without a table leaves the page as it was (12.3246ms)
+✖ what the assistant is told about the page carries settings, never rows (8.5741ms)
+✖ in Eclipse the panel says there is no assistant and cannot be used (27.107ms)
+✖ a system without the join resource gets no Join button, and is told why (9.7266ms)
+✖ without the table resource SelecTor opens on what is missing, and reads nothing (9.6176ms)
+✖ a window opened on a plan - Run Select's SELECT - starts from it; an empty line restricts nothing (14.1743ms)
+✖ a plan's join types and ON go to the join resource; a table taken by hand drops the ON (14.5267ms)
+✖ Run Select's table is read with its SELECT list; Show hidden reads every field and leaves the others unticked (12.4141ms)
+✖ a join's selection lists the fields of its tables under its column names; Shown is the SELECT list and runs it again (12.4891ms)
+✖ a pivot's selection is the same field list, without Shown - its columns are its slots (9.7813ms)
+✖ the pivot offers the fields the join selected, not every field of its tables (31.7986ms)
+✔ Tools context commands use selected object/URI before the active editor (30.1859ms)
+✔ Tools submenu contains all five functions in each object context (13.9323ms)
+✔ program Calls passes panel initialization and unsupported UML does not open an empty panel (12.7733ms)
+✔ embedded theme follows all VS Code themes and changes without reloading (18.3317ms)
+✔ objects expose valid functions and appropriate defaults (2.0639ms)
+✔ workspace embeds pages without breaking script boundaries or initial state (44.028ms)
+✔ Tools mounts a selected view before the optional Parts request completes (1.7643ms)
+✔ workspace transport permits only VERTEX resources and existing review writes (1.6555ms)
+✔ Visual Debug is the docked panel beside the editor, not a view of the Tools window (52.4762ms)
+✔ the Visual Debug page asks the debugger for nothing it has no command for (3.6056ms)
+✔ UML Scheme renders the Source/Diff-style Parts navigator for every ADT class type (9.1335ms)
+✔ a local variable's flow is its routine alone: no caller, no other method (213.8458ms)
+✔ between breakpoints the flow is the routine they stand in and what it calls, beyond them too (41.0439ms)
+✔ with no variable the flow is the routine from the selected line on, and every routine it calls (25.3239ms)
+✔ a breakpoint stops the flow where the run would stop, and 'next' and 'ignore' go on (12.6923ms)
+✔ the window draws the forward flow when no variable was chosen (26.7441ms)
+✔ a parameter's flow is its routine alone, as a local's is (3.336ms)
+✔ a program's local class routine is named by its class, so its call reaches it (4.6474ms)
+✔ a local class's DEFINITION is no part of the flow (3.3098ms)
+✔ local abaplint index expands declaration chains and preserves the selected value slice (4944.3573ms)
+✔ local method calls follow RETURNING across procedures without treating formal names as reads (2808.3201ms)
+✔ demand-loaded demo resolves interface implementations and produces Formula and Expression without class extras (2901.4787ms)
+✔ demand closure does not fetch dependencies of an unrelated method (5.8958ms)
+✔ unresolved local class loads definitions and implementation only when reached (2575.626ms)
+✔ both hosts read Value origin's sources through the one pipeline, not a collector of their own (17.1833ms)
+✔ the pipeline refuses a host that gives it no reader (37.6402ms)
+✔ the places the debugger stops at are the statements of the slice the Value origin view draws (164.8314ms)
+✔ a value nothing leads to gives no places, and says so by being empty (21.4097ms)
+✔ a statement's own names come from ACE's flow row when it has one (3.6117ms)
+✔ a global class's lines move from ACE's method include to the class's main source (1.439ms)
+✔ a program, and a local class inside one, keep the lines ACE gave (0.7045ms)
+✔ a method ADT's class structure does not list is an error, not a wrong line (1.6888ms)
+✔ a point carries its method and the object it belongs to (8.0609ms)
+✔ the flow between two breakpoints is ACE's statement stream under its routines, marked where the slice reaches it (1.3957ms)
+✔ a row of the flow that ADT cannot place stays in the list, marked, and does not stop the others (0.9823ms)
+✔ the calls of the flow are named as the rows' scopes are, so a call can be nested where it is made (1.3429ms)
+✔ a structure type declared in another object is read from it, and what cannot be read is said (2.5186ms)
+✔ the routine a line is in: by the lines of a program's routine, by the start of a class's method in its source (1.0871ms)
+✔ all executable scripts in the generated Value Origin page parse (194.2047ms)
+✖ execution flow enters resolved methods even when flow facts and event names are empty (531.1554ms)
+✔ multiline statements retain source lines and ignore comments/literal periods (1.8769ms)
+✔ execution flow is limited by the enclosing editor breakpoints (19.1323ms)
+✔ formula mode renders substitutions as independently collapsible branches (6.9616ms)
+✔ raw Value Origin HTML keeps data expressions hidden and inline links compact (3.3471ms)
+✔ formula mode bypasses transparent transfers to the calculation that changes the selected value (3.8072ms)
+✔ overwrites and self updates use previous definitions (1.7037ms)
+✔ conditional definitions retain baseline as a possible origin (1.0909ms)
+✔ static returning call binds actual expression to formal (2.9527ms)
+✔ frontend unfolds a local DATA COND assignment omitted by ACE (2.6409ms)
+✔ SQL includes statement, database and host-variable dependency (1.6735ms)
+✔ dynamic dispatch is an explicit analysis boundary (10.4815ms)
+✔ demo traces the returned amount through factories, CHANGING, all modifier candidates and SQL (47.8862ms)
+✔ field copies preserve suffixes and multiple assignments on one line preserve order (2.4701ms)
+✔ loading closure reads unopened references once, reports failures and honors cancellation (6.7537ms)
+✔ dependency closure keeps standard ABAP classes outside the customer-code source limit (2.1392ms)
+✔ ACE class definitions load the complete object when only its CU include is in the caller snapshot (2.0331ms)
+✔ ACE include owner loads a foreign class complete instead of treating its CU as the caller (0.9153ms)
+✔ closure with foreign ACE declarations reaches base-price and all five modifier calculations (155.7367ms)
+✔ ACE statement boundaries, composite tokens and authoritative call targets drive the slice (13.6786ms)
+✔ ACE parameters and method includes work without an assembled class declaration (2.5007ms)
+✔ ACE RETURNING keeps a structure component through rs_result = ls_context (5.6143ms)
+✔ ACE reference types keep an interface dispatch on its implementation (7.8284ms)
+✔ an unknown dynamic receiver widens to loaded method implementations (2.4353ms)
+✔ assembled and CM ACE representations resolve to one method target (25.0061ms)
+✔ view exposes a collapsible static call stack and navigable dependency tree, with escaped code (240.5806ms)
+✔ what each routine declares and takes is listed, with the type, and inline DATA( x ) among the locals (3.1374ms)
+✔ a method named like a statement is a call after an arrow, and a parameter typed REF TO types its receiver (2.0055ms)
+✔ a variable declared by a call gets the type the method returns, and a structure type its components (2.7996ms)
+✔ the flow of Value origin is drawn by the builder the debugger uses, from rows of the analysis (18.0332ms)
+✔ the Formula of Value origin is the derivation the shared formula algorithm gives (7.2565ms)
+✔ a definition met again in the formula is not drawn a second time (2.6322ms)
+✔ the definitions a loop over a pipeline makes stand in the pipeline order, each under the one after it (1.9945ms)
+✔ the one expression is written by substitution, without the type conversions, and a value read by the whole step is a step of its own (1.2844ms)
+✔ the Formula leaves the type conversions out of what it writes (7.8234ms)
+✔ a step that adds a share of the value before it is that value times one plus the share, so the formula is one line (1.6486ms)
+✔ a SELECT is shown by the field that concerns the value, its table and its conditions (0.494ms)
+✔ parts come with their exact keys, and a scope says what its entries are (26.7117ms)
+✔ versions are listed without asking for a line of source (1.5251ms)
+✔ the review summary is read the way the review server reads it (3.4117ms)
+✔ a plan comes back carrying the keys as SAP gave them (12.1587ms)
+✔ a plan the system does not bear out is refused with the reason (41.3746ms)
+✔ an empty name is an answer that goes nowhere and reads nothing (1.0868ms)
+✔ a version's change is read against the version below it, or against the one named (21.125ms)
+✔ a version that is not listed is refused before any source is asked for (0.8391ms)
+✔ a whole source too long to read well is cut, and says where (20.8864ms)
+✔ the Versions endpoint serves the lists, the sources and the review's own diff (369.6259ms)
+✔ review profiles can be created, selected and deleted (29.7668ms)
+✔ follow-ups include prior messages and reset clears them without calling the model (18.5608ms)
+✔ Versions prompt separates selected rules, historical conversation and current location (31.5754ms)
+✔ a diff plan goes parts, then the part, then the version - each after the last answer (11.3395ms)
+✔ a review plan opens the request, its review, then the object in it (14.5714ms)
+✔ an answer about something else drops the rest of the plan (4.7274ms)
+✔ an error from SAP stops the plan and the chat says so (5.4321ms)
+✔ the assistant is told where the window is, never the source (8.5099ms)
+✔ the host's answer is said in the chat and starts the plan (6.0743ms)
+✔ in Eclipse the panel says there is no assistant and cannot be used (8.0811ms)
+✔ a program is one part, itself (12.1021ms)
+✔ the versions come from ADT's feed, newest first, the active one as 99998, with transport and name (5.3238ms)
+✔ dups=X keeps the earliest of identical sources (2.3513ms)
+✔ a diff of two versions, and of the first against nothing (11.5269ms)
+✔ a class is its non-empty sections, its methods by section and its local includes (4040.7293ms)
+✔ a method's history is the versions of its class where its text changed, and its diff is of that method alone (136.5498ms)
+✔ a function group is its main program, a FUNC per module and its other includes, namespace and all (3.1108ms)
+✔ a function module, an interface and a CDS view read their own ADT feeds (2.4443ms)
+✔ a transport request lists the objects of itself and its tasks, a container as one object, once each (2.8544ms)
+✔ a part opened inside a request reads the feed of the object it belongs to (2.3755ms)
+✔ a package lists what TADIR keeps under it; a data element reads its own feed (1.233ms)
+✔ a user's requests: owned and held through a task, open by default, newest first, described in the session's language (7.0231ms)
+✔ finding requests sends the user as typed, or nobody for your own (23.2568ms)
+✔ a found request opens as its typed number would (7.8159ms)
+✔ no requests found is said, not drawn as an empty table (7.6672ms)
+✔ the finder is offered for transport requests only (4.3412ms)
+✔ parts are a table of type and name, headed by their object (17.3856ms)
+✔ transport VRSD rows retain scope and exact padded part keys (39.3509ms)
+✔ containers expand by technical name and can return to transport (24.0391ms)
+✔ what the system does not have is not drawn, and the line under the bar says why (12.9982ms)
+✔ without the resource the window is for, it opens on what is missing (31.4754ms)
+✔ a system that cannot say what it has keeps every part of the window (19.9948ms)
+✔ a 404 with everything there is the resource's own answer, not a setup page (6.0742ms)
+✔ the user field starts as whoever the system says is logged on, and keeps what was typed (9.4369ms)
+✔ a class is shown by section: the section, its methods marked, then the rest (5.5298ms)
+✔ in the BSE scope what is left stays green: the scope does not take the colour away (4.7751ms)
+✔ every node the BSE scope shows is marked as part of the slice, the tree and the diagram alike (0.6792ms)
+✔ Collapse all and Expand all are one switch whose icon shows what a click does, at the root of the tree and in the diagram's toolbar (3.6468ms)
+✔ the Tree / Diagram switch is two icons, each named by its title (1.7997ms)
+✔ opening or closing a node keeps the zoom and the place; the other redrawings are still fitted (5.6326ms)
+✖ FLOW shares the Calls palette and BSE overrides routine colour (33.1175ms)
+✔ Show from here draws the FLOW diagram from one node, and the path bar and Esc go back (2.2851ms)
+✔ a WHEN is the label on the line from its CASE, not a second box in the diagram (15.6131ms)
+✔ in the BSE scope a kept block is drawn whole: its END statement comes with it (2.9543ms)
+✔ the BSE scope has no Logic reading: Logic is hidden there and a Logic view turns to Statements (1.7522ms)
+✔ a label backing goes beside its text, which dagre nests deeper than ELK does (2.482ms)
+✔ an ELK routine frame opens the node menu like its node: it is found by its caption (1.8215ms)
+✔ a click on a FLOW diagram label sends the node's source and line, which the window opens beside (2.396ms)
+✔ Visual Debug gives the shared view the same four readings as Value origin, and no separate Logic button (5.3079ms)
+✔ a jump from a diagram to the code is remembered, so Back returns to where the reader was (15.8024ms)
+✔ a label shows < > & as written in the code, not Mermaid's escape of them (1.6271ms)
+✔ the lens is put on the diagram only while it is on, and goes with the drawing it was on (10.284ms)
+✖ the lens does not go out while the pointer moves over a diagram, whatever its size (10.9558ms)
+✖ on a class diagram the lens is over a node only (4.1455ms)
+✖ Shift and the wheel set how strong the lens is, within limits (3.8323ms)
+✔ the switch is an icon, and its state is marked both ways the pages style a switch (13.0552ms)
+✔ every view that draws a diagram uses the one lens (36.9905ms)
+✔ a value is followed from the row's menu, not by a click on it (16.2425ms)
+✔ a row in Variables follows no value on a click (1.3645ms)
+✔ the stats line gives the average steps per second (4.9652ms)
+✔ a stop of the record on a statement of the slice marks its class and routine, whatever the reading (4.7473ms)
+✔ a source link of the diagram moves the editor when docked, and the window's own pane otherwise (8.2667ms)
+✔ a statement that only closes a block is not a step of the diagram (10.0585ms)
+✔ choosing a value asks for its slice at once, so Full marks it before BSE is ever pressed (4.2267ms)
+✔ a line of several statements shows the one that does something when the run cannot say which (5.3018ms)
+✔ the diagram of a record draws the branch the run went through, and only that one (9.8477ms)
+✔ at the level of classes and of methods, what holds a statement of the slice is marked, and logging is not (10.812ms)
+✔ the analysis starts from the object's own frame, not from the frame the run is in (11.319ms)
+✔ the chip says what the analysis found and how much of it the record reached (3.9709ms)
+✔ a new run keeps the analysis the user already waited for, and asks again only for an empty one (5.3444ms)
+✔ what leads to a statement of the slice is part of the slice; what leads nowhere is not (9.9528ms)
+✔ the analysis answers on a channel of its own, by number, in whatever order (5.0183ms)
+✖ Run in SAP has a light green background that follows the theme (5.3546ms)
+✖ the </> of a node in the diagram opens its source: the editor when docked (3.0199ms)
+✔ the next statement is the first on another line: a chain of one line is one step of the debugger (2.7882ms)
+✔ Predict passes a loop in one go only when the chosen value's slice does not touch it (3.4793ms)
+✔ Predict runs past straight-line statements outside the slice in one go, and past a call it does not touch (9.8669ms)
+✔ the names of the page's global regular expressions are not declared twice (2.8706ms)
+✔ Predict passes an IF block in one go when the slice has no place in it and no breakpoint stands in it (4.5292ms)
+✔ after a call, SAP stops at the next statement that is a stop: ENDIF and ENDCASE are not, ENDLOOP and ENDMETHOD are (4.1041ms)
+✔ Analyze flow path: from a point in a program or a class to the next checked point the flow meets, wherever it is (17.7712ms)
+✖ the flow of the analysis is drawn as program, classes, routines and statements with blocks as parents (6.3128ms)
+✖ a call draws the routine's statements under the calling statement, in the order of execution and one level deeper (4.316ms)
+✔ the stack and the variables open when the program stops and close when it does not stand; the breakpoints show when there are any (5.8006ms)
+✔ a routine no call of the flow reaches is not drawn under the program, and the notice says so (4.4009ms)
+✔ with no value chosen the Full/BSE toggle is hidden and the diagram reads Full (3.3385ms)
+✔ a call to a routine the flow lists no statement of is still drawn, as a block with nothing under it (4.1064ms)
+✔ a variable of a structure type opens to its components before the run, and a component can be followed by its path (6.5298ms)
+✔ the variables before the run follow the reader's place: a routine shows its own, the program's globals otherwise, and a stale answer is dropped (104.0266ms)
+✔ SYST and Initials are offered only while the program is stopped (4.6758ms)
+✔ a path ends at the statement of its end point: nothing after it is drawn, and what it calls is not (7.3273ms)
+✔ the variables section is opened for the first answer of a state, not again once the reader has closed it (5.0816ms)
+✖ the chat is given what the window shows in two labelled parts: what ran, within the depth, and what the analysis says can happen (5.8509ms)
+✔ Predict runs the rest of a loop pass in one go once the slice has nothing more in it: points on the body's first statement and after the loop (8.6759ms)
+ℹ tests 487
+ℹ suites 0
+ℹ pass 457
+ℹ fail 30
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 108598.2262
+
+✖ failing tests:
+
+test at vscode\test\ace-scheme.test.js:22:1
+✖ plain loop folds and expands through existing aceexp action (66.0685ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /n2\[\/"DO/. Input:
+  
+  'flowchart LR\n' +
+    'n1[["ZCL_TEST=>RUN"]]\n' +
+    'subgraph g2["DO 3 TIMES."]\n' +
+    'direction LR\n' +
+    'p3("a = 1.")\n' +
+    'p4("a = 2.")\n' +
+    'end\n' +
+    'n6(["ENDMETHOD"])\n' +
+    'classDef tryblk fill:#eaf6ea,stroke:#2e7d32,color:#000\n' +
+    'classDef default color:#12369e\n' +
+    'classDef callnode fill:#fbeeee,stroke:#800000,color:#800000\n' +
+    'classDef dbnode fill:#e8f2f6,stroke:#1f6f8b,color:#0f5468\n' +
+    'p3 --> p4\n' +
+    'n1 --> p3\n' +
+    'p4 --> n6\n' +
+    'click n1 "sapevent:acego_6_10" _self\n' +
+    'click n6 "sapevent:acego_11_11" _self'
+  
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\ace-scheme.test.js:24:53)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'flowchart LR\nn1[["ZCL_TEST=>RUN"]]\nsubgraph g2["DO 3 TIMES."]\ndirection LR\np3("a = 1.")\np4("a = 2.")\nend\nn6(["ENDMETHOD"])\nclassDef tryblk fill:#eaf6ea,stroke:#2e7d32,color:#000\nclassDef default color:#12369e\nclassDef callnode fill:#fbeeee,stroke:#800000,color:#800000\nclassDef dbnode fill:#e8f2f6,stroke:#1f6f8b,color:#0f5468\np3 --> p4\nn1 --> p3\np4 --> n6\nclick n1 "sapevent:acego_6_10" _self\nclick n6 "sapevent:acego_11_11" _self',
+    expected: /n2\[\/"DO/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at vscode\test\ace-scheme.test.js:34:1
+✖ operations fold, expand and preserve side effects (167.9735ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 2
+  
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\ace-scheme.test.js:36:84)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at vscode\test\ace-scheme.test.js:41:1
+✖ empty method draws only its method node (21.8288ms)
+  AssertionError [ERR_ASSERTION]: The input was expected to not match the regular expression /operations| --> /. Input:
+  
+  'flowchart LR\n' +
+    'n1[["ZCL_TEST=>RUN"]]\n' +
+    'n2(["ENDMETHOD"])\n' +
+    'classDef tryblk fill:#eaf6ea,stroke:#2e7d32,color:#000\n' +
+    'classDef default color:#12369e\n' +
+    'classDef callnode fill:#fbeeee,stroke:#800000,color:#800000\n' +
+    'classDef dbnode fill:#e8f2f6,stroke:#1f6f8b,color:#0f5468\n' +
+    'n1 --> n2\n' +
+    'click n1 "sapevent:acego_6_6" _self\n' +
+    'click n2 "sapevent:acego_7_7" _self'
+  
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\ace-scheme.test.js:42:53)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'flowchart LR\nn1[["ZCL_TEST=>RUN"]]\nn2(["ENDMETHOD"])\nclassDef tryblk fill:#eaf6ea,stroke:#2e7d32,color:#000\nclassDef default color:#12369e\nclassDef callnode fill:#fbeeee,stroke:#800000,color:#800000\nclassDef dbnode fill:#e8f2f6,stroke:#1f6f8b,color:#0f5468\nn1 --> n2\nclick n1 "sapevent:acego_6_6" _self\nclick n2 "sapevent:acego_7_7" _self',
+    expected: /operations| --> /,
+    operator: 'doesNotMatch',
+    diff: 'simple'
+  }
+
+test at vscode\test\formula-diagram.test.js:86:1
+✖ every Type carries the call-stack depth of its procedure, and the page can bound it (257.251ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /min="0"/. Input:
+  
+  `id="bse-depth" type="range" min="1" max="'+graph.maxStack+'" value="'+graph.maxStack+'" step="1" aria-label="Depth"`
+  
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\formula-diagram.test.js:92:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: `id="bse-depth" type="range" min="1" max="'+graph.maxStack+'" value="'+graph.maxStack+'" step="1" aria-label="Depth"`,
+    expected: /min="0"/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at vscode\test\formula-diagram.test.js:156:1
+✖ FLOW shows what a call passes, so nothing is lost with Code gone (399.0832ms)
+  AssertionError [ERR_ASSERTION]: the demo passes values into the facade and on into the modifiers
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\formula-diagram.test.js:163:3)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at vscode\test\table.test.js:57:1
+✖ a plan for one table loads it with its filters in the selection panel (24.0961ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:58:30)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.start (node:internal/test_runner/test:1242:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17)
+
+test at vscode\test\table.test.js:65:1
+✖ a plan with a join goes to the join, with the filters (8.0529ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:66:30)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:73:1
+✖ a pivot plan opens the pivot with its slots filled (8.0357ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:74:30)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:81:1
+✖ the host's answer puts the plan on the page and says what was done (8.0762ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:82:40)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:93:1
+✖ an error or an answer without a table leaves the page as it was (12.3246ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:94:40)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:103:1
+✖ what the assistant is told about the page carries settings, never rows (8.5741ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:104:30)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:125:1
+✖ in Eclipse the panel says there is no assistant and cannot be used (27.107ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:126:40)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:134:1
+✖ a system without the join resource gets no Join button, and is told why (9.7266ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:135:40)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:148:1
+✖ without the table resource SelecTor opens on what is missing, and reads nothing (9.6176ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:149:40)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:163:1
+✖ a window opened on a plan - Run Select's SELECT - starts from it; an empty line restricts nothing (14.1743ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:169:30)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:177:1
+✖ a plan's join types and ON go to the join resource; a table taken by hand drops the ON (14.5267ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:178:30)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:187:1
+✖ Run Select's table is read with its SELECT list; Show hidden reads every field and leaves the others unticked (12.4141ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:191:40)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:214:1
+✖ a join's selection lists the fields of its tables under its column names; Shown is the SELECT list and runs it again (12.4891ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:215:40)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:230:1
+✖ a pivot's selection is the same field list, without Shown - its columns are its slots (9.7813ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:231:33)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\table.test.js:241:1
+✖ the pivot offers the fields the join selected, not every field of its tables (31.7986ms)
+  evalmachine.<anonymous>:22
+  document.querySelectorAll('[data-field-label]').forEach(function (button) {
+           ^
+  
+  TypeError: document.querySelectorAll is not a function
+      at evalmachine.<anonymous>:22:10
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at page (C:\GitHub\VERTEX\vscode\test\table.test.js:47:6)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\table.test.js:242:23)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+
+test at vscode\test\value-origin.test.js:18:1
+✖ execution flow enters resolved methods even when flow facts and event names are empty (531.1554ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert(!page.includes('subgraph '))
+  
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\value-origin.test.js:42:3)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.start (node:internal/test_runner/test:1242:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at vscode\test\vertex-flow-bse.test.js:47:1
+✖ FLOW shares the Calls palette and BSE overrides routine colour (33.1175ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(source.indexOf("style.textContent+='g.node.bse-operator")>source.indexOf("Object.keys(palette).forEach"))
+  
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\vertex-flow-bse.test.js:54:9)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at vscode\test\vertex-lens.test.js:45:1
+✖ the lens does not go out while the pointer moves over a diagram, whatever its size (10.9558ms)
+  AssertionError [ERR_ASSERTION]: over any point of a flowchart
+  
+  'none' !== 'block'
+  
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\vertex-lens.test.js:51:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'none',
+    expected: 'block',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at vscode\test\vertex-lens.test.js:58:1
+✖ on a class diagram the lens is over a node only (4.1455ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  'none' !== 'block'
+  
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\vertex-lens.test.js:67:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'none',
+    expected: 'block',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at vscode\test\vertex-lens.test.js:70:1
+✖ Shift and the wheel set how strong the lens is, within limits (3.8323ms)
+  AssertionError [ERR_ASSERTION]: no stronger than 6
+  
+  '2.5×' !== '6.0×'
+  
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\vertex-lens.test.js:78:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: '2.5×',
+    expected: '6.0×',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at vscode\test\visual-debug-ui.test.js:270:1
+✖ Run in SAP has a light green background that follows the theme (5.3546ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /#run\{background:color-mix\(in srgb,var\(--vscode-testing-iconPassed/. Input:
+  
+  '<!doctype html><html><head><meta charset="utf-8"><style>\r\n' +
+    '/* Visual Debug: the source with its breakpoints, where the program stands,\r\n' +
+    '   and every variable at once - the picture of Smart Debugger, drawn from the\r\n' +
+    '   ADT debugger the assistant drives. Every colour comes from the theme. */\r\n' +
+    'body{margin:0;background:var(--vscode-editor-background,Canvas);color:var(--vscode-editor-foreground,CanvasText);font:13px system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}\r\n' +
+    'button,input,select{font:inherit;color:inherit;background:var(--vscode-input-background,Field);border:1px solid var(--vscode-input-border,var(--vscode-panel-border,GrayText));padding:2px 6px}\r\n' +
+    '/* Buttons and switches as chips, as in Versions: a switch that is on carries\r\n' +
+    "   a lit lower edge and a soft glow in the theme's accent colour. */\r\n" +
+    'button{--accent:var(--vscode-focusBorder,#0a66c2);cursor:pointer;padding:1px 8px;border-radius:6px;white-space:nowrap;border:none;\r\n' +
+    '  border-bottom:2px solid transparent;background:var(--vscode-input-background,Field);color:var(--vscode-descriptionForeground,GrayText);\r\n' +
+    '  transition:color .12s,box-shadow .12s,border-color .12s}\r\n' +
+    'button:hover:not(:disabled){color:var(--vscode-editor-foreground,CanvasText)}\r\n' +
+    'button.on{color:var(--vscode-editor-foreground,CanvasText);border-bottom-color:var(--accent);box-shadow:0 3px 8px -3px var(--accent)}\r\n' +
+    'button:disabled{opacity:.45;cursor:default}\r\n' +
+    '/* The two that end something - the program or the whole session - stand out. */\r\n' +
+    '#terminate,#stop{color:var(--vscode-errorForeground,#c72e0f);--accent:var(--vscode-errorForeground,#c72e0f)}\r\n' +
+    '#terminate:hover:not(:disabled),#stop:hover:not(:disabled){color:var(--vscode-errorForeground,#c72e0f);border-bottom-color:var(--accent)}\r\n' +
+    '#analysis-copy{position:absolute;right:44px;top:6px;width:28px;height:28px;padding:2px;border:1px solid var(--vscode-panel-border);background:var(--vscode-button-secondaryBackground,var(--vscode-editorWidget-background));color:var(--vscode-button-secondaryForeground,var(--vscode-editor-foreground))}header{position:relative;flex:none;padding:6px 80px 6px 8px;border-bottom:1px solid var(--vscode-panel-border,GrayText);display:flex;flex-wrap:wrap;gap:6px;align-items:center}\r\n' +
+    '.grp{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}\r\n' +
+    '.grp+.grp{padding-left:8px;border-left:1px solid var(--vscode-panel-border,GrayText)}\r\n' +
+    '#title{font-weight:600;margin-right:6px}\r\n' +
+    '#program{width:150px;font-family:var(--vscode-editor-font-family,monospace)}\r\n' +
+    '#state{color:var(--vscode-descriptionForeground,GrayText);margin-left:6px}\r\n' +
+    '#runline{flex:none;display:flex;gap:10px;align-items:baseline;padding:2px 8px;color:var(--vscode-descriptionForeground,GrayText);border-bottom:1px solid var(--vscode-panel-border,GrayText);white-space:nowrap;overflow:hidden}\r\n' +
+    '#runline:empty,#runline.empty{display:none}\r\n' +
+    '#runline #why{overflow:hidden;text-overflow:ellipsis}\r\n' +
+    '#notice{flex:none;padding:4px 8px;display:none;color:var(--vscode-charts-green,#23794a);border-bottom:1px solid var(--vscode-panel-border,GrayText);white-space:pre-wrap}\r\n' +
+    '#notice.on{display:block}\r\n' +
+    '.vscode-dark #notice,.vscode-high-contrast #notice{color:var(--vscode-charts-green,#6fcf97)}\r\n' +
+    'main{flex:1;display:flex;min-height:0}\r\n' +
+    '#left{flex:1;display:flex;flex-direction:column;min-width:200px}\r\n' +
+    '#codehead{flex:none;padding:3px 8px;border-bottom:1px solid var(--vscode-panel-border,GrayText);display:flex;gap:8px;align-items:center;color:var(--vscode-descriptionForeground,GrayText)}\r\n' +
+    '#codehead b{color:var(--vscode-editor-foreground,CanvasText);font-family:var(--vscode-editor-font-family,monospace);font-weight:600}\r\n' +
+    '#code{flex:1;overflow:auto;margin:0;font:13px var(--vscode-editor-font-family,monospace);tab-size:2}\r\n' +
+    '.line{display:flex;white-space:pre;min-height:1.3em;line-height:1.3em}\r\n' +
+    '.gut{flex:none;width:14px;margin-right:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;user-select:none}\r\n' +
+    '.gut:hover::after{content:"";width:9px;height:9px;border-radius:50%;background:var(--vscode-debugIcon-breakpointForeground,#e51400);opacity:.35}\r\n' +
+    '.bp .gut::after,.bp .gut:hover::after{content:"";width:9px;height:9px;border-radius:50%;background:var(--vscode-debugIcon-breakpointForeground,#e51400);opacity:1}\r\n' +
+    '.bp.cond .gut::after{border-radius:2px}\r\n' +
+    '.bp.off .gut::after,.bp.off .gut:hover::after{background:transparent;border:2px solid var(--vscode-debugIcon-breakpointDisabledForeground,#848484);width:6px;height:6px}\r\n' +
+    '#bps .row.off{opacity:.6}\r\n' +
+    '.bp.log .gut::after{background:transparent;border:2px solid var(--vscode-debugIcon-breakpointForeground,#e51400);width:6px;height:6px}\r\n' +
+    '.no{flex:none;width:3.2em;text-align:right;padding-right:2px;user-select:none;color:var(--vscode-editorLineNumber-foreground,GrayText)}\r\n' +
+    '.txt{flex:1}\r\n' +
+    '.line.here{background:var(--vscode-editor-stackFrameHighlightBackground,rgba(255,200,0,.25))}\r\n' +
+    '.line.here .no{color:var(--vscode-editorLineNumber-activeForeground,CanvasText);font-weight:600}\r\n' +
+    '.line.here .no::before{content:"\\25B6 ";color:var(--vscode-debugIcon-continueForeground,#d9a400)}\r\n' +
+    '.kw{color:var(--vscode-debugTokenExpression-name,Highlight)}\r\n' +
+    '.str{color:var(--vscode-debugTokenExpression-string,DarkOliveGreen)}\r\n' +
+    '.com{color:var(--vscode-editorLineNumber-foreground,GrayText);font-style:italic}\r\n' +
+    '.split{flex:none;width:3px;cursor:col-resize;background:var(--vscode-panel-border,GrayText)}\r\n' +
+    '.split:hover,.split.drag{background:var(--vscode-sash-hoverBorder,Highlight)}\r\n' +
+    'body.drag{cursor:col-resize;user-select:none}\r\n' +
+    '#right{width:420px;flex:none;display:flex;flex-direction:column;min-width:220px;overflow:hidden}\r\n' +
+    'section{display:flex;flex-direction:column;min-height:0;border-bottom:1px solid var(--vscode-panel-border,GrayText)}\r\n' +
+    'section h3{margin:0;padding:4px 8px;font-size:12px;font-weight:600;background:var(--vscode-sideBar-background,var(--vscode-editor-background,Canvas));display:flex;gap:6px;align-items:center;user-select:none}\r\n' +
+    '/* Folded: the header stays, the body goes, and the section stops claiming\r\n' +
+    '   height - the others take it. The twisty is the only thing that says so. */\r\n' +
+    '/* A bar folds its section to the bar itself; the room goes to the others. */\r\n' +
+    'section h3 .grow{flex:1}\r\n' +
+    'section h3 label{font-weight:400;display:flex;gap:3px;align-items:center}\r\n' +
+    '.list{overflow:auto;font-family:var(--vscode-editor-font-family,monospace)}\r\n' +
+    '#stack,#bps,#vars,#logbox{flex:1;min-height:0}\r\n' +
+    '#run,#into,#over,#out,#cont{display:inline-flex;align-items:center;gap:5px}\r\n' +
+    '#run{background:color-mix(in srgb,var(--vscode-terminal-ansiBrightBlue,#75bfff) 22%,var(--vscode-editor-background,Canvas));transition:background .12s,color .12s,box-shadow .12s}\r\n' +
+    '#run:hover:not(:disabled){background:color-mix(in srgb,var(--vscode-terminal-ansiBrightBlue,#75bfff) 34%,var(--vscode-editor-background,Canvas));box-shadow:0 3px 8px -3px var(--accent)}\r\n' +
+    'svg.dbg{width:16px;height:16px;flex:none}\r\n' +
+    '#run svg.clock{width:15px;height:15px;flex:none}\r\n' +
+    'table.stack{width:100%}\r\n' +
+    'table.stack td.callers{color:var(--vscode-descriptionForeground,GrayText);font-style:italic}\r\n' +
+    'table.stack td{cursor:pointer;overflow:hidden;text-overflow:ellipsis;max-width:220px}\r\n' +
+    'table.stack tr.on td{background:var(--vscode-list-activeSelectionBackground,Highlight);color:var(--vscode-list-activeSelectionForeground,HighlightText)}\r\n' +
+    'table.stack tr.on td:first-child::before{content:"▶ "}\r\n' +
+    '\r\n' +
+    '\r\n' +
+    '.row{padding:1px 8px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:6px;align-items:center}\r\n' +
+    '.row:hover{background:var(--vscode-list-hoverBackground,Highlight)}\r\n' +
+    '.row.on{background:var(--vscode-list-activeSelectionBackground,Highlight);color:var(--vscode-list-activeSelectionForeground,HighlightText)}\r\n' +
+    '.row .x{margin-left:auto;padding:0 4px}\r\n' +
+    'body.no-value div[aria-label="FLOW scope"],body.no-value div[data-mode-toggle]{display:none!important}\r\n' +
+    '.bpgroup{padding:2px 8px;font-weight:600;color:var(--vscode-descriptionForeground,GrayText)}\r\n' +
+    '.row.child{cursor:pointer}\r\n' +
+    '.row.bpscope{cursor:default;color:var(--vscode-descriptionForeground,GrayText)}\r\n' +
+    '.row.inslice{background:color-mix(in srgb,var(--vscode-charts-green,#388a34) 18%,transparent)}\r\n' +
+    'button.x{background:transparent;border:0}\r\n' +
+    '.row .dim{color:var(--vscode-descriptionForeground,GrayText)}\r\n' +
+    '/* A place in the source, written as the link it behaves like. */\r\n' +
+    '.row button.link{padding:0;border:0;background:transparent;color:var(--vscode-textLink-foreground,LinkText);font:inherit;text-decoration:underline;text-decoration-style:dotted;cursor:pointer}\r\n' +
+    "/* SAP's whole dump page, over the window but not over the workbench: the\r\n" +
+    '   reader keeps the stack and the source behind it and closes it with Esc. */\r\n' +
+    '#dumppage{position:fixed;inset:0;z-index:150;display:flex;flex-direction:column;\r\n' +
+    '  background:var(--vscode-editor-background,Canvas);color:var(--vscode-foreground,CanvasText)}\r\n' +
+    '/* A display rule of our own beats the hidden attribute, and the panel would\r\n' +
+    '   stand over the window from the first moment it opened. */\r\n' +
+    '#dumppage[hidden]{display:none}\r\n' +
+    '#dumpbar{display:flex;gap:6px;align-items:center;padding:4px 8px;border-bottom:1px solid var(--vscode-panel-border,GrayText);\r\n' +
+    '  background:var(--vscode-sideBar-background,var(--vscode-editor-background,Canvas))}\r\n' +
+    '#dumppagebody{flex:1;overflow:auto;padding:10px;user-select:text}\r\n' +
+    '#dumppagebody table{border-collapse:collapse}\r\n' +
+    '#dumppagebody td,#dumppagebody th{border:1px solid var(--vscode-panel-border,GrayText);padding:2px 6px;vertical-align:top}\r\n' +
+    '#dumppagebody h1,#dumppagebody h2,#dumppagebody h3{font-size:13px;margin:10px 0 4px}\r\n' +
+    '.empty{padding:4px 8px;color:var(--vscode-descriptionForeground,GrayText);font-family:system-ui,sans-serif}\r\n' +
+    '#filter{width:110px}\r\n' +
+    'table.vars{border-collapse:collapse;width:100%;table-layout:fixed}\r\n' +
+    'table.vars td{padding:1px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--vscode-editorWidget-background,transparent)}\r\n' +
+    'table.vars td.n{width:45%}\r\n' +
+    'table.vars td.t{width:22%;color:var(--vscode-descriptionForeg'... 198002 more characters
+  
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\visual-debug-ui.test.js:271:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: `<!doctype html><html><head><meta charset="utf-8"><style>\r\n/* Visual Debug: the source with its breakpoints, where the program stands,\r\n   and every variable at once - the picture of Smart Debugger, drawn from the\r\n   ADT debugger the assistant drives. Every colour comes from the theme. */\r\nbody{margin:0;background:var(--vscode-editor-background,Canvas);color:var(--vscode-editor-foreground,CanvasText);font:13px system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}\r\nbutton,input,select{font:inherit;color:inherit;background:var(--vscode-input-background,Field);border:1px solid var(--vscode-input-border,var(--vscode-panel-border,GrayText));padding:2px 6px}\r\n/* Buttons and switches as chips, as in Versions: a switch that is on carries\r\n   a lit lower edge and a soft glow in the theme's accent colour. */\r\nbutton{--accent:var(--vscode-focusBorder,#0a66c2);cursor:pointer;padding:1px 8px;border-radius:6px;white-space:nowrap;border:none;\r\n  border-bottom:2px solid transparent;background:var(--vscode-input-background,Field);color:var(--vscode-descriptionForeground,GrayText);\r\n  transition:color .12s,box-shadow .12s,border-color .12s}\r\nbutton:hover:not(:disabled){color:var(--vscode-editor-foreground,CanvasText)}\r\nbutton.on{color:var(--vscode-editor-foreground,CanvasText);border-bottom-color:var(--accent);box-shadow:0 3px 8px -3px var(--accent)}\r\nbutton:disabled{opacity:.45;cursor:default}\r\n/* The two that end something - the program or the whole session - stand out. */\r\n#terminate,#stop{color:var(--vscode-errorForeground,#c72e0f);--accent:var(--vscode-errorForeground,#c72e0f)}\r\n#terminate:hover:not(:disabled),#stop:hover:not(:disabled){color:var(--vscode-errorForeground,#c72e0f);border-bottom-color:var(--accent)}\r\n#analysis-copy{position:absolute;right:44px;top:6px;width:28px;height:28px;padding:2px;border:1px solid var(--vscode-panel-border);background:var(--vscode-button-secondaryBackground,var(--vscode-editorWidget-background));color:var(--vscode-button-secondaryForeground,var(--vscode-editor-foreground))}header{position:relative;flex:none;padding:6px 80px 6px 8px;border-bottom:1px solid var(--vscode-panel-border,GrayText);display:flex;flex-wrap:wrap;gap:6px;align-items:center}\r\n.grp{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}\r\n.grp+.grp{padding-left:8px;border-left:1px solid var(--vscode-panel-border,GrayText)}\r\n#title{font-weight:600;margin-right:6px}\r\n#program{width:150px;font-family:var(--vscode-editor-font-family,monospace)}\r\n#state{color:var(--vscode-descriptionForeground,GrayText);margin-left:6px}\r\n#runline{flex:none;display:flex;gap:10px;align-items:baseline;padding:2px 8px;color:var(--vscode-descriptionForeground,GrayText);border-bottom:1px solid var(--vscode-panel-border,GrayText);white-space:nowrap;overflow:hidden}\r\n#runline:empty,#runline.empty{display:none}\r\n#runline #why{overflow:hidden;text-overflow:ellipsis}\r\n#notice{flex:none;padding:4px 8px;display:none;color:var(--vscode-charts-green,#23794a);border-bottom:1px solid var(--vscode-panel-border,GrayText);white-space:pre-wrap}\r\n#notice.on{display:block}\r\n.vscode-dark #notice,.vscode-high-contrast #notice{color:var(--vscode-charts-green,#6fcf97)}\r\nmain{flex:1;display:flex;min-height:0}\r\n#left{flex:1;display:flex;flex-direction:column;min-width:200px}\r\n#codehead{flex:none;padding:3px 8px;border-bottom:1px solid var(--vscode-panel-border,GrayText);display:flex;gap:8px;align-items:center;color:var(--vscode-descriptionForeground,GrayText)}\r\n#codehead b{color:var(--vscode-editor-foreground,CanvasText);font-family:var(--vscode-editor-font-family,monospace);font-weight:600}\r\n#code{flex:1;overflow:auto;margin:0;font:13px var(--vscode-editor-font-family,monospace);tab-size:2}\r\n.line{display:flex;white-space:pre;min-height:1.3em;line-height:1.3em}\r\n.gut{flex:none;width:14px;margin-right:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;user-select:none}\r\n.gut:hover::after{content:"";width:9px;height:9px;border-radius:50%;background:var(--vscode-debugIcon-breakpointForeground,#e51400);opacity:.35}\r\n.bp .gut::after,.bp .gut:hover::after{content:"";width:9px;height:9px;border-radius:50%;background:var(--vscode-debugIcon-breakpointForeground,#e51400);opacity:1}\r\n.bp.cond .gut::after{border-radius:2px}\r\n.bp.off .gut::after,.bp.off .gut:hover::after{background:transparent;border:2px solid var(--vscode-debugIcon-breakpointDisabledForeground,#848484);width:6px;height:6px}\r\n#bps .row.off{opacity:.6}\r\n.bp.log .gut::after{background:transparent;border:2px solid var(--vscode-debugIcon-breakpointForeground,#e51400);width:6px;height:6px}\r\n.no{flex:none;width:3.2em;text-align:right;padding-right:2px;user-select:none;color:var(--vscode-editorLineNumber-foreground,GrayText)}\r\n.txt{flex:1}\r\n.line.here{background:var(--vscode-editor-stackFrameHighlightBackground,rgba(255,200,0,.25))}\r\n.line.here .no{color:var(--vscode-editorLineNumber-activeForeground,CanvasText);font-weight:600}\r\n.line.here .no::before{content:"\\25B6 ";color:var(--vscode-debugIcon-continueForeground,#d9a400)}\r\n.kw{color:var(--vscode-debugTokenExpression-name,Highlight)}\r\n.str{color:var(--vscode-debugTokenExpression-string,DarkOliveGreen)}\r\n.com{color:var(--vscode-editorLineNumber-foreground,GrayText);font-style:italic}\r\n.split{flex:none;width:3px;cursor:col-resize;background:var(--vscode-panel-border,GrayText)}\r\n.split:hover,.split.drag{background:var(--vscode-sash-hoverBorder,Highlight)}\r\nbody.drag{cursor:col-resize;user-select:none}\r\n#right{width:420px;flex:none;display:flex;flex-direction:column;min-width:220px;overflow:hidden}\r\nsection{display:flex;flex-direction:column;min-height:0;border-bottom:1px solid var(--vscode-panel-border,GrayText)}\r\nsection h3{margin:0;padding:4px 8px;font-size:12px;font-weight:600;background:var(--vscode-sideBar-background,var(--vscode-editor-background,Canvas));display:flex;gap:6px;align-items:center;user-select:none}\r\n/* Folded: the header stays, the body goes, and the section stops claiming\r\n   height - the others take it. The twisty is the only thing that says so. */\r\n/* A bar folds its section to the bar itself; the room goes to the others. */\r\nsection h3 .grow{flex:1}\r\nsection h3 label{font-weight:400;display:flex;gap:3px;align-items:center}\r\n.list{overflow:auto;font-family:var(--vscode-editor-font-family,monospace)}\r\n#stack,#bps,#vars,#logbox{flex:1;min-height:0}\r\n#run,#into,#over,#out,#cont{display:inline-flex;align-items:center;gap:5px}\r\n#run{background:color-mix(in srgb,var(--vscode-terminal-ansiBrightBlue,#75bfff) 22%,var(--vscode-editor-background,Canvas));transition:background .12s,color .12s,box-shadow .12s}\r\n#run:hover:not(:disabled){background:color-mix(in srgb,var(--vscode-terminal-ansiBrightBlue,#75bfff) 34%,var(--vscode-editor-background,Canvas));box-shadow:0 3px 8px -3px var(--accent)}\r\nsvg.dbg{width:16px;height:16px;flex:none}\r\n#run svg.clock{width:15px;height:15px;flex:none}\r\ntable.stack{width:100%}\r\ntable.stack td.callers{color:var(--vscode-descriptionForeground,GrayText);font-style:italic}\r\ntable.stack td{cursor:pointer;overflow:hidden;text-overflow:ellipsis;max-width:220px}\r\ntable.stack tr.on td{background:var(--vscode-list-activeSelectionBackground,Highlight);color:var(--vscode-list-activeSelectionForeground,HighlightText)}\r\ntable.stack tr.on td:first-child::before{content:"▶ "}\r\n\r\n\r\n.row{padding:1px 8px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:6px;align-items:center}\r\n.row:hover{background:var(--vscode-list-hoverBackground,Highlight)}\r\n.row.on{background:var(--vscode-list-activeSelectionBackground,Highlight);color:var(--vscode-list-activeSelectionForeground,HighlightText)}\r\n.row .x{margin-left:auto;padding:0 4px}\r\nbody.no-value div[aria-label="FLOW scope"],body.no-value div[data-mode-toggle]{display:none!important}\r\n.bpgroup{padding:2px 8px;font-weight:600;color:var(--vscode-descriptionForeground,GrayText)}\r\n.row.child{cursor:pointer}\r\n.row.bpscope{cursor:default;color:var(--vscode-descriptionForeground,GrayText)}\r\n.row.inslice{background:color-mix(in srgb,var(--vscode-charts-green,#388a34) 18%,transparent)}\r\nbutton.x{background:transparent;border:0}\r\n.row .dim{color:var(--vscode-descriptionForeground,GrayText)}\r\n/* A place in the source, written as the link it behaves like. */\r\n.row button.link{padding:0;border:0;background:transparent;color:var(--vscode-textLink-foreground,LinkText);font:inherit;text-decoration:underline;text-decoration-style:dotted;cursor:pointer}\r\n/* SAP's whole dump page, over the window but not over the workbench: the\r\n   reader keeps the stack and the source behind it and closes it with Esc. */\r\n#dumppage{position:fixed;inset:0;z-index:150;display:flex;flex-direction:column;\r\n  background:var(--vscode-editor-background,Canvas);color:var(--vscode-foreground,CanvasText)}\r\n/* A display rule of our own beats the hidden attribute, and the panel would\r\n   stand over the window from the first moment it opened. */\r\n#dumppage[hidden]{display:none}\r\n#dumpbar{display:flex;gap:6px;align-items:center;padding:4px 8px;border-bottom:1px solid var(--vscode-panel-border,GrayText);\r\n  background:var(--vscode-sideBar-background,var(--vscode-editor-background,Canvas))}\r\n#dumppagebody{flex:1;overflow:auto;padding:10px;user-select:text}\r\n#dumppagebody table{border-collapse:collapse}\r\n#dumppagebody td,#dumppagebody th{border:1px solid var(--vscode-panel-border,GrayText);padding:2px 6px;vertical-align:top}\r\n#dumppagebody h1,#dumppagebody h2,#dumppagebody h3{font-size:13px;margin:10px 0 4px}\r\n.empty{padding:4px 8px;color:var(--vscode-descriptionForeground,GrayText);font-family:system-ui,sans-serif}\r\n#filter{width:110px}\r\ntable.vars{border-collapse:collapse;width:100%;table-layout:fixed}\r\ntable.vars td{padding:1px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--vscode-editorWidget-background,transparent)}\r\ntable.vars td.n{width:45%}\r\ntable.vars td.t{width:22%;color:var(--vscode-descriptionForeg`... 198002 more characters,
+    expected: /#run\{background:color-mix\(in srgb,var\(--vscode-testing-iconPassed/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at vscode\test\visual-debug-ui.test.js:276:1
+✖ the </> of a node in the diagram opens its source: the editor when docked (3.0199ms)
+  ReferenceError: focusedRoutine is not defined
+      at window.bseMermaidOpen (evalmachine.<anonymous>:25:53)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\visual-debug-ui.test.js:283:18)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+
+test at vscode\test\visual-debug-ui.test.js:406:1
+✖ the flow of the analysis is drawn as program, classes, routines and statements with blocks as parents (6.3128ms)
+  AssertionError [ERR_ASSERTION]: a called routine has no block of its own among statements
+  
+  2 !== 1
+  
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\visual-debug-ui.test.js:421:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 1,
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at vscode\test\visual-debug-ui.test.js:440:1
+✖ a call draws the routine's statements under the calling statement, in the order of execution and one level deeper (4.316ms)
+  AssertionError [ERR_ASSERTION]: only the entry has a block: the calling statement already names the routine
+  
+  3 !== 1
+  
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\visual-debug-ui.test.js:456:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 3,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at vscode\test\visual-debug-ui.test.js:646:1
+✖ the chat is given what the window shows in two labelled parts: what ran, within the depth, and what the analysis says can happen (5.8509ms)
+  evalmachine.<anonymous>:15
+      var history=debugHistorySlice();
+                  ^
+  
+  ReferenceError: debugHistorySlice is not defined
+      at debugContext (evalmachine.<anonymous>:15:17)
+      at evalmachine.<anonymous>:1:1
+      at Script.runInContext (node:vm:150:12)
+      at Object.runInContext (node:vm:302:6)
+      at read (C:\GitHub\VERTEX\vscode\test\visual-debug-ui.test.js:658:51)
+      at TestContext.<anonymous> (C:\GitHub\VERTEX\vscode\test\visual-debug-ui.test.js:659:13)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)

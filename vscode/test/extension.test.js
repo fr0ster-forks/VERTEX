@@ -8,6 +8,7 @@ const vm = require("node:vm");
 test("Codex and Claude setup work without the Copilot MCP API", async () => {
   const commands = new Map();
   const copied = [];
+  const previews = [];
   let client = "Codex";
   let starts = 0;
   const vscode = {
@@ -17,10 +18,15 @@ test("Codex and Claude setup work without the Copilot MCP API", async () => {
       registerFileSystemProvider: () => ({ dispose() {} }),
       registerTextDocumentContentProvider: () => ({ dispose() {} }) },
     extensions: { getExtension: () => ({ packageJSON: { version: "0.4.1" } }) },
-    commands: { registerCommand: (name, callback) => { commands.set(name, callback); return {}; } },
+    Uri: { file: file => file },
+    commands: { executeCommand: async (name, file) => {
+      if (name === "workbench.action.openWalkthrough") { assert.equal(file, "YuriiSychov.vertex-abap#vertex.start"); return; }
+      assert.equal(name, "markdown.showPreview"); previews.push(file);
+    },
+      registerCommand: (name, callback) => { commands.set(name, callback); return {}; } },
     env: { clipboard: { writeText: async text => copied.push(text) } },
     window: { registerWebviewViewProvider: () => ({ dispose() {} }),
-      showQuickPick: async () => client, showInformationMessage() {},
+      showQuickPick: async items => { assert.deepEqual(Array.from(items), ["Codex", "Claude Code"]); return client; }, showInformationMessage() {},
       showErrorMessage: message => assert.fail(message) }
   };
   const server = { token: "test-token", start: async () => {
@@ -45,23 +51,25 @@ test("Codex and Claude setup work without the Copilot MCP API", async () => {
   context.exports.activate({ subscriptions: [], workspaceState: { get: (key, fallback) => fallback, async update() {} },
     globalState: { get: () => undefined, async update() {} } });
   assert.equal(starts, 1);
+  await commands.get("vertex.getStarted")();
+  for (const step of ["systems", "test", "ai", "mcp"]) {
+    await commands.get("vertex." + step + "Info")();
+    assert.equal(previews.at(-1), path.join(__dirname, "..", "walkthrough", step + ".md"));
+  }
   // The regular VERTEX editor can open the same Visual Debug session and
   // route F5-F8 to it; the commands themselves stay inactive until invoked.
   for (const name of ["vertex.openVisualDebug", "vertex.debugInto", "vertex.debugOver",
     "vertex.debugOut", "vertex.debugContinue"]) assert.ok(commands.has(name), name);
   await commands.get("vertex.mcpAddress")();
-  assert.equal(copied[0], '[mcp_servers.vertex]\nurl = "http://127.0.0.1:37777/mcp"\nhttp_headers = { Authorization = "Bearer test-token" }\n');
+  assert.equal(copied[0], '[mcp_servers.vertex]\nurl = "http://127.0.0.1:37777/mcp"\nhttp_headers = { Authorization = "Bearer test-token" }\n\n[mcp_servers.vertex-debug]\nurl = "http://127.0.0.1:37777/debug"\nhttp_headers = { Authorization = "Bearer test-token" }\n');
   client = "Claude Code";
   await commands.get("vertex.mcpAddress")();
   assert.match(copied[1], /^claude mcp add --transport http vertex --scope user /);
   assert.match(copied[1], /--header "Authorization: Bearer test-token"$/);
-  // The debugger is registered under its own name and address.
-  client = "Claude Code - debugger";
-  await commands.get("vertex.mcpAddress")();
-  assert.match(copied[2], /^claude mcp add --transport http vertex-debug --scope user http:\/\/127\.0\.0\.1:37777\/debug /);
+  assert.match(copied[1], /\nclaude mcp add --transport http vertex-debug --scope user http:\/\/127\.0\.0\.1:37777\/debug /);
   client = undefined;
   await commands.get("vertex.mcpAddress")();
-  assert.equal(copied.length, 3);
+  assert.equal(copied.length, 2);
   context.exports.deactivate();
 });
 

@@ -33,6 +33,29 @@ built from them in the window. Saving a review to SAP needs one resource of VERT
 not needed.
 
 
+## Getting started
+
+Recommended companion extension:
+[ABAP by Lars Hvam](https://marketplace.visualstudio.com/items?itemName=larshp.vscode-abap)
+(`larshp.vscode-abap`). It is optional; VERTEX registers ABAP independently.
+
+Open Welcome with **VERTEX: Get Started** in the Command Palette.
+
+Every Get Started step has an **ⓘ Info** button opening its explanation: SAP
+system import, connection testing, assistant choice and MCP capabilities.
+
+VERTEX registers the ABAP language itself. Opening SAP source or a code draft
+does not require another ABAP extension.
+Claude Code uses the executable bundled with its installed VS Code extension,
+or, when that extension is absent, the native CLI from `PATH` or `~/.local/bin`.
+Restart VS Code after installing the CLI so it inherits the updated environment.
+LLM Providers checks Claude availability before showing its model list, so a
+missing executable is reported on opening settings, as it is for Codex.
+Codex also accepts a standalone native CLI or the native executable in its global
+npm package through PATH when `openai.chatgpt` is absent. Restart VS Code after
+installing the CLI; npm command wrappers are resolved to the native executable.
+Windows detection also checks `%APPDATA%/npm` independently of PATH.
+
 ## The ABAP backend
 
 The [repository's `src/`](https://github.com/ysichov/VERTEX/tree/main/src) is needed for one thing:
@@ -173,7 +196,7 @@ Breakpoints set through Visual Debug or MCP appear as native VS Code points in t
 - **VERTEX: Switch System**
 - **VERTEX: Forget Password**
 - **Add the VERTEX MCP server to Claude Code or Codex** — the link under `vertex.mcp.port` in
-  Settings: copies the MCP address of the review server, or with a **- debugger** entry the debugger server
+  Settings: choose Codex or Claude Code to copy configuration for both the review and debugger servers
   ([Debug with an assistant](#debug-with-an-assistant))
 - **VERTEX: Review & Activate** — editor title or context menu; opens the block-by-block
   Code Change panel described below.
@@ -440,9 +463,11 @@ who connects them: the extension, for one request, or you, once.
 
 VERTEX serves two read-only MCP tools. `sap_transport_changes` lists what a
 transport request changed; `sap_transport_diff` gives the changes of one object,
-cut into the blocks of the saved review, with the verdicts and comments
-already given. They cannot build a review or approve a block, and a request
-that has none built yet is reported as such, not as a clean transport.
+cut into review blocks, with saved verdicts and comments when available.
+They read `ZAVE_REVIEW` through standard ADT data preview; without a saved review
+or the table, they build an unsaved review from ADT version history. VERTEX's
+ABAP classes and custom review resource are not required. The tools cannot save
+reviews or approve blocks; ADT failures are reported as errors, not as a clean transport.
 
 The same tools come from two servers. Which one depends on where the assistant
 runs:
@@ -540,7 +565,7 @@ A VS Code window with VERTEX has to stay open while it works.
 The standalone MCP server in `mcp/server.js` does not have it.
 
 **Claude Code or Codex**: click **Add the VERTEX MCP server to Claude Code or Codex** under `vertex.mcp.port` in Settings and
-choose **Claude Code - debugger** or **Codex - debugger**.
+choose **Claude Code** or **Codex**. Both review and debugger registrations are copied together.
 
 - Claude Code: paste the copied command into a terminal and run it. `claude mcp list` then
   shows `vertex-debug: http://127.0.0.1:37777/debug (HTTP) - Connected`. Start a **new**

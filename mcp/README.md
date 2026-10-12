@@ -48,12 +48,17 @@ Claude Code / Codex / MCP client
              | stdio (client starts the process)
              v
        VERTEX mcp/server.js
-             | HTTPS + SAP credentials
+             | shared review-front.js reader
              v
- /sap/bc/adt/vertex/review/<transport>
-             |
-        the saved review
+ Standard SAP ADT over HTTPS + SAP credentials
+             | data preview / version history
+             v
+ Saved ZAVE_REVIEW / review built without saving
 ```
+
+`/sap/bc/adt/vertex/review/<transport>` is an internal request identifier handled
+by the Node reader, not a custom SAP endpoint it calls. No VERTEX ABAP classes
+or custom review resource need to be installed.
 
 ## SAP connection
 
