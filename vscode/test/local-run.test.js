@@ -7,26 +7,41 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { projectFor, scenariosFor, transpile, stageRuntime, initializeSelectorDatabase, entryFor, debugConfiguration,
-  flowClasses, prepareFlow, selectorSql, startSelectorBridge, launch, setSelectorQuery } = require("../local-run");
+  flowClasses, prepareFlow, selectorSql, startSelectorBridge, launch, setSelectorQuery, repairSelectLoops } = require("../local-run");
 
-test("SAP SelecTor bridge preserves the transpiler SELECT and returns ABAP named columns", async () => {
-  let requested;
-  const bridge = await startSelectorBridge(async (sql, rows) => {
-    requested = { sql, rows };
-    return { values: [{ VALUE: 21 }] };
-  });
+test("scalar SELECT loop reads the selected DDIC field", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-select-fix-"));
   try {
-    const response = await fetch("http://127.0.0.1:" + bridge.env.VERTEX_SELECTOR_PORT + "/select", {
-      method: "POST", headers: { authorization: "Bearer " + bridge.env.VERTEX_SELECTOR_TOKEN },
-      body: JSON.stringify({ select: "SELECT value FROM zexample WHERE id = 'A' UP TO 1 ROWS" })
-    });
-    assert.deepEqual(await response.json(), { rows: [{ value: 21 }] });
-    assert.equal(requested.sql, "SELECT value FROM zexample WHERE id = 'A'");
-    assert.equal(requested.rows, 1);
-    assert.equal(selectorSql({ select: 'SELECT "modifier_class"AS name FROM "zlog_pipeline"' }),
-      "SELECT modifier_class AS name FROM zlog_pipeline");
-    assert.throws(() => selectorSql({ select: "DELETE FROM zexample" }), /Unsupported/);
-  } finally { bridge.close(); }
+    const file = path.join(root, "class.mjs");
+    fs.writeFileSync(file, 'let lv_factor = new abap.types.Packed({length: 9, decimals: 8});\n' +
+      'await abap.statements.select(unique1, {select: "SELECT \\"action_value\\" FROM " + abap.buildDbTableName("zlog_rule")});\n' +
+      'for (const unique2 of unique1.array()) { lv_factor.set(unique2); }\n');
+    assert.equal(repairSelectLoops(root), 1);
+    assert.match(fs.readFileSync(file, "utf8"), /lv_factor\.set\(unique2\.get\(\)\.action_value\)/);
+    assert.equal(repairSelectLoops(root), 0);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("SELECT into a smaller structure maps columns by name", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-select-structure-"));
+  try {
+    const file = path.join(root, "class.mjs");
+    fs.writeFileSync(file, 'let ls_tariff = new abap.types.Structure({price_per_unit: new abap.types.Packed()});\n' +
+      'await abap.statements.select(unique1, {select: "SELECT \\"price_per_unit\\", \\"currency\\" FROM " + abap.buildDbTableName("zlog_base_tariff")});\n' +
+      'for (const unique2 of unique1.array()) { ls_tariff.set(unique2); }\n');
+    assert.equal(repairSelectLoops(root), 1);
+    assert.match(fs.readFileSync(file, "utf8"), /moveCorresponding\(unique2, ls_tariff\)/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("SAP SelecTor SQL keeps ABAP ordering and removes the row limit for data preview", () => {
+  assert.equal(selectorSql({ select: "SELECT value FROM zexample WHERE id = 'A' UP TO 1 ROWS" }),
+    "SELECT value FROM zexample WHERE id = 'A'");
+  assert.equal(selectorSql({ select: 'SELECT "modifier_class"AS name FROM "zlog_pipeline"' }),
+    "SELECT modifier_class AS name FROM zlog_pipeline");
+  assert.equal(selectorSql({ select: 'SELECT "price_per_unit" FROM "zlog_base_tariff" ORDER BY "valid_from" DESCENDING' }),
+    "SELECT price_per_unit FROM zlog_base_tariff ORDER BY valid_from DESCENDING");
+  assert.throws(() => selectorSql({ select: "DELETE FROM zexample" }), /Unsupported/);
 });
 
 test("local transpiler records Fibonacci steps without a debug session", async () => {

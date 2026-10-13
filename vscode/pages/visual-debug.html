@@ -764,6 +764,7 @@ function placeName(f){
 Object.keys(STEP).forEach(function(id){$(id).onclick=function(){
   if(INITIAL.local&&flow.timeline&&flow.timeline.length){
     var from=replayAt==null?0:replayAt,to=Math.min(flow.timeline.length-1,from+1);
+    if(id==="over"||id==="out"){var depth=flow.timeline[from].stack.length;for(var step=from+1;step<flow.timeline.length;step++){if(flow.timeline[step].stack.length<depth+(id==="over"?1:0)){to=step;break;}to=step;}}
     if(id==="cont"){
       to=flow.timeline.length-1;
       for(var j=from+1;j<flow.timeline.length;j++){
@@ -1315,7 +1316,8 @@ function runVisual(){
       stopKey="";apply(p);});
   }).catch(failed);
 }
-document.addEventListener("keydown",function(e){var k={F5:"into",F6:"over",F7:"out",F8:"cont"}[e.key];if(k&&picture.stopped){e.preventDefault();if(!e.repeat)$(k).onclick();}});
+window.sdeHistoryStep=function(kind){if(INITIAL.local&&flow.timeline&&flow.timeline.length&&$(kind))$(kind).onclick();};
+document.addEventListener("keydown",function(e){var k={F5:"into",F6:"over",F7:"out",F8:"cont"}[e.key];if(k&&(picture.stopped||INITIAL.local&&flow.timeline&&flow.timeline.length)){e.preventDefault();if(!e.repeat)$(k).onclick();}});
 /* ---------- Flow: from call to call, and the picture of it ---------- */
 /* For the flow only the calls matter. In a routine the run sets points on
    every call that may enter Z/Y code and on the routine's end, and runs to
@@ -1384,6 +1386,27 @@ function snapshot(captured){
 }
 /* The values the player shows at a recorded stop: those read there, or the
    last ones read in the same routine before it. */
+var recordedOpen={},recordedPages={};
+function drawRecordedTree(table,name,value,depth,key){
+  var complex=value!==null&&typeof value==="object",list=Array.isArray(value);
+  var tr=document.createElement("tr"),n=document.createElement("td"),type=document.createElement("td"),val=document.createElement("td");
+  n.className="n";type.className="t";n.style.paddingLeft=(6+depth*14)+"px";
+  var marker=document.createElement("span");marker.className="tw";
+  if(complex){marker.textContent=recordedOpen[key]?"v":">";marker.onclick=function(){recordedOpen[key]=!recordedOpen[key];drawRecordedVars(replayAt);};}
+  n.appendChild(marker);n.appendChild(document.createTextNode(name));
+  type.textContent=list?"TABLE":complex?"STRUCTURE":"";
+  val.textContent=list?value.length+" rows":complex?Object.keys(value).length+" fields":value==null?"":String(value);
+  val.title=val.textContent;tr.appendChild(n);tr.appendChild(type);tr.appendChild(val);table.appendChild(tr);
+  if(!complex||!recordedOpen[key])return;
+  var keys=Object.keys(value),limit=list?Math.min(keys.length,(recordedPages[key]||1)*100):keys.length;
+  for(var j=0;j<limit;j++){var child=keys[j];drawRecordedTree(table,list?"["+(Number(child)+1)+"]":child,value[child],depth+1,key+"/"+child);}
+  if(list&&limit<keys.length){
+    var more=document.createElement("tr"),cell=document.createElement("td");cell.colSpan=3;cell.className="n";
+    cell.style.paddingLeft=(20+depth*14)+"px";cell.textContent="Show 100 more rows ("+(keys.length-limit)+" remaining)";
+    cell.style.cursor="pointer";cell.onclick=function(){recordedPages[key]=(recordedPages[key]||1)+1;drawRecordedVars(replayAt);};
+    more.appendChild(cell);table.appendChild(more);
+  }
+}
 function drawRecordedVars(i){
   var tl=flow.timeline,t=tl[i],box=$("vars"),k=i,from=null;
   if(t&&t.watch){
@@ -1410,7 +1433,7 @@ function drawRecordedVars(i){
   from.vars.forEach(function(g){
     var tr=document.createElement("tr");tr.className="grp";var td=document.createElement("td");td.colSpan=3;
     td.textContent=g.name+" · "+(k+1===i?"read at this stop":"as read at stop "+(k+2));tr.appendChild(td);table.appendChild(tr);
-    g.children.forEach(function(v){var r=document.createElement("tr");[v.name,v.type,v.value].forEach(function(x,j){var c=document.createElement("td");c.className=j===0?"n":j===1?"t":"";c.textContent=x;c.title=x;r.appendChild(c);});table.appendChild(r);});
+    g.children.forEach(function(v){drawRecordedTree(table,v.name,v.value,0,g.name+"/"+v.name);});
   });
   box.appendChild(table);
 }
@@ -1731,7 +1754,7 @@ function markNow(){
   if(!window.vertexFlow||!window.vertexFlow.mark)return;
   var tl=flow.timeline||[],t=replayAt!=null?tl[replayAt]:tl[tl.length-1];
   if(!t){window.vertexFlow.mark("");return;}
-  var key=(flowMode==="steps"||flowMode==="logic")?stepKey(t):flowMode==="classes"?(t.cur&&t.cur.owner):(t.cur&&t.cur.name);
+  var key=(flowMode==="steps"||flowMode==="logic")?stepKey(t):flowMode==="classes"?(t.cur&&t.cur.owner):(t.cur&&t.cur.owner+"=>"+t.cur.name);
   window.vertexFlow.mark(key&&sharedIds[key]||"");
 }
 function liveCur(){var top=picture.stopped&&picture.stopped.frames.filter(function(f){return !f.system;})[0];return top?unitOf(top):null;}
@@ -1822,27 +1845,27 @@ function openRecordFlow(){
    view is one; what changes is which nodes the record is folded into. */
 var sharedIds={};
 function callGraph(byOwner){
-  var tl=flow.timeline||[],nodes={},order=[],edges={},eorder=[],previous=null,entry=null;
-  var base=0;tl.forEach(function(t){var n=t.stack?t.stack.length:0;if(n&&(!base||n<base))base=n;});
+  var tl=flow.timeline||[],nodes={},order=[],edges={},eorder=[],entry=null;
   tl.forEach(function(t){
-    var f=t.stack&&t.stack[0];if(!f||!t.cur&&!f.program)return;
-    var owner=t.cur?t.cur.owner:String(f.program||""),unit=t.cur?t.cur.name:String(f.program||"");
-    var key=byOwner?owner:unit,level=Math.max(0,(t.stack.length||base)-base);
-    if(!nodes[key]){nodes[key]={key:key,text:byOwner?owner:(String(unit).indexOf("=>")>0||unit===owner?unit:owner+"=>"+unit),
-      url:t.at&&t.at.url,line:f.line,depth:level,count:0};order.push(key);}
-    else if(level<nodes[key].depth)nodes[key].depth=level;
-    nodes[key].count++;
-    if(!entry)entry=key;
-    // An edge is a call, not every move between two stops: coming back from a
-    // routine is a return, and drawing it would make the caller a child of
-    // the routine it called.
-    if(previous&&previous.key!==key&&level>previous.level){var ek=previous.key+">"+key;
-      if(!edges[ek]){edges[ek]={from:previous.key,to:key,count:0};eorder.push(ek);}edges[ek].count++;}
-    previous={key:key,level:level};
+    var chain=(t.stack||[]).slice().reverse(),parent=null;
+    chain.forEach(function(f,index){
+      var current=index===chain.length-1;
+      var owner=current&&t.cur?t.cur.owner:String(f.program||"");
+      var unit=current&&t.cur?t.cur.name:String(f.unit||f.program||"");
+      var key=byOwner?owner:owner+"=>"+unit;
+      if(!nodes[key]){nodes[key]={key:key,text:byOwner?owner:owner+"=>"+unit,
+        url:current&&t.at?t.at.url:f.url,line:current&&t.at?t.at.line:f.line,
+        depth:index,count:0};order.push(key);}
+      nodes[key].count++;
+      if(!entry)entry=key;
+      if(parent&&parent!==key){var edge=parent+">"+key;
+        if(!edges[edge]){edges[edge]={from:parent,to:key,count:0};eorder.push(edge);}
+        edges[edge].count++;}
+      parent=key;
+    });
   });
   return {nodes:nodes,order:order,edges:edges,eorder:eorder,entry:entry};
-}
-/* Where the chosen value changed, from the record alone. Values are kept where
+}/* Where the chosen value changed, from the record alone. Values are kept where
    a routine starts and ends, so what the record can show is the routine that
    changed it, not the statement inside it - and it can show nothing at all
    for a structure or a table, whose snapshot holds a shape and no value. Said
@@ -1949,9 +1972,9 @@ function sharedFlowGraph(mode){
     (t.stack||[]).forEach(function(x,n){
       var owner=n===0&&t.cur?t.cur.owner:String(x.program||"");
       var unit=n===0&&t.cur?t.cur.name:String(x.unit||x.program||"");
-      keep[mode==="classes"?owner:mode==="methods"?unit:"m|"+unit]=true;
+      keep[mode==="classes"?owner:mode==="methods"?owner+"=>"+unit:"m|"+unit]=true;
     });
-    if(f&&!detailed)keep[mode==="classes"?(t.cur?t.cur.owner:f.program):(t.cur?t.cur.name:f.program)]=true;
+    if(f&&!detailed)keep[mode==="classes"?(t.cur?t.cur.owner:f.program):(t.cur?t.cur.owner:f.program)+"=>"+(t.cur?t.cur.name:f.unit)]=true;
   });
   // A node is in the scope when the analysis named its place, or when the
   // record shows the value changed there. Only the node that holds the
@@ -2318,17 +2341,18 @@ $("dumppageclose").onclick=hideDumpPage;
 document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!$("dumppage").hidden){e.stopPropagation();hideDumpPage();}},true);
 $("run").onclick=function(){
   if(INITIAL.local){var selection={};document.querySelectorAll('#local-selection input[type="radio"]:checked').forEach(function(input){selection[input.name]=input.value;});
-    flow={edges:{},nodes:{},order:[]};flowPath=[];localVarCache={};replayAt=null;recKey="";drawPos();
+    flow={edges:{},nodes:{},order:[]};flowPath=[];localVarCache={};recordedOpen={};recordedPages={};replayAt=null;recKey="";drawPos();
     notice("");debug("run",{selection:selection}).then(function(result){
       var trace=result.trace||[],name=String(INITIAL.name||"").toUpperCase();
       flow={edges:{},nodes:{},order:[],timeline:[],ended:picture.ended};flowPath=[];
       trace.forEach(function(row){var owner=row.owner||name,routine=row.routine||"START-OF-SELECTION";
         var frame={n:0,current:true,label:"EVENT "+routine,program:owner,
         include:owner,unitType:"EVENT",unit:routine,url:row.file,line:row.line};
+        var frames=(row.stack||[{owner:owner,unit:routine}]).map(function(entry,index){var program=typeof entry==="string"?entry:entry.owner,unit=index===0?routine:(entry.unit||program);return index===0?frame:{n:index,current:false,label:"METHOD "+unit,program:program,include:program,unitType:"METHOD",unit:unit,url:"",line:0};});
         flow.timeline.push({upto:0,cur:{owner:owner,name:routine},
           at:{url:row.file,line:row.line,ord:0,name:routine},
-          stack:[frame],vars:[{name:"Locals",children:Object.keys(row.changed||{}).map(function(key){return {
-            name:key,type:"",value:typeof row.changed[key]==="object"?JSON.stringify(row.changed[key]):String(row.changed[key])};})}],varsDelta:true});
+          stack:frames,vars:[{name:"Locals",children:Object.keys(row.changed||{}).map(function(key){return {
+            name:key,type:"",value:row.changed[key]};})}],varsDelta:true});
       });
       if(trace.length){replayAt=0;drawPos();showStop(0).catch(failed);showFlow();}
       var sec=(result.durationMs||0)/1000;

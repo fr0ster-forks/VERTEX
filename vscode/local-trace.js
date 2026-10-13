@@ -41,7 +41,7 @@ function instrument(file, sourceFile, source) {
   const owner = path.basename(sourceFile).split(".")[0].toUpperCase();
   let routine = owner;
   const routines = original.map(line => {
-    const start = /^\s*(?:METHOD|FORM)\s+([A-Za-z_]\w*)\b/i.exec(line);
+    const start = /^\s*(?:METHOD|FORM)\s+([A-Za-z_]\w*(?:~[A-Za-z_]\w*)?)\b/i.exec(line);
     if (start) routine = start[1].toUpperCase();
     const current = routine;
     if (/^\s*(?:ENDMETHOD|ENDFORM)\b/i.test(line)) routine = owner;
@@ -97,7 +97,12 @@ function traceBootstrap(outputRoot, entry, traceFile) {
     ` },capture(file,line,values,owner,routine){const changed={};\n` +
     ` for(const [name,value] of Object.entries(values)){const [signature,plain]=safe(value);\n` +
     ` if(last.get(name)!==signature){changed[name]=plain;last.set(name,signature);}}\n` +
-    ` records.push({file,line,owner,routine,changed});}};\n` +
+    ` const stack=String(new Error().stack||'').split('\\n').slice(2).map(frame=>{\n` +
+    ` const found=/[\\\\/]([^\\\\/]+)\\.(?:prog|clas|intf)\\.mjs(?::\\d+)?/.exec(frame);\n` +
+    ` if(!found)return null;const fn=/^\\s*at (?:async )?([^\\s(]+)\\s*\\(/.exec(frame);\n` +
+    ` return {owner:found[1].toUpperCase(),unit:fn?fn[1].split('.').pop().replaceAll('$','~').toUpperCase():found[1].toUpperCase()};\n` +
+    ` }).filter(Boolean).filter((item,index,list)=>index===0||item.owner!==list[index-1].owner);\n` +
+    ` records.push({file,line,owner,routine,stack:stack.length?stack:[{owner,unit:routine}],changed});}};\n` +
     `try { await import(${JSON.stringify(relative)}); } finally {\n` +
     ` fs.writeFileSync(${JSON.stringify(traceFile)},JSON.stringify(records)); process.stdin.destroy(); }\n`);
   return wrapper;

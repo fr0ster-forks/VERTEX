@@ -12,7 +12,6 @@ function setSelectorQuery(query) { selectorQuery = query; }
 function selectorSql(input) {
   if (!input || typeof input.select !== "string") throw new Error("Unsupported Open SQL request.");
   const sql = input.select.trim().replace(/~/g, ".")
-    .replace(/\bASCENDING\b/gi, "ASC").replace(/\bDESCENDING\b/gi, "DESC")
     .replace(/"([A-Za-z_]\w*)"AS\b/gi, '"$1" AS')
     .replace(/"([A-Za-z_]\w*)"/g, "$1");
   if (!/^SELECT\s/i.test(sql) || /;|--|\/\*/.test(sql)) throw new Error("Unsupported Open SQL SELECT syntax.");
@@ -419,6 +418,35 @@ function debugConfiguration(project, entry, outputFile = "", bridgeEnv = {}) {
     env: { ...bridgeEnv, ...(outputFile ? { VERTEX_LOCAL_OUTPUT_FILE: outputFile } : {}) } };
 }
 
+function repairSelectLoops(outputRoot) {
+  let repaired = 0;
+  function visit(dir) {
+    for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+      const file = path.join(dir, item.name);
+      if (item.isDirectory()) { if (item.name !== "node_modules") visit(file); continue; }
+      if (!item.name.endsWith(".mjs")) continue;
+      const original = fs.readFileSync(file, "utf8");
+      const fixed = original.replace(
+        /(await abap\.statements\.select\((\w+), \{select: "SELECT ([\s\S]*?) FROM "[\s\S]*?\}\);\s*for \(const (\w+) of \2\.array\(\)\) \{\s*)(\w+)\.set\(\4\);/g,
+        (all, prefix, table, columns, row, target) => {
+          const declaration = new RegExp("\\blet " + target + " = new abap\\.types\\.(\\w+)\\b").exec(original);
+          if (!declaration) return all;
+          if (declaration[1] === "Structure") {
+            repaired++;
+            return prefix + "abap.statements.moveCorresponding(" + row + ", " + target + ");";
+          }
+          const column = /^\\?"(\w+)\\?"$/.exec(columns);
+          if (!column) return all;
+          repaired++;
+          return prefix + target + ".set(" + row + ".get()." + column[1].toLowerCase() + ");";
+        });
+      if (fixed !== original) fs.writeFileSync(file, fixed);
+    }
+  }
+  visit(outputRoot);
+  return repaired;
+}
+
 async function launch(vscode, debug, options = {}) {
   const document = options.document || vscode.window.activeTextEditor?.document;
   const workspaceRoot = vscode.workspace.getWorkspaceFolder(document?.uri)?.uri.fsPath;
@@ -448,6 +476,8 @@ async function launch(vscode, debug, options = {}) {
     selection[group.group] = picked.label;
   }
   const entry = entryFor(project, document, selection);
+  const repairedSelects = repairSelectLoops(path.dirname(project.entry));
+  if (repairedSelects) output.appendLine("Repaired " + repairedSelects + " SELECT work-area assignments.");
   output.appendLine("Entry ready.");
   const bridge = !options.trace && project.automatic && selectorQuery ? await startSelectorBridge() : null;
   if (options.trace) {
@@ -544,4 +574,4 @@ function register(vscode, context) {
 
 module.exports = { projectFor, scenariosFor, transpile, stageRuntime, initializeSelectorDatabase, startSelectorBridge,
   selectorSql, setSelectorQuery, entryFor, debugConfiguration,
-  flowClasses, prepareFlow, launch, register };
+  flowClasses, prepareFlow, repairSelectLoops, launch, register };

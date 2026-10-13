@@ -25,7 +25,7 @@
     "codex",
     "reviewer"
   ],
-  "version": "0.8.13",
+  "version": "0.8.12",
   "publisher": "YuriiSychov",
   "engines": {
     "vscode": "^1.85.0"
@@ -636,6 +636,26 @@
       ]
     },
     "keybindings": [
+      {
+        "command": "vertex.debugInto",
+        "key": "f5",
+        "when": "resourceScheme == file && editorLangId == abap && vertex.localHistory"
+      },
+      {
+        "command": "vertex.debugOver",
+        "key": "f6",
+        "when": "resourceScheme == file && editorLangId == abap && vertex.localHistory"
+      },
+      {
+        "command": "vertex.debugOut",
+        "key": "f7",
+        "when": "resourceScheme == file && editorLangId == abap && vertex.localHistory"
+      },
+      {
+        "command": "vertex.debugContinue",
+        "key": "f8",
+        "when": "resourceScheme == file && editorLangId == abap && vertex.localHistory"
+      },
       {
         "command": "vertex.goToClassMethod",
         "key": "f12",

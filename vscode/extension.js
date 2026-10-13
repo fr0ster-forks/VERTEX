@@ -1029,6 +1029,8 @@ function activate(context) {
           if (dockedDebugSource?.local && localDebugAdapter) {
             if (["run", "step", "stop", "detach", "terminate"].includes(command)) clearLocalHistoryMark();
             const answer = await localDebugAdapter.command(command, commandArgs);
+            if (["run", "stop", "detach", "terminate"].includes(command))
+              await vscode.commands.executeCommand("setContext", "vertex.localHistory", localDebugAdapter.hasTrace());
             await view.webview.postMessage({ type: "result", payload: JSON.stringify(answer) });
             return;
           }
@@ -1073,8 +1075,10 @@ function activate(context) {
   }, () => !!dockedDebugSource?.local);
   context.subscriptions.push(vscode.debug.onDidTerminateDebugSession(() => {
     if (dockedDebugSource?.local && localDebugAdapter) localDebugAdapter.finish();
+    void vscode.commands.executeCommand("setContext", "vertex.localHistory", false);
   }));
   const openVisualDebug = () => {
+    void vscode.commands.executeCommand("setContext", "vertex.localHistory", false);
     const editor = vscode.window.activeTextEditor;
     const local = require("./local-analysis");
     const localObject = local.isLocalAbap(editor?.document) ? local.sourceObject(editor.document) : null;
@@ -1104,6 +1108,10 @@ function activate(context) {
   // the already open visual tab without a second debugger session.
   const stepFromSource = async kind => {
     if (require("./local-analysis").isLocalAbap(vscode.window.activeTextEditor?.document)) {
+      if (localDebugAdapter?.hasTrace() && dockedDebugView) {
+        await dockedDebugView.webview.postMessage({ type: "historyStep", kind });
+        return;
+      }
       const command = { into: "workbench.action.debug.stepInto", over: "workbench.action.debug.stepOver",
         out: "workbench.action.debug.stepOut", continue: "workbench.action.debug.continue" }[kind];
       await vscode.commands.executeCommand(command);
