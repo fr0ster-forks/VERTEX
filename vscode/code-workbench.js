@@ -1538,7 +1538,8 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       else { lastSelection.delete(key); }
       if (!mouse || event.kind !== mouse || !selection || selection.isEmpty
         || (event.textEditor.document.uri.scheme !== "vertex-sap"
-          && !readOnly.has(key))) { return; }
+          && !readOnly.has(key)
+          && !require("./local-analysis").isLocalAbap(event.textEditor.document))) { return; }
       if (!previous || !previous.empty || previous.line !== selection.active.line) { return; }
       const under = wordAt(event.textEditor.document, previous);
       if (!under || previous.character < under.from || previous.character > under.to) { return; }
@@ -2132,7 +2133,9 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   // program would supply is left out as select-query.js decides, and every condition left out is shown above the rows.
   command("vertex.runSelect", async () => {
     const editor = vscode.window.activeTextEditor, document = editor && editor.document, own = document && tabSource(document);
-    if (!own) { throw new Error("Open a SAP source tab first: Run Select reads the data of the system that tab belongs to."); }
+    const local = document?.uri?.scheme === "file" && /\.abap$/i.test(document.uri.fsPath || "");
+    if (!own && !local) { throw new Error("Open a SAP or local ABAP source tab first."); }
+    const api = own ? own.entry.repo.api : (await repository()).api;
     const prepared = require("./select-query").prepare(document.getText(), document.offsetAt(editor.selection.start));
     // What SelecTor can say opens in SelecTor, its conditions as selection lines; SelecTor reads tables, not views.
     // SelecTor's join takes any table with the ON it is given; what fails, fails there, where it can be seen.
@@ -2142,7 +2145,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
         action: prepared.selector.pivot ? "pivot" : "join", selectorPlan: prepared.selector });
     }
     if (prepared.selector) {
-      const api = own.entry.repo.api, table = prepared.selector.table;
+      const table = prepared.selector.table;
       const kind = await api.query("SELECT tabclass FROM dd02l WHERE tabname = '" + table + "' AND as4local = 'A'", 1);
       const tabclass = kind.values.length ? kind.values[0].TABCLASS : "";
       if (["TRANSP", "CLUSTER"].includes(tabclass)) {
@@ -2153,7 +2156,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     }
     if (!prepared.sql) { throw new Error("The SELECT cannot run as written, and SelecTor cannot take it: " + prepared.notSelector); }
     const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "Run Select — data preview" },
-      () => own.entry.repo.api.query(prepared.sql, prepared.rows));
+      () => api.query(prepared.sql, prepared.rows));
     const panel = vscode.window.createWebviewPanel("vertex.runSelect", "Select · line " + prepared.line, vscode.ViewColumn.Beside, {});
     panel.webview.html = selectHtml(prepared, result);
   });
@@ -2377,6 +2380,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   }
   // Host/agent interface: create/modify only PREPARE and open a diff. Apply is UI-only.
   return { frontendRequest: async (resource, progress, cancelled) => require('./frontend-analysis').request((await repository()).api, resource, progress, cancelled),
+    selectorQuery: async (sql, rows) => (await repository()).api.query(sql, rows),
     // SelecTor's table and join (the pivot not yet) answered over ADT's data preview; null for what is not theirs.
     tableRequest: async (resource, progress) => { const api = (await repository()).api;
       return await require('./selector-table').request(api, resource) ?? await require('./selector-join').request(api, resource)

@@ -1,0 +1,4 @@
+open-abap/open-abap-core
+Commit: 5af9e69469ca5515f0306373d2a1f4ed92d14b78
+Included: src/ddic only, for local ABAP transpilation.
+License: MIT (see LICENSE).

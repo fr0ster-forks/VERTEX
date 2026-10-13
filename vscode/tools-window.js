@@ -17,8 +17,6 @@ function html(pages, initial) {
 // stays in the normal VS Code editor next to it; unlike Tools it has no object
 // picker, chat or duplicate source tab.
 function debugHtml(initial) {
-  if (initial?.local) return fs.readFileSync(path.join(__dirname, "pages", "local-visual-debug.html"), "utf8")
-    .replace("/*INIT*/null/*INIT*/", () => JSON.stringify(initial).replace(/</g, "\\u003c"));
   const controls = fs.readFileSync(path.join(__dirname, "resources", "vertex-controls.css"), "utf8");
   const bridge = `<script>
     const host=acquireVsCodeApi();let pending;

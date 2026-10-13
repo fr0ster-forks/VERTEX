@@ -24,9 +24,12 @@ try {
             'extension/node_modules/@abaplint/core/build/src/index.js', 'extension/licenses/abaplint-MIT.txt',
             'extension/node_modules/@abaplint/transpiler-cli/abap_transpile',
             'extension/node_modules/@abaplint/runtime/package.json',
+            'extension/vendor/open-abap-core/LICENSE',
+            'extension/vendor/open-abap-core/REVISION',
+            'extension/vendor/open-abap-core/src/ddic/dtel/mandt.dtel.xml',
             'extension/node_modules/temporal-polyfill/package.json',
             'extension/node_modules/temporal-spec/package.json',
-            'extension/node_modules/temporal-utils/package.json', 'extension/local-run.js', 'extension/local-debug-vars.js', 'extension/pages/local-visual-debug.html',
+            'extension/node_modules/temporal-utils/package.json', 'extension/local-run.js', 'extension/local-trace.js', 'extension/local-debug-vars.js', 'extension/local-debug-adapter.js',
             'extension/value-origin-linter.js', 'extension/value-origin-demand.js', 'extension/frontend-analysis.js', 'extension/call-graph.js', 'extension/ace-scheme.js',
             'extension/log-report.js', 'extension/resources/log-report.html',
             'extension/resources/metrics.html', 'extension/resources/versions.html', 'extension/pages/visual-debug.html')

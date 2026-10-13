@@ -45,13 +45,25 @@ Open Welcome with **VERTEX: Get Started** in the Command Palette.
 
 For calculation code that can run without SAP services, use the transpiler and
 runtime bundled with VERTEX. Open a saved local `.abap` file and choose
-**VERTEX: Open Visual Debug**. The same panel used for SAP shows
-**Run with ABAP Transpiler** for local files. Choose a radio-button value, then
-run; breakpoints and variables appear in VS Code's Debug view.
+**VERTEX: Open Visual Debug**. The Visual Debug panel is shared with SAP runs;
+for local files its title is **Visual Transpiler Debug** and its Run button is
+**Run with ABAP Transpiler**. Choose a radio-button value, then run. VERTEX
+instruments generated program and class modules and records line positions and
+changed variables during execution. The history slider and step buttons replay
+those records without pausing the Node debugger on every instruction. This fast
+trace follows mapped statements; some ABAP constructs still need broader
+instrumentation. Breakpoints on standalone ABAP declarations
+such as `DATA` are removed because they are not calculation steps.
 
-VERTEX detects the workspace's `src` folder and creates its transpiler config
-and output in a temporary directory. An existing `abap_transpile.json` in the
-project takes precedence. A custom configuration can look like this:
+VERTEX creates a temporary transpiler config for the selected ABAP file, its
+statically referenced global classes and interfaces, classes reached by VERTEX's
+call graph, and matching table XML metadata. Standard DDIC data elements and domains
+come from the bundled `open-abap-core` subset. The resolved class list appears in the
+VERTEX Local ABAP output channel before transpilation.
+Unrelated files in a large `src` folder do not block a simple report. For
+dynamically named classes or additional DDIC types, provide an
+`abap_transpile.json` in the project; it takes precedence. A custom configuration
+can look like this:
 
 ```json
 {"input_folder":"src","input_filter":[],"output_folder":"output","write_unit_tests":true,"write_source_map":true}
@@ -60,14 +72,23 @@ project takes precedence. A custom configuration can look like this:
 Put report sources under `src/`, for example `zcalc.prog.abap`. For ABAP Unit,
 the project must have test classes that the transpiler can discover. The separate
 **VERTEX: Run Local ABAP** and **VERTEX: Debug Local ABAP** Command Palette entries
-also work; they use a temporary configuration when the project has none.
-The debug command uses the transpiler's source maps for ABAP breakpoints. Check a
-breakpoint and variable display against your project's syntax before relying on it.
-The VERTEX Local ABAP output channel shows transpiler diagnostics. Database and SAP
-service dependencies need their own local implementations or an SAP system. Projects
+also work; the Debug command opens Visual Transpiler Debug. Both use a temporary
+configuration when the project has none.
+The VERTEX Local ABAP output channel shows transpiler diagnostics. Automatic projects
+send Open SQL SELECT to the configured SAP system through the same ADT data preview
+used by SelecTor; data remains in SAP. Load test data in SAP if a calculation
+depends on table rows. SQL writes and SAP service dependencies
+still need local implementations or an SAP system. Projects
 that install their own transpiler CLI use that version; VERTEX supplies its runtime
 to generated output when the project has none. No project npm install is required
 for basic local runs.
+
+**Run SELECT** also works manually in a local `.abap` editor: put the cursor on
+the SELECT and invoke the command from the editor menu or Command Palette. It
+runs directly in the selected SAP system without transpiling or running the
+report. The result window shows any conditions omitted because they depend on
+program variables. A small standalone calculation example is
+[`examples/zvertex_fibonacci.prog.abap`](examples/zvertex_fibonacci.prog.abap).
 
 **Idea for use: ABAP Unit in CI.** A GitHub Actions workflow can run the same
 transpiler pipeline on every push for tests independent of SAP: `npm ci`,

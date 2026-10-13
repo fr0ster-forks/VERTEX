@@ -826,6 +826,7 @@ function activate(context) {
   frontendAnalysisRequest = sapCode.frontendRequest;
   frontendTableRequest = sapCode.tableRequest;
   frontendTableWrite = sapCode.tableWrite;
+  require('./local-run').setSelectorQuery(sapCode.selectorQuery);
   // A first start with no system: offered once per start, never imported without the reader's click.
   const listed = vscode.workspace.getConfiguration("vertex").get("systems");
   if (Array.isArray(listed) && !listed.some(function (s) { return s && s.name; })) {
@@ -878,7 +879,17 @@ function activate(context) {
       chat: () => require("./chat").create(vscode, chatTools, tools, context.secrets, () => latestDebugContext, () => require("./value-origin-view").originContext()) }, initial);
   // The normal source tab remains the sole code editor.  The debugger is a
   // docked panel, not another editor tab showing a second copy of that source.
-  let dockedDebugView = null, dockedDebugSource = null;
+  let dockedDebugView = null, dockedDebugSource = null, localDebugAdapter = null;
+  const localHistoryMark = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true, backgroundColor: "rgba(45, 125, 230, 0.18)",
+    border: "1px solid rgba(45, 125, 230, 0.65)"
+  });
+  context.subscriptions.push(localHistoryMark);
+  let localHistoryEditor = null;
+  const clearLocalHistoryMark = () => {
+    if (localHistoryEditor) localHistoryEditor.setDecorations(localHistoryMark, []);
+    localHistoryEditor = null;
+  };
   const dockedDebugInitial = () => !dockedDebugSource ? null : {
     name: dockedDebugSource.object_name,
     type: dockedDebugSource.object_type,
@@ -886,20 +897,26 @@ function activate(context) {
     scenarios: dockedDebugSource.local ? require("./local-run").scenariosFor(dockedDebugSource.document) : []
   };
   const postDockedPicture = () => {
-    if (dockedDebugView && !dockedDebugSource?.local) void dockedDebugView.webview.postMessage({ type: "debug", payload: JSON.stringify(dbg.picture()) });
+    if (dockedDebugView) void dockedDebugView.webview.postMessage({ type: "debug",
+      payload: JSON.stringify(dockedDebugSource?.local ? localDebugAdapter?.picture() : dbg.picture()) });
   };
+  let latestLocalVariables = null;
   context.subscriptions.push(vscode.window.registerWebviewViewProvider("vertex.visualDebug", {
     resolveWebviewView(view) {
       dockedDebugView = view;
       view.webview.options = { enableScripts: true };
       view.webview.html = require("./tools-window").debugHtml(dockedDebugInitial());
+      if (dockedDebugSource?.local && latestLocalVariables) {
+        setTimeout(() => void view.webview.postMessage({ type: "localVariables", state: latestLocalVariables }), 150);
+      }
       let logicReceive=null,logicDisposers=[];
       const unwatch = dbg.watch(postDockedPicture);
       // The reader's place in a VERTEX source, for the variables it shows before the program runs: the object and the line the
       // cursor is on, whichever VERTEX tab is in front. A change is sent once the cursor has rested a moment.
       let cursorTimer;
       const sendCursor = () => {
-        const editor = vscode.window.activeTextEditor, object = editor && sapCode.documentObject(editor.document);
+        const editor = vscode.window.activeTextEditor, object = editor && (dockedDebugSource?.local
+          ? require("./local-analysis").sourceObject(editor.document) : sapCode.documentObject(editor.document));
         if (!object) { return; }
         view.webview.postMessage({ type: "cursor", payload: JSON.stringify({ ...object, line: editor.selection.active.line + 1 }) });
       };
@@ -909,12 +926,36 @@ function activate(context) {
       view.onDidDispose(() => { clearTimeout(cursorTimer); cursorWatchers.forEach(watcher => watcher.dispose()); });
       const receive = view.webview.onDidReceiveMessage(async message => {
         try {
+          if (message.call === "localPanelReady") {
+            if (latestLocalVariables && dockedDebugSource?.local) {
+              await view.webview.postMessage({ type: "localVariables", state: latestLocalVariables });
+            }
+            return;
+          }
           if (message.call === "localRun") {
             if (!dockedDebugSource?.local) throw new Error("Open a local ABAP file in Visual Debug first.");
+            clearLocalHistoryMark();
+            latestLocalVariables = null;
             await require("./local-run").launch(vscode, true, {
               document: dockedDebugSource.document, selection: message.selection || {}
             });
             await view.webview.postMessage({ type: "localRunResult", message: "Debug session started. Breakpoints and variables are in the VS Code Debug view." });
+            return;
+          }
+          if (message.call === "localStep") {
+            clearLocalHistoryMark();
+            const command = { into: "workbench.action.debug.stepInto", over: "workbench.action.debug.stepOver",
+              out: "workbench.action.debug.stepOut", continue: "workbench.action.debug.continue",
+              stop: "workbench.action.debug.stop" }[message.kind];
+            if (!command) throw new Error("Unknown local debug action.");
+            await vscode.commands.executeCommand(command);
+            return;
+          }
+          if (message.call === "copyLocalVariables") {
+            const state = latestLocalVariables || { frame: "", variables: [] };
+            const lines = [state.frame || "", ...(state.variables || []).map(variable =>
+              variable.name + " = " + String(variable.value ?? ""))].filter(Boolean);
+            await vscode.env.clipboard.writeText(lines.join("\n"));
             return;
           }
           if(message.call==="inlineLogic"){if(logicReceive)await logicReceive(message.payload);return;}
@@ -940,7 +981,9 @@ function activate(context) {
             // error included: it is the analysis's, not the next debugger answer's.
             const request = JSON.parse(String((message.args || [])[0] || "{}"));
             let reply;
-            try { reply = { id: request.id, answer: request.open ? await sapCode.originOpen(request.open) : request.variables ? await sapCode.originVariables(request.variables) : await sapCode.originPoints(request,progress=>view.webview.postMessage({type:"originProgress",payload:{id:request.id,...progress}})) }; }
+            try { reply = { id: request.id, answer: dockedDebugSource?.local && request.variables
+              ? await require("./local-analysis").declaredVariables(dockedDebugSource.document, request.variables)
+              : request.open ? await sapCode.originOpen(request.open) : request.variables ? await sapCode.originVariables(request.variables) : await sapCode.originPoints(request,progress=>view.webview.postMessage({type:"originProgress",payload:{id:request.id,...progress}})) }; }
             catch (error) { reply = { id: request.id, error: error.message }; }
             await view.webview.postMessage({ type: "origin", payload: JSON.stringify(reply) });
             return;
@@ -952,7 +995,22 @@ function activate(context) {
           if (message.call === "reveal") {
             // The player walked to a recorded stop. In this panel the source is
             // the editor's, so that is what has to move.
-            await sapCode.revealFrame(JSON.parse(String((message.args || [])[0] || "{}")));
+            const frame = JSON.parse(String((message.args || [])[0] || "{}"));
+            if (dockedDebugSource?.local) {
+              const source = String(frame.url || "");
+              if (source && /\.abap$/i.test(source)) {
+                const document = await vscode.workspace.openTextDocument(vscode.Uri.file(source));
+                const line = Math.max(0, Math.min(document.lineCount - 1, Number(frame.line || 1) - 1));
+                const editor = await vscode.window.showTextDocument(document, { preserveFocus: true, preview: false });
+                const position = new vscode.Position(line, 0);
+                if (localHistoryEditor && localHistoryEditor !== editor) clearLocalHistoryMark();
+                editor.setDecorations(localHistoryMark, [document.lineAt(line).range]);
+                localHistoryEditor = editor;
+                editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+              }
+            } else {
+              await sapCode.revealFrame(frame);
+            }
             return;
           }
           if (message.call === "debug" && (message.args || [])[0] === "copy") {
@@ -968,6 +1026,12 @@ function activate(context) {
           const args = message.args || [];
           const command = String(args[0] || "");
           const commandArgs = JSON.parse(String(args[1] || "{}"));
+          if (dockedDebugSource?.local && localDebugAdapter) {
+            if (["run", "step", "stop", "detach", "terminate"].includes(command)) clearLocalHistoryMark();
+            const answer = await localDebugAdapter.command(command, commandArgs);
+            await view.webview.postMessage({ type: "result", payload: JSON.stringify(answer) });
+            return;
+          }
           if(command==="logicTools"){
             logicDisposers.splice(0).forEach(dispose=>dispose());logicReceive=null;
             const embedded={title:"Logic",webview:{
@@ -1001,10 +1065,15 @@ function activate(context) {
     }
   }, { webviewOptions: { retainContextWhenHidden: true } }));
   require("./local-debug-vars").register(vscode, context, state => {
+    latestLocalVariables = state;
+    if (dockedDebugSource?.local && localDebugAdapter) localDebugAdapter.update(state);
     if (dockedDebugView && dockedDebugSource?.local) {
       void dockedDebugView.webview.postMessage({ type: "localVariables", state });
     }
-  });
+  }, () => !!dockedDebugSource?.local);
+  context.subscriptions.push(vscode.debug.onDidTerminateDebugSession(() => {
+    if (dockedDebugSource?.local && localDebugAdapter) localDebugAdapter.finish();
+  }));
   const openVisualDebug = () => {
     const editor = vscode.window.activeTextEditor;
     const local = require("./local-analysis");
@@ -1015,6 +1084,12 @@ function activate(context) {
       return;
     }
     dockedDebugSource = source;
+    localDebugAdapter = source.local ? require("./local-debug-adapter").create(vscode, source.document,
+      selection => require("./local-run").launch(vscode, false, { document: source.document, selection, trace: true }),
+      postDockedPicture) : null;
+    if (source.local && latestLocalVariables && dockedDebugView) {
+      setTimeout(() => void dockedDebugView?.webview.postMessage({ type: "localVariables", state: latestLocalVariables }), 150);
+    }
     if (dockedDebugView) {
       dockedDebugView.webview.html = require("./tools-window").debugHtml(dockedDebugInitial());
       dockedDebugView.show(true);
@@ -1028,6 +1103,12 @@ function activate(context) {
   // A stopped program is shared with Visual Debug, so stepping here redraws
   // the already open visual tab without a second debugger session.
   const stepFromSource = async kind => {
+    if (require("./local-analysis").isLocalAbap(vscode.window.activeTextEditor?.document)) {
+      const command = { into: "workbench.action.debug.stepInto", over: "workbench.action.debug.stepOver",
+        out: "workbench.action.debug.stepOut", continue: "workbench.action.debug.continue" }[kind];
+      await vscode.commands.executeCommand(command);
+      return;
+    }
     if (!dbg.picture().stopped) {
       vscode.window.showWarningMessage("VERTEX: no stopped ABAP program. Open Visual Debug and run to a breakpoint first.");
       return;

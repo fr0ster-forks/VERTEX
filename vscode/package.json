@@ -25,7 +25,7 @@
     "codex",
     "reviewer"
   ],
-  "version": "0.8.10",
+  "version": "0.8.13",
   "publisher": "YuriiSychov",
   "engines": {
     "vscode": "^1.85.0"
@@ -434,7 +434,7 @@
         },
         {
           "command": "vertex.runSelect",
-          "when": "resourceScheme == vertex-sap && editorLangId == abap",
+          "when": "(resourceScheme == vertex-sap || resourceScheme == file) && editorLangId == abap",
           "group": "navigation@9"
         },
         {
@@ -631,7 +631,7 @@
         },
         {
           "command": "vertex.runSelect",
-          "when": "resourceScheme == vertex-sap && editorLangId == abap"
+          "when": "(resourceScheme == vertex-sap || resourceScheme == file) && editorLangId == abap"
         }
       ]
     },
@@ -665,6 +665,26 @@
         "command": "vertex.debugContinue",
         "key": "f8",
         "when": "resourceScheme == vertex-sap && editorLangId == abap"
+      },
+      {
+        "command": "vertex.debugInto",
+        "key": "f5",
+        "when": "resourceScheme == file && editorLangId == abap && inDebugMode"
+      },
+      {
+        "command": "vertex.debugOver",
+        "key": "f6",
+        "when": "resourceScheme == file && editorLangId == abap && inDebugMode"
+      },
+      {
+        "command": "vertex.debugOut",
+        "key": "f7",
+        "when": "resourceScheme == file && editorLangId == abap && inDebugMode"
+      },
+      {
+        "command": "vertex.debugContinue",
+        "key": "f8",
+        "when": "resourceScheme == file && editorLangId == abap && inDebugMode"
       },
       {
         "command": "vertex.runUnitTests",

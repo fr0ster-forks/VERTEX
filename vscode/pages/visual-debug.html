@@ -204,6 +204,7 @@ body.vertex-docked-debug #right{width:100%}
   <span class="grp"><button id="zonly" class="on" title="In a run of F5 steps, a step that lands outside Z/Y code returns at once (F7): SAP's own code is passed in one go">Z only</button><button id="flow" title="Continue (F8) from call to call, recording which routine calls which - the program's real flow, drawn as a diagram">Flow</button><span class="vertex-segment-toggle" id="recmode" role="group" aria-label="Record" title="Continue (F8) as a run of F5 steps, keeping every stop for the player. Values are the expensive half of a stop - the parameters and locals where a routine starts and ends - so they are recorded only when asked for"><button data-rec="off">No record</button><button class="active" data-rec="steps">Rec steps</button><button data-rec="values">Steps &amp; values</button></span><button id="predict" class="on" title="Use the statement map to go faster: the next line is taken from it where the text alone decides it, and, with a value followed, a loop, an IF/CASE block, a run of statements or a call its slice does not touch is passed in one go. On by default. Off, SAP is asked where the program is after every step - slower, and every stop was read rather than worked out. Loops are always stepped through otherwise">Predict</button></span>
   <span id="state">Click beside a line number to set a breakpoint; right-click for a condition.</span>
 </header>
+<div id="local-selection" hidden></div>
 <!-- What the run is doing and what it just did: a line of its own under the
      toolbar, not among the buttons. The Log keeps the whole of it. -->
 <div id="runline"><span id="stats" title="What the run did: steps, how many of them came from the statement map, the depth it reached and how long it took. What a step cost, and how it was decided, is in the Log."></span></div>
@@ -746,6 +747,7 @@ function drawButtons(){
   $("stop").title=stopped?"Let the program continue and disconnect; breakpoints are kept":picture.listening?"Stop waiting for a run; breakpoints are kept":"No debugger connection to detach";
   var s=picture.stopped;
   $("state").textContent=(picture.system?picture.system+" · ":"")+(s?"stopped at "+(placeName(currentFrame())||s.at)+(s.problem?" · "+s.problem:""):picture.listening?"listening for a run":"not listening");
+  if(INITIAL.local&&picture.error&&!s)$("state").textContent=picture.error;
 }
 var STEP={into:"into",over:"over",out:"out",cont:"continue"};
 /* Where a step started: the next stop reads again only what that statement
@@ -760,9 +762,24 @@ function placeName(f){
   return name+":"+f.line;
 }
 Object.keys(STEP).forEach(function(id){$(id).onclick=function(){
-  if(id==="cont"&&series){series.stop=true;return;}
+  if(INITIAL.local&&flow.timeline&&flow.timeline.length){
+    var from=replayAt==null?0:replayAt,to=Math.min(flow.timeline.length-1,from+1);
+    if(id==="cont"){
+      to=flow.timeline.length-1;
+      for(var j=from+1;j<flow.timeline.length;j++){
+        var at=flow.timeline[j].at;
+        if((picture.breakpoints||[]).some(function(bp){return bp.active&&bp.line===at.line&&String(bp.url).toLowerCase()===String(at.url).toLowerCase();})){to=j;break;}
+      }
+    }
+    replay(to);return;
+  }
+  if(INITIAL.local&&replayAt!=null){
+    replayAt=null;drawPos();markNow(liveCur());drawStack();drawVars();
+    var live=currentFrame();if(live)revealInEditor({at:{url:live.url,line:live.line},stack:[live]});
+  }
+  if(id==="cont"&&series){series.stop=true;series.reason="paused";return;}
   if(id==="cont"&&$("flow").classList.contains("on")){runFlow();return;}
-  if(id==="cont"&&recording()){runVisual();return;}
+  if(id==="cont"&&(INITIAL.local||recording())){if(INITIAL.local)runLocalVisual();else runVisual();return;}
   notice("");var f=currentFrame();
   lastStep=f?{kind:STEP[id],url:f.url,line:f.line,depth:picture.stopped.frames.length,unit:unitName(f)}:null;
   manualStep={key:{into:"F5",over:"F6",out:"F7",cont:"F8"}[id],t:Date.now()};
@@ -1128,10 +1145,49 @@ var lastStats=null;
 function drawStats(s){
   lastStats=s;
   var sec=(Date.now()-s.t0)/1000;
+  if(typeof INITIAL!=="undefined"&&INITIAL.local){$("stats").textContent=s.steps+" steps \u00b7 depth "+(picture.stopped?picture.stopped.frames.length:0)+" \u00b7 "+sec.toFixed(1)+" s"+(sec>0&&s.steps?" \u00b7 "+(s.steps/sec).toFixed(1)+" steps/s on average":"");return;}
   $("stats").textContent=s.steps+" steps ("+s.predicted+" predicted) · depth "+(picture.stopped?picture.stopped.frames.length:0)+" · "+sec.toFixed(1)+" s"
     +(sec>0&&s.steps?" · "+(s.steps/sec).toFixed(1)+" steps/s on average":"")
     +(s.loops?" · "+s.loops+" loops passed":"")+(s.blocks?" · "+s.blocks+" blocks passed":"")+(s.skipped?" · "+s.skipped+" runs past statements outside the slice":"")+(s.rests?" · "+s.rests+" loop pass tails passed":"")+(s.standard?" · "+s.standard+" standard calls passed":"")+(s.over?" · "+s.over+" stepped over":"")+(s.missed?" · "+s.missed+" mispredicted":"")
     +(s.inline?" · "+s.inline+" lines with more than one statement":"")+(s.unitend?" · "+s.unitend+" unit ends":"");
+}
+function runLocalVisual(){
+  if(!picture.stopped)return;
+  notice("");
+  var s=series={steps:0,predicted:0,t0:Date.now(),stop:false,reason:""};
+  $("cont").querySelector(".lbl").textContent="Pause";
+  $("cont").title="Pause the recording (F8)";
+  if(!flow.timeline||!flow.timeline.length||flow.ended!==picture.ended||flow.closed){
+    flow={edges:{},nodes:{},order:[],ended:picture.ended};flowPath=[];
+  }
+  function keep(p,groups){
+    picture=p;
+    if(!p.stopped)return Promise.resolve();
+    record(p.stopped.frames);
+    return snapshot(groups);
+  }
+  s.done=keep(picture).then(function next(){
+    if(s.stop||!picture.stopped)return;
+    return debug("step",{kind:"into",wait:true}).then(function(result){
+      if(result.error)throw new Error(result.error);
+      if(result.timeout)throw new Error("The local debugger did not stop after the step.");
+      var p=result.picture;
+      s.steps++;drawStats(s);
+      if(result.ended||!p.stopped){picture=p;s.reason="ended";return;}
+      return keep(p,result.groups).then(function(){if(stopsHere(p)){s.reason="breakpoint";return;}return next();});
+    });
+  }).catch(function(error){s.reason="error";failed(error);}).then(function(){
+    series=null;
+    if(s.reason==="paused")notice("Paused by user. Continue resumes toward the next breakpoint.");
+    else if(s.reason==="breakpoint")notice("Stopped at a breakpoint.");
+    else if(s.reason==="ended")notice("Program finished.");
+    $("cont").querySelector(".lbl").textContent="Continue";
+    $("cont").title="Continue to the next breakpoint (F8)";
+    if(picture.stopped)recKey=picture.ended+"|"+picture.stopped.at+"|"+picture.stopped.frames.length;
+    apply(picture);replayAt=flow.timeline&&flow.timeline.length?flow.timeline.length-1:null;drawPos();
+    if(replayAt!=null)showStop(replayAt).catch(failed);
+    if(flow.timeline&&flow.timeline.length)showFlow();
+  });
 }
 function runVisual(){
   if(!picture.stopped)return;
@@ -1259,7 +1315,7 @@ function runVisual(){
       stopKey="";apply(p);});
   }).catch(failed);
 }
-document.addEventListener("keydown",function(e){var k={F5:"into",F6:"over",F7:"out",F8:"cont"}[e.key];if(k&&picture.stopped){e.preventDefault();$(k).onclick();}});
+document.addEventListener("keydown",function(e){var k={F5:"into",F6:"over",F7:"out",F8:"cont"}[e.key];if(k&&picture.stopped){e.preventDefault();if(!e.repeat)$(k).onclick();}});
 /* ---------- Flow: from call to call, and the picture of it ---------- */
 /* For the flow only the calls matter. In a routine the run sets points on
    every call that may enter Z/Y code and on the routine's end, and runs to
@@ -1302,12 +1358,28 @@ function snapDue(frames){
   var f=frames[0],p=f&&maps[f.program]?placeOf(f,maps[f.program]):null;
   return !!(p&&ENDS.test(p.here.kw));
 }
-function snapshot(){
+var localVarCache={};
+function snapshot(captured){
   var tl=flow.timeline,at=tl[tl.length-1];
-  return debug("scopes",{sy:false}).then(function(d){
-    var groups=d.groups.filter(function(g){var k=groupKind(g.name);return k==="params"||k==="locals";});
-    return groups.reduce(function(p,g){return p.then(function(){return debug("children",{id:g.id}).then(function(c){g.children=c.children;});});},Promise.resolve())
-      .then(function(){at.vars=groups.map(function(g){return {name:g.name,children:(g.children||[]).map(function(v){return {name:v.name,type:v.type,value:v.value,meta:v.meta};})};});});
+  var read=INITIAL.local?(captured?Promise.resolve({groups:captured}):debug("localSnapshot")):debug("scopes",{sy:false});
+  return read.then(function(d){
+    var groups=d.groups.filter(function(g){var k=groupKind(g.name);return INITIAL.local||k==="params"||k==="locals";});
+    return groups.reduce(function(p,g){return p.then(function(){return INITIAL.local&&g.children?undefined:debug("children",{id:g.id}).then(function(c){g.children=c.children;});});},Promise.resolve())
+      .then(function(){
+        var values=groups.map(function(g){return {name:g.name,children:(g.children||[]).map(function(v){return {name:v.name,type:v.type,value:v.value,meta:v.meta};})};});
+        if(!INITIAL.local){at.vars=values;return;}
+        var next={},deltas=[];
+        values.forEach(function(g){var changed=[];
+          g.children.forEach(function(v){var key=g.name+"\u0000"+v.name,sig=JSON.stringify([v.type,v.value,v.meta]);
+            next[key]={signature:sig,group:g.name,name:v.name};
+            if(!localVarCache[key]||localVarCache[key].signature!==sig)changed.push(v);});
+          if(changed.length)deltas.push({name:g.name,children:changed});});
+        Object.keys(localVarCache).forEach(function(key){if(next[key])return;
+          var old=localVarCache[key],group=deltas.filter(function(g){return g.name===old.group;})[0];
+          if(!group){group={name:old.group,children:[]};deltas.push(group);}
+          group.children.push({name:old.name,deleted:true});});
+        localVarCache=next;at.vars=deltas;at.varsDelta=true;
+      });
   }).catch(function(e){at.vars={error:e.message};});
 }
 /* The values the player shows at a recorded stop: those read there, or the
@@ -1323,7 +1395,14 @@ function drawRecordedVars(i){
     box.appendChild(recorded);return;
   }
 
-  while(k>=0&&!from){var x=tl[k];if(x.vars&&x.cur&&t.cur&&x.cur.name===t.cur.name&&x.stack.length===t.stack.length)from=x;else if(x.stack.length<t.stack.length)break;k--;}
+  if(INITIAL.local){
+    var values={};
+    for(var stop=0;stop<=i;stop++)(Array.isArray(tl[stop].vars)?tl[stop].vars:[]).forEach(function(g){
+      var group=values[g.name]||(values[g.name]={});
+      (g.children||[]).forEach(function(v){if(v.deleted)delete group[v.name];else group[v.name]=v;});
+    });
+    from={vars:Object.keys(values).map(function(name){return {name:name,children:Object.keys(values[name]).map(function(key){return values[name][key];})};})};k=i;
+  }else while(k>=0&&!from){var x=tl[k];if(x.vars&&x.cur&&t.cur&&x.cur.name===t.cur.name&&x.stack.length===t.stack.length)from=x;else if(x.stack.length<t.stack.length)break;k--;}
   box.textContent="";
   if(!from){box.innerHTML='<div class="empty">No values recorded here - a flow reads them where a routine starts and ends.</div>';return;}
   if(from.vars.error){box.innerHTML='';var e=document.createElement("div");e.className="empty";e.textContent="The values could not be read at this stop: "+from.vars.error;box.appendChild(e);return;}
@@ -1362,7 +1441,7 @@ function recordStop(p){
   logStep(p);recFrom=String(p.stopped.frames[0]&&p.stopped.frames[0].label||p.stopped.at);
   if(!flow.timeline||!flow.timeline.length||flow.ended!==p.ended||flow.closed){flow={edges:{},nodes:{},order:[],ended:p.ended};flowPath=[];}
   record(p.stopped.frames);
-  if(recordingValues()&&snapDue(p.stopped.frames))snapshot().catch(failed);
+  if((INITIAL.local||recordingValues())&&(INITIAL.local||snapDue(p.stopped.frames)))snapshot().catch(failed);
   if(chosenValue)readChosenValue().catch(failed);
   publishDebugContext();
   if(paneOn("flowpane")&&replayAt==null){
@@ -2130,7 +2209,7 @@ function showStop(i){
     document.querySelectorAll("#code .line.here").forEach(function(r){r.classList.remove("here");});
     var h=$("l"+t.at.line);if(h)h.classList.add("here");});
 }
-function replay(i){var n=stops();if(!n)return;replayAt=i>=n-1?null:Math.max(0,i);drawPos();
+function replay(i){var n=stops();if(!n)return;replayAt=INITIAL.local?Math.min(n-1,Math.max(0,i)):(i>=n-1?null:Math.max(0,i));drawPos();
   if(replayAt==null){markNow(liveCur());drawStack();drawVars();var f=currentFrame();if(f)show(f.url,null,f.line).catch(failed);}else showStop(replayAt).catch(failed);}
 $("fprev").onclick=function(){if(playing)return;replay((replayAt==null?stops()-1:replayAt)-1);};
 $("fnext").onclick=function(){if(playing||replayAt==null)return;replay(replayAt+1);};
@@ -2238,6 +2317,25 @@ function hideDumpPage(){$("dumppage").hidden=true;$("dumppagebody").textContent=
 $("dumppageclose").onclick=hideDumpPage;
 document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!$("dumppage").hidden){e.stopPropagation();hideDumpPage();}},true);
 $("run").onclick=function(){
+  if(INITIAL.local){var selection={};document.querySelectorAll('#local-selection input[type="radio"]:checked').forEach(function(input){selection[input.name]=input.value;});
+    flow={edges:{},nodes:{},order:[]};flowPath=[];localVarCache={};replayAt=null;recKey="";drawPos();
+    notice("");debug("run",{selection:selection}).then(function(result){
+      var trace=result.trace||[],name=String(INITIAL.name||"").toUpperCase();
+      flow={edges:{},nodes:{},order:[],timeline:[],ended:picture.ended};flowPath=[];
+      trace.forEach(function(row){var owner=row.owner||name,routine=row.routine||"START-OF-SELECTION";
+        var frame={n:0,current:true,label:"EVENT "+routine,program:owner,
+        include:owner,unitType:"EVENT",unit:routine,url:row.file,line:row.line};
+        flow.timeline.push({upto:0,cur:{owner:owner,name:routine},
+          at:{url:row.file,line:row.line,ord:0,name:routine},
+          stack:[frame],vars:[{name:"Locals",children:Object.keys(row.changed||{}).map(function(key){return {
+            name:key,type:"",value:typeof row.changed[key]==="object"?JSON.stringify(row.changed[key]):String(row.changed[key])};})}],varsDelta:true});
+      });
+      if(trace.length){replayAt=0;drawPos();showStop(0).catch(failed);showFlow();}
+      var sec=(result.durationMs||0)/1000;
+      $("stats").textContent=trace.length+" steps � execution "+sec.toFixed(3)+" s"+
+        (sec>0?" � "+(trace.length/sec).toFixed(0)+" steps/s":"");
+      $("state").textContent="Transpiler execution completed; use the history slider or step buttons.";
+    }).catch(failed);return;}
   var p=$("program").hidden?String(INITIAL.name):$("program").value.trim();
   // An empty field for a class or a function module: its own test screen,
   // SE24 or SE37 with the name filled in; the test is started there with F8.
@@ -2521,7 +2619,7 @@ function drawStaticVars(box){
 /* SYST and Initials are about values, which a program that has not stopped does not have: they are there while it is stopped. */
 function syncVarSwitches(){
   var live=!!picture.stopped;
-  ["syst","initials"].forEach(function(id){$(id).style.display=live?"":"none";});
+  ["syst","initials"].forEach(function(id){$(id).style.display=live||INITIAL.local&&id==="syst"?"":"none";});
 }
 /* What the assistant's chat is given of this window, in two parts that are not to be taken for each other: what the program
    ACTUALLY DID (the record: the stops, in order, with the depth each stood at below the first one) and what the ANALYSIS says
@@ -2622,7 +2720,7 @@ function switched(id,read){$(id).onclick=function(){var on=$(id).classList.toggl
   if(!on||!scopes||!picture.stopped||series){drawVars();return;}
   if(id==="params"&&!scopes.groups.some(function(g){return groupKind(g.name)==="params";})){loadScopes().catch(failed);return;}
   read().then(drawVars).catch(failed);};}
-switched("syst",function(){return scopes.sy?Promise.resolve():debug("vars",{names:["SY"]}).then(function(d){scopes.sy=d.variables[0]||null;});});
+switched("syst",function(){return scopes.sy?Promise.resolve():debug("vars",{names:["SY"]}).then(function(d){scopes.sy=d.variables[0]||null;if(INITIAL.local&&!scopes.sy)notice("SY fields are not available from the local transpiler runtime yet.");});});
 ["globals","locals","params"].forEach(function(kind){switched(kind,function(){
   return scopes.groups.filter(function(g){return groupKind(g.name)===kind&&!g.children;}).reduce(function(p,g){return p.then(function(){return debug("children",{id:g.id}).then(function(c){g.children=c.children;});});},Promise.resolve());});});$("filter").oninput=drawVars;
 
@@ -2755,7 +2853,14 @@ function readNamed(names){
 function refresh(){return debug("picture").then(apply);}
 // During a Visual run the run draws each stop itself; the same stop told
 // again by the debugger would be drawn twice.
-function sdeDebugEvent(raw){if(series)return;try{apply(JSON.parse(raw));}catch(e){failed(e);}}
+function sdeDebugEvent(raw){if(series)return;try{
+  var next=JSON.parse(raw);
+  if(INITIAL.local&&replayAt!=null&&(!next.stopped||!picture.stopped||
+      next.ended!==picture.ended||next.stopped.at!==picture.stopped.at)){
+    replayAt=null;drawPos();
+  }
+  apply(next);
+}catch(e){failed(e);}}
 
 /* ---------- the window's parts list: jump to the unit in the object ---------- */
 var partWaiting=null;
@@ -2785,7 +2890,22 @@ $("split").addEventListener("mousedown",function(e){if(e.button!==0)return;e.pre
 /* ---------- start: the object's active source, then the debugger as it is ---------- */
 (function(){
   if(!INITIAL||!INITIAL.name)return;
-  $("title").textContent=INITIAL.name+" · Visual Debug";
+  $("title").textContent=INITIAL.name+(INITIAL.local?" · Visual Transpiler Debug":" · Visual Debug");
+  if(INITIAL.local){
+    $("run").lastChild.textContent="Run with ABAP Transpiler";
+    $("run").title="Transpile and debug this local ABAP program";
+    variablesStarted=true;$("initials").classList.add("on");
+    $("recmode").querySelector('[data-rec="values"]').click();$("recmode").hidden=true;
+    $("predict").classList.remove("on");$("predict").hidden=true;
+    var selection=$("local-selection");
+    (INITIAL.scenarios||[]).forEach(function(group){var field=document.createElement("fieldset"),legend=document.createElement("legend");
+      legend.textContent="Selection screen / "+group.group;field.appendChild(legend);
+      (group.choices||[]).forEach(function(choice){var label=document.createElement("label"),radio=document.createElement("input");
+        radio.type="radio";radio.name=group.group;radio.value=choice.name;
+        radio.checked=choice.name===(group.default||group.choices[0]?.name);
+        label.append(radio,document.createTextNode(" "+choice.name));field.appendChild(label);});selection.appendChild(field);});
+    selection.hidden=!selection.childNodes.length;
+  }
   // A program runs itself; only a class or a function module needs the program that calls it.
   if(String(INITIAL.type).toUpperCase()==="PROG")$("program").hidden=true;
   if(document.body.classList.contains("vertex-docked-debug")){refresh().catch(failed);return;}

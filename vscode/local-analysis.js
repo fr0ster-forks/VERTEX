@@ -23,6 +23,27 @@ function sourceObject(document) {
   return /^[A-Z0-9_/$]+$/.test(name) ? { object_name: name, object_type: type } : null;
 }
 
+async function declaredVariables(document, request = {}) {
+  const object = sourceObject(document);
+  if (!object) throw new Error("Open a local ABAP program or class first.");
+  const parser = require("./value-origin-linter").createParser();
+  try {
+    const uri = document.uri.toString();
+    const parsed = await parser.parse({ id: uri, name: object.object_name,
+      objectName: object.object_name, objectType: object.object_type, text: document.getText() });
+    const graph = require("./value-origin").analyze([parsed.source], { source: uri, line: 1 });
+    const declarations = graph.declarations || [];
+    const focus = Number.isInteger(request.line) ? require("./value-origin-points").routineAt(declarations,
+      { objectType: object.object_type, objectName: object.object_name, targetSource: uri, line: request.line }) : null;
+    const global = declarations.find(item => item.source === uri && item.name === "GLOBAL");
+    return { ...object, line: request.line || null,
+      scope: focus ? String(focus.owner || "").toUpperCase() + "->" + String(focus.name).toUpperCase() : "",
+      name: focus ? String(focus.name).toUpperCase() : "",
+      params: focus?.params || [], locals: focus?.locals || [],
+      globals: !focus || request.globals ? (global?.locals || []) : null };
+  } finally { await parser.close(); }
+}
+
 function create(vscode, primary, object) {
   const documents = new Map([[object.object_type + ":" + object.object_name, primary]]);
   async function find(name, type) {
@@ -194,4 +215,4 @@ function whereUsed(vscode, primary, sourceOf) {
   };
 }
 
-module.exports = { isLocalAbap, sourceObject, create, createPackage, originSources, whereUsed };
+module.exports = { isLocalAbap, sourceObject, declaredVariables, create, createPackage, originSources, whereUsed };
