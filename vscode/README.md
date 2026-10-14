@@ -1,18 +1,25 @@
 # SAP ABAP VERTEX Tools
 
 [**VERTEX**](https://github.com/ysichov/VERTEX) is a new set of plugins for VS Code and Eclipse ADT.
-In VS Code it also works serverless: the ABAP transpiler runs, debugs and analyses local ABAP
-on your machine - a report, a method of a local class or a function module, with its parameters
-asked in a panel and kept as named variants. Only SELECTs go to the SAP system, read through ADT;
-the logic runs locally. Every step and every value change is recorded: step and set breakpoints,
-replay the run to any step, and follow a value back to a clickable formula of how it was
-calculated, each part of it opening the line that produced it. Against SAP:
-an AI assistant over any SAP system, and an MCP server for Claude Code, Codex and Copilot; an enhanced ABAP
-editor with ABAP Unit, ATC and block-by-block review before activation; an AI-driven ADT debugger with
-conditions SAP evaluates and a verdict naming the line; a visual debugger with recording and replay;
-forward and backward usage analysis down to the formula of a value (BSE); version history, diff and
-transport review; a code explorer with metrics, UML, Logic and Calls diagrams; and a data explorer
-(SelecTor) with joins and pivots.
+
+**Serverless, in VS Code** - the ABAP transpiler runs ABAP on your machine:
+
+- a report, a method of a local class or a function module, its parameters asked in a panel and kept as named variants
+- only SELECTs go to the SAP system, read through ADT; the logic runs locally
+- every step and every value change recorded: step, set breakpoints, replay the run to any step
+- a value followed back to a clickable formula of how it was calculated, each part opening the line that produced it
+
+**Against SAP:**
+
+- AI assistant over any SAP system, and an MCP server for Claude Code, Codex and Copilot
+- enhanced ABAP editor: ABAP Unit, ATC, block-by-block review before activation
+- AI-driven ADT debugger: conditions SAP evaluates, a verdict naming the line
+- visual debugger with recording and replay
+- forward and backward usage analysis, down to the formula of a value (BSE)
+- version history, diff and transport review
+- code explorer: metrics, UML, Logic and Calls diagrams
+- data explorer (SelecTor): tables, joins, pivots
+
 Several of them grew out of earlier SAP GUI tools.
 
 ![VERTEX architecture: VS Code and Eclipse ADT connect to shared VERTEX Web UI tools, with an MCP server for AI assistants and an optional SAP backend](https://raw.githubusercontent.com/ysichov/VERTEX/main/docs/architecture2.png)

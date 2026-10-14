@@ -13,13 +13,25 @@ For VS Code, the recommended companion is
 
 
 
-VERTEX is a set of plugins for VS Code and Eclipse ADT: an AI assistant with MCP, an enhanced ABAP
-editor, an AI-driven ADT debugger, a visual debugger with recording and replay, forward and backward
-usage analysis down to the formula of a value (BSE), a code explorer with metrics,
-UML, Logic and Calls diagrams, and explorers for versions, transports and data.
-In VS Code it also runs ABAP serverless with the ABAP transpiler - a report, a method or a function
-module - with only SELECTs read from SAP, and records the run for stepping, replay and the formula. Each window reads over
-the developer's existing ADT connection and renders as HTML.
+VERTEX is a set of plugins for VS Code and Eclipse ADT. Each window reads over the developer's existing ADT connection and renders as HTML.
+
+**Serverless, in VS Code** - the ABAP transpiler runs ABAP on your machine:
+
+- a report, a method of a local class or a function module, its parameters asked in a panel and kept as named variants
+- only SELECTs go to the SAP system, read through ADT; the logic runs locally
+- every step and every value change recorded: step, set breakpoints, replay the run to any step
+- a value followed back to a clickable formula of how it was calculated, each part opening the line that produced it
+
+**Against SAP:**
+
+- AI assistant over any SAP system, and an MCP server for Claude Code, Codex and Copilot
+- enhanced ABAP editor: ABAP Unit, ATC, block-by-block review before activation
+- AI-driven ADT debugger: conditions SAP evaluates, a verdict naming the line
+- visual debugger with recording and replay
+- forward and backward usage analysis, down to the formula of a value (BSE)
+- version history, diff and transport review
+- code explorer: metrics, UML, Logic and Calls diagrams
+- data explorer (SelecTor): tables, joins, pivots
 
 
 ![VERTEX architecture: VS Code and Eclipse ADT connect to shared VERTEX Web UI tools, with an MCP server for AI assistants and an optional SAP backend](docs/architecture2.png)
