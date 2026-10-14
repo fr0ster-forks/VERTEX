@@ -2,14 +2,16 @@
 
 ## Install
 
+**[VS Code — the Marketplace](https://marketplace.visualstudio.com/items?itemName=YuriiSychov.vertex-abap)**
+· **[Eclipse ADT — the update site](https://ysichov.github.io/VERTEX/)**
+
 For VS Code, the recommended companion is
 [ABAP by Lars Hvam](https://marketplace.visualstudio.com/items?itemName=larshp.vscode-abap)
-(`larshp.vscode-abap`). It is optional; VERTEX registers the ABAP language itself.
+(`larshp.vscode-abap`). 
 
 **VERTEX: Get Started** opens the Welcome walkthrough from the Command Palette.
 
-**[VS Code — the Marketplace](https://marketplace.visualstudio.com/items?itemName=YuriiSychov.vertex-abap)**
-· **[Eclipse ADT — the update site](https://ysichov.github.io/VERTEX/)**
+
 
 VERTEX is a set of plugins for VS Code and Eclipse ADT: an AI assistant with MCP, an enhanced ABAP
 editor, an AI-driven ADT debugger, and explorers for code, versions and data. Each window reads over
