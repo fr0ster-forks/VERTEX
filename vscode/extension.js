@@ -1103,7 +1103,7 @@ function activate(context) {
     }
     dockedDebugSource = source;
     localDebugAdapter = source.local ? require("./local-debug-adapter").create(vscode, source.document,
-      selection => require("./local-run").launch(vscode, false, { document: source.document, selection, trace: true }),
+      selection => require("./local-run").launch(vscode, false, { document: source.document, selection, live: true }),
       postDockedPicture) : null;
     if (source.local && latestLocalVariables && dockedDebugView) {
       setTimeout(() => void dockedDebugView?.webview.postMessage({ type: "localVariables", state: latestLocalVariables }), 150);

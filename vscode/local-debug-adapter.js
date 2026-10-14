@@ -6,7 +6,7 @@ const path = require("path");
 function create(vscode, document, launch, publish) {
   const name = path.basename(document.uri.fsPath).replace(/\.(?:prog|clas|intf)\.abap$/i, "").toUpperCase();
   let latest = null, listening = false, ended = 0, error = "", pendingStep = null;
-  let trace = [], traceIndex = 0;
+  let trace = [], traceIndex = 0, live = null;
   function atTrace(index) {
     traceIndex = index;
     const values = {};
@@ -67,13 +67,30 @@ function create(vscode, document, launch, publish) {
   async function command(action, args = {}) {
     switch (action) {
       case "picture": return picture();
-      case "run": latest = null; error = ""; listening = true; trace = []; publish(picture());
+      case "run": {
+        live?.stop(); live = null;
+        latest = null; error = ""; listening = true; trace = []; publish(picture());
         const result = await launch(args.selection || {});
+        live = result?.live || null;
         trace = result?.records || [];
-        atTrace(0); return { url: document.uri.fsPath, trace, durationMs: result?.durationMs || 0,
-          output: result?.output || "" };
+        let ended = !live;
+        const first = trace[0], breakpoints = points();
+        if (live && first && !breakpoints.some(bp => bp.active && bp.url.toLowerCase() === first.file.toLowerCase() && bp.line === first.line)) {
+          const next = await live.next("continue", breakpoints);
+          trace.push(...next.records); ended = next.ended;
+        }
+        atTrace(Math.max(0, trace.length - 1)); listening = false;
+        return { url: document.uri.fsPath, trace, ended, output: live?.output || result?.output || "" };
+      }
       case "trace": return { trace };
       case "step": {
+        if (args.live) {
+          if (!live) return { records: [], ended: true, picture: picture(), groups: localGroups() };
+          const next = await live.next(args.kind, points());
+          trace.push(...next.records);
+          atTrace(trace.length - 1);
+          return { records: next.records, ended: next.ended, picture: picture(), groups: localGroups() };
+        }
         if (trace.length) {
           let next = Math.min(trace.length - 1, traceIndex + 1);
           if (args.kind === "continue") {
@@ -114,6 +131,7 @@ function create(vscode, document, launch, publish) {
         !args.id || bp.id === args.id)); return {};
       case "activate": return {};
       case "stop": case "detach": case "terminate":
+        live?.stop(); live = null;
         await vscode.debug.stopDebugging(); finish(); return {};
       case "settle": return { settled: !listening };
       case "frame": return {};

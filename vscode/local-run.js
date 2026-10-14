@@ -479,7 +479,7 @@ async function launch(vscode, debug, options = {}) {
   const repairedSelects = repairSelectLoops(path.dirname(project.entry));
   if (repairedSelects) output.appendLine("Repaired " + repairedSelects + " SELECT work-area assignments.");
   output.appendLine("Entry ready.");
-  const bridge = !options.trace && project.automatic && selectorQuery ? await startSelectorBridge() : null;
+  const bridge = !options.trace && !options.live && project.automatic && selectorQuery ? await startSelectorBridge() : null;
   if (options.trace || options.live) {
     const outputRoot = path.dirname(project.entry);
     const traceFile = path.join(outputRoot, "vertex-local-trace.json");
@@ -504,8 +504,11 @@ async function launch(vscode, debug, options = {}) {
         buffer += chunk.toString(); let end;
         while ((end = buffer.indexOf("\n")) >= 0) {
           const line = buffer.slice(0, end).replace(/\r$/, ""); buffer = buffer.slice(end + 1);
-          if (line.startsWith("VERTEX_TRACE_RECORD:")) {
-            const record = JSON.parse(line.slice("VERTEX_TRACE_RECORD:".length)); records.push(record);
+          // WRITE leaves its text without a newline, so a record can follow program output on the same line.
+          const recordAt = line.indexOf("VERTEX_TRACE_RECORD:");
+          if (recordAt >= 0) {
+            stdout += line.slice(0, recordAt);
+            const record = JSON.parse(line.slice(recordAt + "VERTEX_TRACE_RECORD:".length)); records.push(record);
             if (initial === undefined) { initial = record; firstResolve(record); }
             else if (pending) {
               pending.records.push(record);

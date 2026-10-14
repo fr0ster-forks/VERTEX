@@ -766,16 +766,29 @@ function placeName(f){
 }
 Object.keys(STEP).forEach(function(id){$(id).onclick=function(){
   if(INITIAL.local&&flow.timeline&&flow.timeline.length){
-    var from=replayAt==null?0:replayAt,to=Math.min(flow.timeline.length-1,from+1);
-    if(id==="over"||id==="out"){var depth=flow.timeline[from].stack.length;for(var step=from+1;step<flow.timeline.length;step++){if(flow.timeline[step].stack.length<depth+(id==="over"?1:0)){to=step;break;}to=step;}}
+    if(localFetching)return;
+    var from=replayAt==null?0:replayAt,to=null,last=flow.timeline.length-1;
+    if(id==="into"&&from<last)to=from+1;
+    if(id==="over"||id==="out"){var depth=flow.timeline[from].stack.length;for(var step=from+1;step<=last;step++){if(flow.timeline[step].stack.length<depth+(id==="over"?1:0)){to=step;break;}}}
     if(id==="cont"){
-      to=flow.timeline.length-1;
-      for(var j=from+1;j<flow.timeline.length;j++){
+      for(var j=from+1;j<=last;j++){
         var at=flow.timeline[j].at;
         if((picture.breakpoints||[]).some(function(bp){return bp.active&&bp.line===at.line&&String(bp.url).toLowerCase()===String(at.url).toLowerCase();})){to=j;break;}
       }
     }
-    replay(to);return;
+    if(to!=null||localEnded){replay(to==null?last:to);return;}
+    // The record ends before the target: the paused program runs on to it.
+    if(from<last)replay(last);
+    var kind={into:"into",over:"over",out:"out",cont:"continue"}[id];
+    localFetching=true;$("state").textContent="Running to the next stop.";
+    debug("step",{kind:kind,live:true}).then(function(result){
+      if(result.error)throw new Error(result.error);
+      if(result.picture)picture=result.picture;
+      localPush(result.records||[]);localEnded=!!result.ended;drawButtons();
+      replay(flow.timeline.length-1);showFlow();
+      $("state").textContent=localEnded?"Program finished. "+flow.timeline.length+" recorded steps.":"Paused at step "+flow.timeline.length+".";
+    }).catch(failed).then(function(){localFetching=false;});
+    return;
   }
   if(INITIAL.local&&replayAt!=null){
     replayAt=null;drawPos();markNow(liveCur());drawStack();drawVars();
@@ -1320,7 +1333,7 @@ function runVisual(){
       stopKey="";apply(p);});
   }).catch(failed);
 }
-window.sdeHistoryStep=function(kind){if(INITIAL.local&&flow.timeline&&flow.timeline.length&&$(kind))$(kind).onclick();};
+window.sdeHistoryStep=function(kind){var id=kind==="continue"?"cont":kind;if(INITIAL.local&&flow.timeline&&flow.timeline.length&&$(id))$(id).onclick();};
 document.addEventListener("keydown",function(e){var k={F5:"into",F6:"over",F7:"out",F8:"cont"}[e.key];if(k&&(picture.stopped||INITIAL.local&&flow.timeline&&flow.timeline.length)){e.preventDefault();if(!e.repeat)$(k).onclick();}});
 /* ---------- Flow: from call to call, and the picture of it ---------- */
 /* For the flow only the calls matter. In a routine the run sets points on
@@ -1417,7 +1430,7 @@ function drawRecordedVars(i){
     box.textContent="";
     if(t.watch.error||t.watch.missing){var message=document.createElement("div");message.className="empty";message.textContent=t.watch.error?"Recorded value read failed: "+t.watch.error:"Requested values were unavailable at this recorded stop.";box.appendChild(message);return;}
     var recorded=document.createElement("table");recorded.className="vars";
-    var heading=document.createElement("tr"),title=document.createElement("td");heading.className="grp";title.colSpan=3;title.textContent="Watched values · read at stop "+(i+1);heading.appendChild(title);recorded.appendChild(heading);
+    var heading=document.createElement("tr"),title=document.createElement("td");heading.className="grp";title.colSpan=3;title.textContent="Watched values ï¿½ read at stop "+(i+1);heading.appendChild(title);recorded.appendChild(heading);
     (t.watch.read||[]).forEach(function(value){var row=document.createElement("tr");[value.name,value.type,value.value].forEach(function(text,index){var cell=document.createElement("td");cell.className=index===0?"n":index===1?"t":"";cell.textContent=text==null?"":String(text);cell.title=cell.textContent;row.appendChild(cell);});recorded.appendChild(row);});
     box.appendChild(recorded);return;
   }
@@ -2367,30 +2380,30 @@ function showDumpPage(id,name){
 function hideDumpPage(){$("dumppage").hidden=true;$("dumppagebody").textContent="";}
 $("dumppageclose").onclick=hideDumpPage;
 document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!$("dumppage").hidden){e.stopPropagation();hideDumpPage();}},true);
-var localRunSequence=0;
+var localRunSequence=0,localEnded=false,localFetching=false;
+function localPush(trace){var name=String(INITIAL.name||"").toUpperCase();
+  trace.forEach(function(row){var owner=row.owner||name,routine=row.routine||"START-OF-SELECTION";
+    var frame={n:0,current:true,label:"EVENT "+routine,program:owner,
+    include:owner,unitType:"EVENT",unit:routine,url:row.file,line:row.line};
+    var frames=(row.stack||[{owner:owner,unit:routine}]).map(function(entry,index){var program=typeof entry==="string"?entry:entry.owner,unit=index===0?routine:(entry.unit||program);return index===0?frame:{n:index,current:false,label:"METHOD "+unit,program:program,include:program,unitType:"METHOD",unit:unit,url:"",line:0};});
+    flow.timeline.push({upto:0,cur:{owner:owner,name:routine},
+      at:{url:row.file,line:row.line,ord:0,name:routine},
+      stack:frames,vars:[{name:"Locals",children:Object.keys(row.changed||{}).map(function(key){return {
+        name:key,type:"",value:row.changed[key]};})}],varsDelta:true});
+  });
+}
 $("run").onclick=function(){
   if(INITIAL.local){var runId=++localRunSequence,selection={};document.querySelectorAll('#local-selection input[type="radio"]:checked').forEach(function(input){selection[input.name]=input.value;});
-    flow={edges:{},nodes:{},order:[]};flowPath=[];localVarCache={};recordedOpen={};recordedPages={};replayAt=null;recKey="";drawPos();
-    $("stats").textContent="";$("state").textContent="Transpiling and recording a new run.";$("bse-workspace").hidden=true;
+    flow={edges:{},nodes:{},order:[]};flowPath=[];localVarCache={};recordedOpen={};recordedPages={};replayAt=null;recKey="";localEnded=false;localFetching=false;drawPos();
+    $("stats").textContent="";$("state").textContent="Transpiling and running to the first breakpoint.";$("bse-workspace").hidden=true;
     notice("");debug("run",{selection:selection}).then(function(result){
       if(runId!==localRunSequence)return;
-      var trace=result.trace||[],name=String(INITIAL.name||"").toUpperCase();
+      var trace=result.trace||[];
       flow={edges:{},nodes:{},order:[],timeline:[],ended:picture.ended};flowPath=[];
-      trace.forEach(function(row){var owner=row.owner||name,routine=row.routine||"START-OF-SELECTION";
-        var frame={n:0,current:true,label:"EVENT "+routine,program:owner,
-        include:owner,unitType:"EVENT",unit:routine,url:row.file,line:row.line};
-        var frames=(row.stack||[{owner:owner,unit:routine}]).map(function(entry,index){var program=typeof entry==="string"?entry:entry.owner,unit=index===0?routine:(entry.unit||program);return index===0?frame:{n:index,current:false,label:"METHOD "+unit,program:program,include:program,unitType:"METHOD",unit:unit,url:"",line:0};});
-        flow.timeline.push({upto:0,cur:{owner:owner,name:routine},
-          at:{url:row.file,line:row.line,ord:0,name:routine},
-          stack:frames,vars:[{name:"Locals",children:Object.keys(row.changed||{}).map(function(key){return {
-            name:key,type:"",value:row.changed[key]};})}],varsDelta:true});
-      });
+      localPush(trace);localEnded=!!result.ended;
       if(!trace.length){$("state").textContent="Transpiler run recorded 0 ABAP steps. See VERTEX Local ABAP output.";notice("No ABAP steps were recorded in this run.");return;}
-      $("bse-workspace").hidden=false;replayAt=0;drawPos();showStop(0).catch(failed);showFlow();
-      var sec=(result.durationMs||0)/1000;
-      $("stats").textContent=trace.length+" recorded steps · execution "+sec.toFixed(3)+" s"+
-        (sec>0?" · "+(trace.length/sec).toFixed(0)+" steps/s":"");
-      $("state").textContent="Full transpiler run recorded. Showing step 1 of "+trace.length+"; Continue jumps to the next recorded breakpoint.";
+      $("bse-workspace").hidden=false;replay(trace.length-1);showFlow();
+      $("state").textContent=localEnded?"Program finished without reaching a breakpoint. "+trace.length+" recorded steps.":"Stopped at step "+trace.length+". Continue runs to the next breakpoint.";
     }).catch(function(error){if(runId!==localRunSequence)return;$("state").textContent="Transpiler run failed.";failed(error);});return;}
   var p=$("program").hidden?String(INITIAL.name):$("program").value.trim();
   // An empty field for a class or a function module: its own test screen,
@@ -2852,7 +2865,7 @@ function apply(p){
   if(!variablesStarted&&!p.stopped){variablesStarted=true;autoVariables();}
   // Rec is for every stop, whoever made it: F5-F8 here, the assistant, a
   // breakpoint. A Flow or Rec run records its own stops.
-  if(p.stopped&&recording()&&!(series&&(series.flow||series.rec)))recordStop(p);
+  if(p.stopped&&recording()&&!INITIAL.local&&!(series&&(series.flow||series.rec)))recordStop(p);
   drawBreakpoints();drawStack();drawButtons();
   // A dump is written after the program is gone, so it can arrive a moment
   // after the ending did: the mark changes when it does, and the section is
@@ -2920,7 +2933,7 @@ function readNamed(names){
 function refresh(){return debug("picture").then(apply);}
 // During a Visual run the run draws each stop itself; the same stop told
 // again by the debugger would be drawn twice.
-function sdeDebugEvent(raw){if(series)return;try{
+function sdeDebugEvent(raw){if(series||INITIAL.local&&typeof localFetching!=="undefined"&&localFetching)return;try{
   var next=JSON.parse(raw);
   if(INITIAL.local&&replayAt!=null&&(!next.stopped||!picture.stopped||
       next.ended!==picture.ended||next.stopped.at!==picture.stopped.at)){
