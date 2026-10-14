@@ -126,6 +126,10 @@
         "title": "VERTEX: Visual Analysis / Debug"
       },
       {
+        "command": "vertex.runTranspiler",
+        "title": "VERTEX: Run with ABAP Transpiler"
+      },
+      {
         "command": "vertex.debugInto",
         "title": "VERTEX: Debug Single Step"
       },
@@ -413,6 +417,11 @@
           "group": "navigation@8"
         },
         {
+          "command": "vertex.runTranspiler",
+          "when": "resourceScheme == file && editorLangId == abap",
+          "group": "navigation@8"
+        },
+        {
           "command": "vertex.runUnitTests",
           "when": "resourceScheme == vertex-sap && editorLangId == abap",
           "group": "navigation@10"
@@ -542,6 +551,10 @@
         {
           "command": "vertex.openVisualDebug",
           "when": "(resourceScheme == vertex-sap || resourceScheme == file) && editorLangId == abap"
+        },
+        {
+          "command": "vertex.runTranspiler",
+          "when": "resourceScheme == file && editorLangId == abap"
         },
         {
           "command": "vertex.switchSystem",

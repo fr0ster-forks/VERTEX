@@ -534,6 +534,10 @@ async function launch(vscode, debug, options = {}) {
               return { id: request.id, result: { rows: (data.values || []).map(row =>
                 Object.fromEntries(Object.entries(row).map(([name, value]) => [name.toLowerCase(), value]))) } };
             }).then(reply => child.stdin.write(JSON.stringify(reply) + "\n"), error => {
+              // The program gets the failure as an empty result, so the reason is said where the reader looks: the
+              // output of the run and the VERTEX Local ABAP channel.
+              const said = "[VERTEX] SELECT failed: " + error.message;
+              stdout += "\n" + said + "\n"; output.appendLine(said); output.show(true);
               child.stdin.write(JSON.stringify({ id: JSON.parse(requestText).id, error: error.message }) + "\n");
             });
           } else stdout += line + "\n";
@@ -543,6 +547,8 @@ async function launch(vscode, debug, options = {}) {
       child.on("error", fail);
       child.on("close", code => {
         closed = true; bridge?.close();
+        // The last WRITE ends without a line break: what is left in the buffer is output too.
+        if (buffer) { const at = buffer.indexOf("VERTEX_TRACE_RECORD:"); stdout += at >= 0 ? buffer.slice(0, at) : buffer; buffer = ""; }
         if (code !== 0) { fail(new Error(stderr || "Local ABAP exited with code " + code)); return; }
         if (initial === undefined) firstReject(new Error("Local ABAP completed without a recorded statement."));
         if (pending) { const done = pending; pending = null; done.resolve({ records: done.records, ended: true }); }

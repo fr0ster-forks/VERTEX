@@ -89,7 +89,7 @@ function create(vscode, document, launch, publish) {
           const next = await live.next(args.kind, points());
           trace.push(...next.records);
           atTrace(trace.length - 1);
-          return { records: next.records, ended: next.ended, picture: picture(), groups: localGroups() };
+          return { records: next.records, ended: next.ended, output: live.output, picture: picture(), groups: localGroups() };
         }
         if (trace.length) {
           let next = Math.min(trace.length - 1, traceIndex + 1);

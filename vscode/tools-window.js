@@ -26,6 +26,7 @@ function debugHtml(initial) {
     window.sdeAsset=name=>host.postMessage({call:"asset",args:[name]});
     window.sdeReveal=frame=>host.postMessage({call:"reveal",args:[JSON.stringify(frame||{})]});
     window.sdeBackward=point=>host.postMessage({call:"backward",args:[JSON.stringify(point||{})]});
+    window.sdeClear=()=>host.postMessage({call:"clear"});
     window.sdeOrigin=request=>host.postMessage({call:"origin",args:[JSON.stringify(request||{})]});
     window.sdeDebugContext=payload=>host.postMessage({call:"debugContext",args:[String(payload||"null")]});
     window.addEventListener("message",event=>{

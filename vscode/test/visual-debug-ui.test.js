@@ -8,8 +8,8 @@ test("a value is followed from the row's menu, not by a click on it", () => {
   const nodes = {}, listeners = {}, chosen = [];
   const node = id => nodes[id] || (nodes[id] = { id, style: {}, classList: { on: false, add() { this.on = true; }, remove() { this.on = false; } } });
   const context = vm.createContext({ failed() {}, $: node, window: { innerWidth: 800, innerHeight: 600 },
-    document: { addEventListener: (type, fn) => { listeners[type] = fn; } }, chosenValue: null,
-    chooseValue: name => chosen.push(name) });
+    document: { addEventListener: (type, fn) => { listeners[type] = fn; } }, chosenValue: null, followed: [],
+    follow: name => { chosen.push(context.followed.includes(name) ? "" : name); } });
   vm.runInContext(part("var menuFor=", "function chooseValue(name){"), context);
 
   vm.runInContext('openValueMenu("LS_ORDER-ITEM", 100, 200)', context);
@@ -21,6 +21,7 @@ test("a value is followed from the row's menu, not by a click on it", () => {
   assert.equal(nodes.vmenu.classList.on, false);
 
   context.chosenValue = { name: "LS_ORDER-ITEM" };
+  context.followed = ["LS_ORDER-ITEM"];
   vm.runInContext('openValueMenu("LS_ORDER-ITEM", 100, 200)', context);
   assert.equal(nodes.vfollow.textContent, "Stop following LS_ORDER-ITEM");
   nodes.vfollow.onclick();
@@ -106,7 +107,7 @@ test("a statement that only closes a block is not a step of the diagram", () => 
 
 test("choosing a value asks for its slice at once, so Full marks it before BSE is ever pressed", () => {
   const asked = [];
-  const context = vm.createContext({ chosenValue: null, slicePoints: "old", sliceAsked: "old", sliceFor: "old",
+  const context = vm.createContext({ chosenValue: null, followed: [], flowByValue: {}, staticFlow: null, slicePoints: "old", sliceAsked: "old", sliceFor: "old",
     drawChosen() {}, drawVars() {}, paneOn: () => false, flow: {}, sdeOrigin() {}, notice() {},
     fetchSlice: () => { asked.push(context.chosenValue && context.chosenValue.name); return Promise.resolve(); } });
   vm.runInContext(part("function chooseValue(name){", "/* The places the analysis says the chosen value can be changed"), context);
@@ -491,7 +492,7 @@ test("after a call, SAP stops at the next statement that is a stop: ENDIF and EN
 test("Analyze flow path: from a point in a program or a class to the next checked point the flow meets, wherever it is, else to the end", async () => {
   const context = vm.createContext({ window: { vertexFlowGraph: flowGraph }, chosenValue: null, sdeOrigin: () => {}, notice: text => { context.said = text; }, drawBreakpoints: () => {}, bpPaths: {},
     setPane: (id, on) => { context.opened = id; }, showFlow: () => { context.shown = true; }, staticFlow: null, paneOn: () => false, drawVars: () => {},
-    autoVariables: () => {}, pointFocus: null, publishDebugContext: () => {},
+    autoVariables: () => {}, pointFocus: null, publishDebugContext: () => {}, flowByValue: {},
     picture: { breakpoints: [{ id: "1", name: "ZREP", objectType: "PROG", line: 10, active: true }, { id: "2", name: "ZREP", objectType: "PROG", line: 16, active: false },
       { id: "3", name: "ZCL_X", objectType: "CLAS", line: 31, active: true }] },
     loadFlowGraph: () => Promise.resolve(), askOrigin: request => { context.asked = request; return Promise.resolve(context.answer); } });
@@ -677,7 +678,9 @@ test("a variable of a structure type opens to its components before the run, and
     openValueMenu: (path) => { context.menu = path; }, drawVars: () => { context.redrawn = true; } });
   vm.runInContext(page.slice(page.indexOf("function drawStaticVars(box){"), page.indexOf("function drawVars(){")), context);
   const draw = () => { const b = element("div"); vm.runInContext("drawStaticVars(__box)", Object.assign(context, { __box: b })); return b.children[0].rows; };
-  assert.equal(draw().length, 5, "the structure's fields are visible immediately");
+  const closed = draw();
+  assert.equal(closed.length, 3, "a structure starts closed");
+  closed[1].children[0].children[0].onclick({ stopPropagation() {} });
   const rows = draw();
   assert.equal(rows.length, 5, "open: its two components follow it");
   assert.equal(rows[2].children[0].children[1].text, "shipment_id");

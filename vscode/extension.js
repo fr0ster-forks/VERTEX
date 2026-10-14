@@ -898,6 +898,8 @@ function activate(context) {
     name: dockedDebugSource.object_name,
     type: dockedDebugSource.object_type,
     local: dockedDebugSource.local === true,
+    // Opened to run, not to analyse: until a breakpoint is set the panel is the selection screen and the output.
+    runOnly: dockedDebugSource.local === true && dockedDebugSource.runOnly === true,
     scenarios: dockedDebugSource.local ? require("./local-run").scenariosFor(dockedDebugSource.document) : []
   };
   const postDockedPicture = () => {
@@ -1008,6 +1010,11 @@ function activate(context) {
             try { latestDebugContext = JSON.parse(String((message.args || [])[0] || "null")); } catch (error) { latestDebugContext = null; }
             return;
           }
+          if (message.call === "clear") {
+            // Clear: the panel starts again for its object, as a new open does; breakpoints and a SAP session stay.
+            if (dockedDebugSource) openVisualDebug(dockedDebugSource.runOnly === true, dockedDebugSource);
+            return;
+          }
           if (message.call === "backward") {
             // Where used from a breakpoint: Backward Usage Analysis from the point's line, of the value chosen in Variables
             // wherever it is named, else of the routine there.
@@ -1066,6 +1073,8 @@ function activate(context) {
           if (dockedDebugSource?.local && localDebugAdapter) {
             if (["run", "step", "stop", "detach", "terminate"].includes(command)) clearLocalHistoryMark();
             const answer = await localDebugAdapter.command(command, commandArgs);
+            // The program is over: no line of it is running, so the editor shows none.
+            if (["run", "step"].includes(command) && answer && answer.ended) clearLocalHistoryMark();
             if (["run", "stop", "detach", "terminate"].includes(command))
               await vscode.commands.executeCommand("setContext", "vertex.localHistory", localDebugAdapter.hasTrace());
             await view.webview.postMessage({ type: "result", payload: JSON.stringify(answer) });
@@ -1116,12 +1125,13 @@ function activate(context) {
   }));
   // In the transpiler panel the breakpoints are VS Code's own: a point set or removed in the editor is shown at once.
   context.subscriptions.push(vscode.debug.onDidChangeBreakpoints(() => { if (dockedDebugSource?.local && localDebugAdapter) postDockedPicture(); }));
-  const openVisualDebug = () => {
+  const openVisualDebug = (runOnly = false, again = null) => {
     void vscode.commands.executeCommand("setContext", "vertex.localHistory", false);
     const editor = vscode.window.activeTextEditor;
     const local = require("./local-analysis");
     const localObject = local.isLocalAbap(editor?.document) ? local.sourceObject(editor.document) : null;
-    const source = localObject ? { ...localObject, local: true, document: editor.document } : sapCode.editorContext();
+    // Clear starts the same panel again, for the object it shows, whichever editor is in front.
+    const source = again || (localObject ? { ...localObject, local: true, document: editor.document } : sapCode.editorContext());
     if (!source || !source.object_name) {
       vscode.window.showWarningMessage("VERTEX: open a local or SAP ABAP source tab first.");
       return;
@@ -1132,7 +1142,7 @@ function activate(context) {
     latestLocalVariables = null;
     clearLocalHistoryMark();
     sapCode.forgetOrigin?.();
-    dockedDebugSource = source;
+    dockedDebugSource = { ...source, runOnly: runOnly === true };
     localDebugAdapter = source.local ? require("./local-debug-adapter").create(vscode, source.document,
       selection => require("./local-run").launch(vscode, false, { document: source.document, selection, live: true }),
       postDockedPicture) : null;
@@ -1140,7 +1150,8 @@ function activate(context) {
       setTimeout(() => void dockedDebugView?.webview.postMessage({ type: "localVariables", state: latestLocalVariables }), 150);
     }
     if (dockedDebugView) {
-      dockedDebugView.webview.html = require("./tools-window").debugHtml(dockedDebugInitial());
+      // A page the same as the one shown is not loaded again by VS Code: the mark of this opening makes it new.
+      dockedDebugView.webview.html = require("./tools-window").debugHtml(dockedDebugInitial()) + "<!-- " + Date.now() + " -->";
       dockedDebugView.show(true);
       postDockedPicture();
     } else {
@@ -1180,7 +1191,10 @@ function activate(context) {
   require('./tools-context').register(vscode, context, sapCode, showTools);
   require('./local-run').register(vscode, context);
   context.subscriptions.push(
-    vscode.commands.registerCommand("vertex.openVisualDebug", openVisualDebug),
+    vscode.commands.registerCommand("vertex.openVisualDebug", () => openVisualDebug(false)),
+    // A local program run with the transpiler: the same panel, which shows the selection screen and the output until a
+    // breakpoint is set, and the debugger then.
+    vscode.commands.registerCommand("vertex.runTranspiler", () => openVisualDebug(true)),
     vscode.commands.registerCommand("vertex.debugInto", () => stepFromSource("into")),
     vscode.commands.registerCommand("vertex.debugOver", () => stepFromSource("over")),
     vscode.commands.registerCommand("vertex.debugOut", () => stepFromSource("out")),

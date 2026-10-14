@@ -45,14 +45,19 @@ Open Welcome with **VERTEX: Get Started** in the Command Palette.
 
 For calculation code that can run without SAP services, use the transpiler and
 runtime bundled with VERTEX. Open a saved local `.abap` file and choose
-**VERTEX: Visual Analysis / Debug**. The Visual Debug panel is shared with SAP runs;
-for local files its title is **Visual Transpiler Debug** and its Run button is
-**Run with ABAP Transpiler**. Choose a radio-button value, then run. VERTEX
+**VERTEX: Run with ABAP Transpiler** (or **VERTEX: Visual Analysis / Debug**). The panel is shared with SAP runs;
+for local files its title is **Visual Transpiler Debug** and its Run button is **Run with ABAP Transpiler**. Run
+asks the selection screen in a window of its own - the radio buttons, Execute (F8) - so it takes no room in the
+panel. Opened by Run with ABAP Transpiler and with no breakpoint set, the panel is a run: the Run button and the
+Output, nothing else; set a breakpoint and it is the debugger, and back when the last one is removed. Opened by Visual
+Analysis / Debug it is always the whole panel, for analysis with no run at all. A SELECT that fails says why in the
+Output and the VERTEX Local ABAP channel instead of reading as an empty result. VERTEX
 instruments generated program and class modules: the program pauses before each
 mapped statement, and its line and changed variables are recorded. Run stops at the
 first breakpoint; Single Step, Execute, Return and Continue (F5-F8, in the panel or
 the editor) run the program on to the next stop, and the history slider replays what
-was recorded so far. Some ABAP constructs still need broader instrumentation.
+was recorded so far. The **Output** section shows what the program wrote with `WRITE` up to where it stands. Some
+ABAP constructs still need broader instrumentation.
 Breakpoints on standalone declarations such as `DATA x TYPE i` are removed because
 they are not calculation steps; an inline declaration such as `DATA(x) = ...` is a
 statement and stops.
@@ -881,7 +886,8 @@ program, its classes and routines, the statements of ACE's stream under them wit
 parent of its body, a called routine's statements under the statement that calls it, in the order of execution.
 The start may be in a program, an include or a class; the end statement is the last one drawn. Classes,
 Methods and Statements, Full or BSE, as the record is drawn. With a value chosen in Variables the statements its
-slice reaches are marked; without one the flow is drawn alone. A recorded run replaces the flow. With no other checked
+slice reaches are marked; without one the flow is drawn alone. A recorded run does not replace it: the analysed path stays whole, with every dependency of the chosen value, however
+far the run has gone; with no path analysed the diagram is drawn from the record. With no other checked
 point on the way - none set, or none the flow meets - the path runs to the end of the flow.
 
 **Where used.** Beside *Analyze flow path* (forward), a point carries *Where used* (backward): it opens the point's line
@@ -889,9 +895,15 @@ and runs **VERTEX: Backward Usage Analysis** there for the value chosen in Varia
 routine - or, with none chosen, for the routine at the point, so where its values go in the callers is shown from the
 debugger.
 
+**Several values.** *Follow* in a variable's menu adds it to the values followed; *Follow* on a structure adds its
+components - after a run those the run changed, before it all of them. With more than one, a list on the chip in
+Variables and at the left of the diagram's toolbar chooses the one Formula, Expression and the places are about; the
+path analysed for each is kept, so switching back is immediate. *Follow* again on a value drops it; the chip's ×
+drops them all. The variable trees start closed.
+
 **Formula and Expression with the run's values.** With a value chosen in Variables and a path analysed, after a run
 Formula and Expression are the analysis's formula as the run took it: only the definitions whose line the run
-executed take part, so the alternatives for other paths (`otherwise`, `when sy-subrc = 0 ...`) fall away, and
+executed take part - once the run is over; until then the formula stays whole - so the alternatives for other paths (`otherwise`, `when sy-subrc = 0 ...`) fall away, and
 definitions that all ran - every modifier of a pipeline - stand as steps in the order the run executed them, each
 reading what the one before left. One calculation is left. **With values** - shown whenever a value is chosen, on by default - puts
 after each of their names, in brackets, the value the record holds for it: in the routine the analysis places it in,
@@ -906,7 +918,7 @@ instead, the same way. Values come from Steps & values (a transpiler run always 
 tree comes from the statements that ran - the last one that wrote each value - without values. In a SAP record a
 structure's components are read one level down for this.
 
-**A new window starts clean.** Opening Visual Debug again drops the record, a paused transpiler run, the analysed
+**A new window starts clean.** Opening Visual Debug again, or **Clear** in its title bar, drops the record, a paused transpiler run, the analysed
 path and the values of an earlier local debug session; a live SAP debug session and the breakpoints stay.
 
 **Show from here.** Right-click a node or a routine frame of the diagram for *Show from here*, *Expand this
