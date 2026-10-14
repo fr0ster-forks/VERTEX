@@ -55,7 +55,7 @@ function instrument(file, sourceFile, source, live = false) {
     if (/^\s*(?:ENDMETHOD|ENDFORM)\b/i.test(line)) routine = owner;
     return current;
   });
-  const executable = line => line && !/^\s*(?:\*|"|REPORT\b|PROGRAM\b|DATA\b|PARAMETERS\b|ENDDO\b|ENDMETHOD\b|ENDCLASS\b)/i.test(line);
+  const executable = line => line && !/^\s*(?:\*|"|REPORT\b|PROGRAM\b|DATA\b(?!\s*\()|PARAMETERS\b|ENDDO\b|ENDMETHOD\b|ENDCLASS\b)/i.test(line);
   const output = [];
   for (let index = 0; index < lines.length; index++) {
     const at = mapping[index];

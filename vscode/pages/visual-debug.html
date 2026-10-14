@@ -1708,9 +1708,9 @@ function closesBlock(f,url){
   var st=list&&list.filter(function(x){return x.line===f.line;})[0];
   return !!st&&ENDING.test(String(st.kw||""));
 }
-function recordedUnitKey(owner,unit){var name=poolName(owner),method=String(unit||name);if(method.indexOf(name+"=>")===0)method=method.slice(name.length+2);return "m|"+name+"=>"+method;}
+function recordedUnitKey(owner,unit){var name=poolName(owner),method=String(unit||name).replace(/^(?:EVENT|METHOD|FORM|FUNCTION|MODULE)\s+/i,"");if(method.indexOf(name+"=>")===0)method=method.slice(name.length+2);return "m|"+name+"=>"+method;}
 function stepFlow(){
-  var tl=flow.timeline||[],nodes={},order=[],edges={},eorder=[],previous=null,entry=null;
+  var tl=flow.timeline||[],nodes={},order=[],edges={},eorder=[],previous=null,entry=null,previousChain=null;
   var add=function(key,node){if(!nodes[key]){nodes[key]=node;nodes[key].key=key;nodes[key].count=0;order.push(key);}return nodes[key];};
   var join=function(from,to,label){if(!from||!to||from===to)return;var ek=from+">"+to;
     if(!edges[ek]){edges[ek]={from:from,to:to,label:String(label||""),count:0};eorder.push(ek);}edges[ek].count++;};
@@ -1724,7 +1724,7 @@ function stepFlow(){
     // level of the stack, and a method without its class names nothing.
     var label=String(unit).indexOf("=>")>0||String(unit)===String(owner)?String(unit):String(owner)+"=>"+String(unit);
     var unitKey=recordedUnitKey(owner,unit),level=Math.max(0,(stack.length||base)-base);
-    var chain=stack.slice().reverse();
+    var chain=stack.slice().reverse(),chain_=chain;
     chain.forEach(function(part,index){var partOwner=poolName(part.program),partUnit=String(part.unit||partOwner);
       var partKey=recordedUnitKey(partOwner,partUnit);
       add(partKey,{text:partOwner===partUnit?partOwner:partOwner+"=>"+partUnit,type:"unit",owner:partOwner,unit:partUnit,
@@ -1766,7 +1766,17 @@ function stepFlow(){
     if(firstVisit||typeof INITIAL!=="undefined"&&INITIAL.local)join(parent,key,f.line);
     // A call is a step down: the statement that called, then the routine it
     // entered, which carries the deeper stack.
-    if(previous&&stack.length>previous.depth&&previous.unit!==unit)join(previous.key,unitKey,previous.line);
+    {
+      // A routine is entered from the recorded statement above it when there is one, else from
+      // its caller: the transpiler records no calling line, and a Z-only SAP run skips frames.
+      var chainKeys=chain_.map(function(part){var o=poolName(part.program);return recordedUnitKey(o,String(part.unit||o));});
+      for(var c=1;c<chainKeys.length;c++){
+        if(previousChain&&previousChain[c]===chainKeys[c]&&previousChain[c-1]===chainKeys[c-1])continue;
+        if(previous&&c===previous.depth&&previousChain&&previousChain[c-1]===chainKeys[c-1])join(previous.key,chainKeys[c],previous.line);
+        else join(chainKeys[c-1],chainKeys[c],"");
+      }
+      previousChain=chainKeys;
+    }
     previous={key:key,unit:unit,depth:stack.length,line:f.line};
   });
   return stepIndex={nodes:nodes,order:order,edges:edges,eorder:eorder,entry:entry};
