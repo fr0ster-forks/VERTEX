@@ -44,7 +44,7 @@ Eclipse's built-in
 Assistant uses Codex or Claude Code; Copilot Chat in Eclipse connects separately
 through MCP.
 
-![VERTEX architecture: VS Code and Eclipse ADT connect to shared VERTEX Web UI tools, with an MCP server for AI assistants and an optional SAP backend](docs/architecture.png)
+![VERTEX architecture: VS Code and Eclipse ADT connect to shared VERTEX Web UI tools, with an MCP server for AI assistants and an optional SAP backend](docs/architecture2.png)
 
 The ABAP side is this repository's `src/`. It is optional: in VS Code everything works over ADT
 alone, and `src/` is needed only to save a transport's review to SAP; without it, reviews are saved
