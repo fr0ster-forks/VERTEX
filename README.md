@@ -6,7 +6,7 @@
 · **[Eclipse ADT — the update site](https://ysichov.github.io/VERTEX/)**
 
 For VS Code, the recommended companion is
-[ABAP by Lars Hvam](https://marketplace.visualstudio.com/items?itemName=larshp.vscode-abap)
+[ABAP Syntax Highlighting by Lars Hvam](https://marketplace.visualstudio.com/items?itemName=larshp.vscode-abap)
 (`larshp.vscode-abap`). 
 
 **VERTEX: Get Started** opens the Welcome walkthrough from the Command Palette.
