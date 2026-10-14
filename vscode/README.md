@@ -1,9 +1,12 @@
 # SAP ABAP VERTEX Tools
 
 [**VERTEX**](https://github.com/ysichov/VERTEX) is a new set of plugins for VS Code and Eclipse ADT.
-In VS Code it also works serverless: the ABAP transpiler runs, debugs and analyses local ABAP files
-on your machine, with no SAP system - step through a report, record its run with every value,
-replay it and follow a value's origin. Against SAP: an AI assistant and MCP, an enhanced ABAP
+In VS Code it also works serverless: the ABAP transpiler runs, debugs and analyses local ABAP
+on your machine - a report, a method of a local class or a function module, with its parameters
+asked in a panel and kept as named variants. Only SELECTs go to the SAP system, read through ADT;
+the logic runs locally. Every step and every value change is recorded: step and set breakpoints,
+replay the run to any step, and follow a value back to a clickable formula of how it was
+calculated, each part of it opening the line that produced it. Against SAP: an AI assistant and MCP, an enhanced ABAP
 editor, a visual debugger with recording and replay, and explorers for code, versions and data.
 Several of them grew out of earlier SAP GUI tools.
 
