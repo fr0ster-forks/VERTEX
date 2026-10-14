@@ -9,9 +9,11 @@ function create(vscode, document, launch, publish) {
   let trace = [], traceIndex = 0, live = null;
   function atTrace(index) {
     traceIndex = index;
-    const values = {};
-    for (let i = 0; i <= index; i++) Object.assign(values, trace[i]?.changed || {});
-    const record = trace[index];
+    // The variables of the routine the program stands in: those its own stops changed. The transpiler's record keeps
+    // every routine's names together; a method's locals are no variables of the report that called it.
+    const record = trace[index], values = {};
+    const same = item => item && record && item.owner === record.owner && item.routine === record.routine;
+    for (let i = 0; i <= index; i++) if (same(trace[i])) Object.assign(values, trace[i].changed || {});
     latest = record ? { frame: record.routine || "START-OF-SELECTION", owner: record.owner || name,
       source: record.file, line: record.line,
       variables: Object.entries(values).map(([name, value]) => ({ name, value })) } : null;
@@ -56,8 +58,9 @@ function create(vscode, document, launch, publish) {
       value: Array.isArray(value) ? value.length + " rows" : composite ? Object.keys(value).length + " fields" : String(value ?? "") };
   };
   const nested = id => {
-    const parts = String(id).split("-");
-    let value = (latest?.variables || []).find(item => item.name.toUpperCase() === parts.shift().toUpperCase())?.value;
+    // The variable first, then its components: the first part is taken once, not once per variable compared.
+    const parts = String(id).split("-"), head = String(parts.shift()).toUpperCase();
+    let value = (latest?.variables || []).find(item => String(item.name).toUpperCase() === head)?.value;
     for (const part of parts) value = value?.[part.toLowerCase()] ?? value?.[part];
     return value && typeof value === "object" ? Object.entries(value).map(([name, value]) =>
       shown({ id: id + "-" + name, name, value })) : [];
@@ -73,23 +76,28 @@ function create(vscode, document, launch, publish) {
         const result = await launch(args.selection || {});
         live = result?.live || null;
         trace = result?.records || [];
-        let ended = !live;
+        let ended = !live, durationMs = 0;
         const first = trace[0], breakpoints = points();
         if (live && first && !breakpoints.some(bp => bp.active && bp.url.toLowerCase() === first.file.toLowerCase() && bp.line === first.line)) {
+          // The time the program ran, not the time it was transpiled or stood at a breakpoint.
+          const started = Date.now();
           const next = await live.next("continue", breakpoints);
+          durationMs = Date.now() - started;
           trace.push(...next.records); ended = next.ended;
         }
         atTrace(Math.max(0, trace.length - 1)); listening = false;
-        return { url: document.uri.fsPath, trace, ended, output: live?.output || result?.output || "" };
+        return { url: document.uri.fsPath, trace, ended, durationMs, output: live?.output || result?.output || "" };
       }
       case "trace": return { trace };
       case "step": {
         if (args.live) {
           if (!live) return { records: [], ended: true, picture: picture(), groups: localGroups() };
+          const started = Date.now();
           const next = await live.next(args.kind, points());
+          const durationMs = Date.now() - started;
           trace.push(...next.records);
           atTrace(trace.length - 1);
-          return { records: next.records, ended: next.ended, output: live.output, picture: picture(), groups: localGroups() };
+          return { records: next.records, ended: next.ended, durationMs, output: live.output, picture: picture(), groups: localGroups() };
         }
         if (trace.length) {
           let next = Math.min(trace.length - 1, traceIndex + 1);

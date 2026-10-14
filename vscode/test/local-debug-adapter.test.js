@@ -58,3 +58,15 @@ test("local structure fields can be expanded and selected separately", async () 
   assert.deepEqual((await adapter.command("children", { id: "ls_result" })).children.map(item => item.name),
     ["amount", "currency"]);
 });
+
+test("a structure of a transpiler stop opens to its fields, whichever variable it is", async () => {
+  const { create } = require("../local-debug-adapter");
+  const vscode = { debug: { breakpoints: [] }, Uri: { file: p => ({ fsPath: p }) } };
+  const records = [{ file: "z.prog.abap", line: 1, owner: "Z", routine: "START-OF-SELECTION",
+    changed: { lv_a: 1, ls_b: { amount: 5, currency: "EUR" }, ls_c: { x: 1 } } }];
+  const adapter = create(vscode, { uri: { fsPath: "z.prog.abap" } }, async () => ({ records, live: null }), () => {});
+  await adapter.command("run", { selection: {} });
+  const fields = (await adapter.command("children", { id: "ls_c" })).children;
+  assert.deepEqual(fields.map(field => field.name), ["x"], "not only the first variable can be opened");
+  assert.equal((await adapter.command("children", { id: "ls_b" })).children.find(f => f.name === "amount").value, "5");
+});

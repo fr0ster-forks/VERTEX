@@ -805,7 +805,7 @@ Object.keys(STEP).forEach(function(id){$(id).onclick=function(){
     debug("step",{kind:kind,live:true}).then(function(result){
       if(result.error)throw new Error(result.error);
       if(result.picture)picture=result.picture;
-      localPush(result.records||[]);localEnded=!!result.ended;drawButtons();setOutput(result.output);
+      localPush(result.records||[]);localEnded=!!result.ended;drawButtons();setOutput(result.output);localRunMs+=result.durationMs||0;localStats();
       replay(flow.timeline.length-1);showFlow();
       $("state").textContent=localEnded?"Program finished. "+flow.timeline.length+" recorded steps.":"Paused at step "+flow.timeline.length+".";
     }).catch(failed).then(function(){localFetching=false;});
@@ -1404,7 +1404,7 @@ function snapshot(captured){
   var read=INITIAL.local?(captured?Promise.resolve({groups:captured}):debug("localSnapshot")):debug("scopes",{sy:false});
   return read.then(function(d){
     // Outside a routine - an event of a report - its variables are the program's globals.
-    var top=picture.stopped&&picture.stopped.frames[0],inEvent=top&&!/^(?:METHOD|FORM|FUNCTION)$/i.test(String(top.unitType||""));
+    var top=typeof picture!=="undefined"&&picture.stopped&&picture.stopped.frames[0],inEvent=top&&!/^(?:METHOD|FORM|FUNCTION)$/i.test(String(top.unitType||""));
     var groups=d.groups.filter(function(g){var k=groupKind(g.name);return INITIAL.local||k==="params"||k==="locals"||inEvent&&k==="globals";});
     return groups.reduce(function(p,g){return p.then(function(){return INITIAL.local&&g.children?undefined:debug("children",{id:g.id}).then(function(c){g.children=c.children;});});},Promise.resolve())
       // SAP gives a structure as one row: its components are read one level down and kept as an object, so Formula
@@ -1464,7 +1464,9 @@ function drawRecordedVars(i){
 
   if(INITIAL.local){
     var values={};
-    for(var stop=0;stop<=i;stop++)(Array.isArray(tl[stop].vars)?tl[stop].vars:[]).forEach(function(g){
+    // The routine this stop stands in: only its own stops' values, not those of the methods it called.
+    var here=function(x){return !t||!t.cur||!x.cur||x.cur.owner===t.cur.owner&&x.cur.name===t.cur.name;};
+    for(var stop=0;stop<=i;stop++)if(here(tl[stop]))(Array.isArray(tl[stop].vars)?tl[stop].vars:[]).forEach(function(g){
       var group=values[g.name]||(values[g.name]={});
       (g.children||[]).forEach(function(v){if(v.deleted)delete group[v.name];else group[v.name]=v;});
     });
@@ -2519,7 +2521,11 @@ function showDumpPage(id,name){
 function hideDumpPage(){$("dumppage").hidden=true;$("dumppagebody").textContent="";}
 $("dumppageclose").onclick=hideDumpPage;
 document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!$("dumppage").hidden){e.stopPropagation();hideDumpPage();}},true);
-var localRunSequence=0,localEnded=false,localFetching=false,selDialog=null,selConfirmed=false;
+var localRunSequence=0,localEnded=false,localFetching=false,selDialog=null,selConfirmed=false,localRunMs=0;
+/* What the run did: the steps recorded and the time the program ran for them - not the transpiling, not the waits at a
+   breakpoint. */
+function localStats(){var n=(flow.timeline||[]).length,sec=localRunMs/1000;
+  $("stats").textContent=n+" recorded steps · execution "+sec.toFixed(3)+" s"+(sec>0?" · "+(n/sec).toFixed(0)+" steps/s":"");}
 $("clearpanel").onclick=function(){if(typeof sdeClear==="function")sdeClear();};
 $("clearpanel").hidden=typeof sdeClear!=="function";
 /* What a transpiler run wrote with WRITE, as far as it has run: the list SAP would show, in the Output section. */
@@ -2546,7 +2552,7 @@ $("run").onclick=function(){
       if(runId!==localRunSequence)return;
       var trace=result.trace||[];
       flow={edges:{},nodes:{},order:[],timeline:[],ended:picture.ended};flowPath=[];
-      localPush(trace);localEnded=!!result.ended;setOutput(result.output);
+      localPush(trace);localEnded=!!result.ended;setOutput(result.output);localRunMs=result.durationMs||0;localStats();
       if(!trace.length){$("state").textContent="Transpiler run recorded 0 ABAP steps. See VERTEX Local ABAP output.";notice("No ABAP steps were recorded in this run.");return;}
       $("bse-workspace").hidden=false;replay(trace.length-1);showFlow();
       $("state").textContent=localEnded?"Program finished without reaching a breakpoint. "+trace.length+" recorded steps.":"Stopped at step "+trace.length+". Continue runs to the next breakpoint.";
@@ -3195,6 +3201,9 @@ $("split").addEventListener("mousedown",function(e){if(e.button!==0)return;e.pre
   }
   // A program runs itself; only a class or a function module needs the program that calls it.
   if(String(INITIAL.type).toUpperCase()==="PROG")$("program").hidden=true;
+  // Run with ABAP Transpiler runs at once: the selection screen first, if the program has one, then to the first
+  // breakpoint, or to the end with the output when there is none.
+  if(INITIAL.local&&INITIAL.autoRun)setTimeout(function(){$("run").onclick();},0);
   if(document.body.classList.contains("vertex-docked-debug")){refresh().catch(failed);return;}
   ask(function(){sdeSource(INITIAL.name,INITIAL.type);}).then(function(d){
     object.url=d.source_url;object.name=d.object_name||INITIAL.name;

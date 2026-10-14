@@ -45,7 +45,9 @@ Open Welcome with **VERTEX: Get Started** in the Command Palette.
 
 For calculation code that can run without SAP services, use the transpiler and
 runtime bundled with VERTEX. Open a saved local `.abap` file and choose
-**VERTEX: Run with ABAP Transpiler** (or **VERTEX: Visual Analysis / Debug**). The panel is shared with SAP runs;
+**VERTEX: Run with ABAP Transpiler**, which runs it at once - the selection screen first, then to the first
+breakpoint, or to the end with the output when there is none - or **VERTEX: Visual Analysis / Debug**, which opens the
+panel without running. The panel is shared with SAP runs;
 for local files its title is **Visual Transpiler Debug** and its Run button is **Run with ABAP Transpiler**. Run
 asks the selection screen in a window of its own - the radio buttons, Execute (F8) - so it takes no room in the
 panel. Opened by Run with ABAP Transpiler and with no breakpoint set, the panel is a run: the Run button and the

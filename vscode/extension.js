@@ -900,6 +900,8 @@ function activate(context) {
     local: dockedDebugSource.local === true,
     // Opened to run, not to analyse: until a breakpoint is set the panel is the selection screen and the output.
     runOnly: dockedDebugSource.local === true && dockedDebugSource.runOnly === true,
+    // Opened by the Run command, not by Clear: the program runs at once.
+    autoRun: dockedDebugSource.local === true && dockedDebugSource.autoRun === true,
     scenarios: dockedDebugSource.local ? require("./local-run").scenariosFor(dockedDebugSource.document) : []
   };
   const postDockedPicture = () => {
@@ -1142,7 +1144,7 @@ function activate(context) {
     latestLocalVariables = null;
     clearLocalHistoryMark();
     sapCode.forgetOrigin?.();
-    dockedDebugSource = { ...source, runOnly: runOnly === true };
+    dockedDebugSource = { ...source, runOnly: runOnly === true, autoRun: runOnly === true && !again };
     localDebugAdapter = source.local ? require("./local-debug-adapter").create(vscode, source.document,
       selection => require("./local-run").launch(vscode, false, { document: source.document, selection, live: true }),
       postDockedPicture) : null;
