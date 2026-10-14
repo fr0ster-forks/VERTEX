@@ -62,7 +62,7 @@ its F5-F8 source-editor shortcuts are also not available in Eclipse.
 The VERTEX Tools window no longer has a View source function in Eclipse either: the source is the
 ADT editor. That change to the plugin was not built for Eclipse.
 
-![VERTEX architecture: VS Code and Eclipse ADT, the VERTEX MCP server between them and the AI assistants (Claude Code, Codex, GitHub Copilot), the six VERTEX Web UI tools, and the ADT hub on SAP at /sap/bc/adt/vertex/*](../docs/architecture.jpg)
+![VERTEX architecture: VS Code and Eclipse ADT, the VERTEX MCP server between them and the AI assistants (Claude Code, Codex, GitHub Copilot), the six VERTEX Web UI tools, and the ADT hub on SAP at /sap/bc/adt/vertex/*](../docs/architecture2.png)
 
 The Selector and Versions Assistant panels launch Codex or Claude Code directly.
 Copilot and the additional API-key providers in the built-in VERTEX Assistant

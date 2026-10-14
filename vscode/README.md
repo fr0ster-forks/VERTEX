@@ -7,7 +7,7 @@ replay it and follow a value's origin. Against SAP: an AI assistant and MCP, an 
 editor, a visual debugger with recording and replay, and explorers for code, versions and data.
 Several of them grew out of earlier SAP GUI tools.
 
-![VERTEX architecture: VS Code and Eclipse ADT connect to shared VERTEX Web UI tools, with an MCP server for AI assistants and an optional SAP backend](https://raw.githubusercontent.com/ysichov/VERTEX/main/docs/architecture.jpg)
+![VERTEX architecture: VS Code and Eclipse ADT connect to shared VERTEX Web UI tools, with an MCP server for AI assistants and an optional SAP backend](https://raw.githubusercontent.com/ysichov/VERTEX/main/docs/architecture2.png)
 
 The ABAP side, this repository's [`src/`](https://github.com/ysichov/VERTEX/tree/main/src), is
 optional: everything works over ADT alone. With it, a transport's review can also be saved to SAP,
