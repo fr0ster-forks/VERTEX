@@ -60,7 +60,7 @@ test("Expression writes the derivation out, each value read replaced by its own 
   const steps = [at(2, {}), at(3, { LV_BASE: 5 }), at(4, { LV_BASE: 5, LV_QTY: 2 }), at(5, { LV_BASE: 5, LV_QTY: 2, LV_TOTAL: 12 })];
   const result = build({ variable: "LV_TOTAL", steps, sources: { "zx.prog.abap": text } });
   const plain = result.panes.expression.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  assert.match(plain, /lv_total = \( 5 \+ 1 \) \* 2 = 12/);
+  assert.match(plain, /lv_total \(12\) = \( 5 \+ 1 \) \* 2 = 12/);
 });
 
 test("a change seen on coming back from a call is the call's, not the deeper stop's", () => {
@@ -80,7 +80,7 @@ test("a change seen on coming back from a call is the call's, not the deeper sto
   assert.equal(returned.of, "RV");
   assert.equal(returned.source, "zcl_calc.clas.abap");
   assert.ok(returned.children.some(child => child.of === "IV" && child.value === "7"));
-  assert.match(result.panes.expression.replace(/<[^>]+>/g, " ").replace(/\s+/g, " "), /ls_r = iv \(7\) \* 2 = 14/);
+  assert.match(result.panes.expression.replace(/<[^>]+>/g, " ").replace(/\s+/g, " "), /ls_r \(14\) = iv \(7\) \* 2 = 14/);
 });
 
 test("an empty record says so", () => {
@@ -125,7 +125,7 @@ test("one calculation, the way the run went: an accumulation and a component car
     at("zx.prog.abap", 4, 1, { LS_RESULT: { amount: 119, tax: 19 } })];
   const result = build({ variable: "LS_RESULT-AMOUNT", steps, sources: { "zx.prog.abap": report, "zcl_calc.clas.abap": method } });
   const formula = result.panes.expression.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").split(" Where the values")[0];
-  assert.match(formula, /ls_result-amount = 100 \+ \( 100 \* lv_rate \(0\.19\) \) = 119/);
+  assert.match(formula, /ls_result-amount \(119\) = 100 \+ \( 100 \* lv_rate \(0\.19\) \) = 119/);
   assert.doesNotMatch(formula, /otherwise|\|/);
 });
 
@@ -145,7 +145,7 @@ test("the tree shows no node that leads to the same code as its only child", () 
     const only = up && result.formula.edges.filter(edge => edge.from === up.id).length === 1;
     assert.ok(!(only && up.source && up.source === node.source && up.line === node.line), "a node repeats its parent's code: " + lines.join(", "));
   }
-  assert.match(result.panes.expression.replace(/<[^>]+>/g, " ").replace(/\s+/g, " "), /ls_r = iv \(7\) \* 2 = 14/);
+  assert.match(result.panes.expression.replace(/<[^>]+>/g, " ").replace(/\s+/g, " "), /ls_r \(14\) = iv \(7\) \* 2 = 14/);
 });
 
 test("a call made again in a loop shows once per pass, without the parameter over it", () => {
@@ -177,5 +177,5 @@ test("Expression goes on through the parameter a call passed, modifier after mod
     s("zx.prog.abap", 3, 1, { LS_RESULT: { amount: 400 } })];
   const result = build({ variable: "LS_RESULT-AMOUNT", steps, sources: { "zx.prog.abap": report, [R]: run, [M]: mod } });
   const formula = result.panes.expression.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").split(" = 400")[0];
-  assert.match(formula, /ls_result-amount = \( 100 \* 2 \) \* 2$/);
+  assert.match(formula, /ls_result-amount \(400\) = \( 100 \* 2 \) \* 2$/);
 });

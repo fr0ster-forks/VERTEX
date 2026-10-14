@@ -1904,10 +1904,7 @@ function withRecordFormula(data){
     var on=rf.hasValues&&$("fvalues").classList.contains("on");
     data.formula={nodes:rf.formula.nodes.map(function(n){return Object.assign({},n,{label:on?n.label:n.text,dataText:on?n.label:n.text});}),edges:rf.formula.edges};
     data.maxLevel=rf.formula.maxLevel;
-    // The formula leads Formula too: the one line of Expression, then the tree that explains it.
-    var expression=analysed?analysed.expression:rf.panes.expression,holder=document.createElement("div");holder.innerHTML=expression;
-    var line=holder.querySelector("p > code");
-    data.panes={formula:(line?'<p>'+line.outerHTML+'</p>':"")+rf.panes.formula,expression:expression};
+    data.panes={formula:rf.panes.formula,expression:analysed?analysed.expression:rf.panes.expression};
     return data;
   });}).catch(function(error){notice("Formula from the run: "+(error&&error.message||error));return data;});
 }
@@ -1958,10 +1955,14 @@ function annotateValues(){
   if($("fvalues").classList.contains("on")&&steps.length)box.querySelectorAll("[data-full]").forEach(function(e){
     var v=recordedValue(e.dataset.full,e.dataset.location,steps,upto);if(v===undefined)return;
     var s=document.createElement("span");s.className="vx-value";s.textContent=" ("+(v!==null&&typeof v==="object"?JSON.stringify(v):String(v))+")";s.title="Recorded value";e.after(s);});
+  // Its own insertions are not a change to answer: without this the observer starts it again, endlessly.
+  valueObserver.takeRecords();
   annotating=false;
 }
 var annotating=false,annotateTimer=null;
-new MutationObserver(function(){if(annotating)return;clearTimeout(annotateTimer);annotateTimer=setTimeout(annotateValues,50);}).observe($("bse-workspace"),{childList:true,subtree:true});
+function annotateSoon(){clearTimeout(annotateTimer);annotateTimer=setTimeout(annotateValues,50);}
+var valueObserver=new MutationObserver(function(){if(!annotating)annotateSoon();});
+valueObserver.observe($("bse-workspace"),{childList:true,subtree:true});
 /* The zoom, the fit and the magnifier belong to the view now; the window
    keeps only the pane around it. */
 $("ffull").onclick=function(){$("flowpane").classList.toggle("full");};
@@ -2069,7 +2070,7 @@ function showStop(i){
     document.querySelectorAll("#code .line.here").forEach(function(r){r.classList.remove("here");});
     var h=$("l"+t.at.line);if(h)h.classList.add("here");});
 }
-function replay(i){var n=stops();if(!n)return;if(typeof annotateValues==="function")setTimeout(annotateValues,0);replayAt=INITIAL.local?Math.min(n-1,Math.max(0,i)):(i>=n-1?null:Math.max(0,i));drawPos();
+function replay(i){var n=stops();if(!n)return;if(typeof annotateSoon==="function")annotateSoon();replayAt=INITIAL.local?Math.min(n-1,Math.max(0,i)):(i>=n-1?null:Math.max(0,i));drawPos();
   if(replayAt==null){markNow(liveCur());drawStack();drawVars();var f=currentFrame();if(f)show(f.url,null,f.line).catch(failed);}else showStop(replayAt).catch(failed);}
 $("fprev").onclick=function(){if(playing)return;replay((replayAt==null?stops()-1:replayAt)-1);};
 $("fnext").onclick=function(){if(playing||replayAt==null)return;replay(replayAt+1);};

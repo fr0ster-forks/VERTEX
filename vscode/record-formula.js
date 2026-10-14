@@ -301,7 +301,7 @@ function expressionPane(tree, hasValues = true) {
   const steps = changes.map(node => `<li><code>${link(node, escape(node.of.toLowerCase()))} = ${node.rhs ? expressionText({ ...node, children: [] }, false) : escape(node.text)}</code> <span class="edge">${hasValues ? "= " + escape(node.value) + " · " : ""}${escape(where(node))}</span></li>`).join("");
   const given = inputs.map(node => hasValues ? `<li><code>${escape(node.of.toLowerCase())} = ${escape(node.value === "" ? "(empty)" : node.value)}</code> <span class="edge">${escape(where(node))}</span></li>`
     : `<li><code>${escape(node.of.toLowerCase())}</code> <span class="edge">not written in the record</span></li>`).join("");
-  return `<p><code>${link(tree, escape(tree.of.toLowerCase()))} = ${expressionText(tree, hasValues)}</code></p>${hasValues ? `<p class="edge">= ${escape(tree.value)}</p>` : ""}`
+  return `<p><code>${named(tree.of, tree.value, hasValues, tree)} = ${expressionText(tree, hasValues)}</code></p>${hasValues ? `<p class="edge">= ${escape(tree.value)}</p>` : ""}`
     + (given ? `<p class="edge">Where the values come from</p><ul class="expression-where">${given}</ul>` : "")
     + (steps ? `<p class="edge">The statements, in the order they ran</p><ol class="expression-steps">${steps}</ol>` : "");
 }
