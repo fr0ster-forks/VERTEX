@@ -46,3 +46,15 @@ test("a waited step ignores an old polled frame until a new stop event", async (
     variables: [], stopEvent: true });
   assert.equal((await step).picture.stopped.frames[0].line, 14);
 });
+
+test("local structure fields can be expanded and selected separately", async () => {
+  const vscode = { debug: { breakpoints: [] }, commands: { async executeCommand() {} } };
+  const document = { uri: { fsPath: "C:/work/src/ztest.prog.abap" } };
+  const adapter = create(vscode, document, async () => {}, () => {});
+  adapter.update({ frame: "START-OF-SELECTION", source: document.uri.fsPath, line: 12,
+    variables: [{ name: "ls_result", value: { amount: 42, currency: "EUR" } }] });
+  const roots = (await adapter.command("children", { id: "vertex-local-variables" })).children;
+  assert.equal(roots[0].meta, "structure");
+  assert.deepEqual((await adapter.command("children", { id: "ls_result" })).children.map(item => item.name),
+    ["amount", "currency"]);
+});

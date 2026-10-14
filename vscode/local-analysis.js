@@ -23,7 +23,7 @@ function sourceObject(document) {
   return /^[A-Z0-9_/$]+$/.test(name) ? { object_name: name, object_type: type } : null;
 }
 
-async function declaredVariables(document, request = {}) {
+async function declaredVariables(document, request = {}, vscode) {
   const object = sourceObject(document);
   if (!object) throw new Error("Open a local ABAP program or class first.");
   const parser = require("./value-origin-linter").createParser();
@@ -31,16 +31,47 @@ async function declaredVariables(document, request = {}) {
     const uri = document.uri.toString();
     const parsed = await parser.parse({ id: uri, name: object.object_name,
       objectName: object.object_name, objectType: object.object_type, text: document.getText() });
-    const graph = require("./value-origin").analyze([parsed.source], { source: uri, line: 1 });
+    const sources = [parsed.source];
+    if (vscode?.workspace?.findFiles && vscode.workspace.openTextDocument) {
+      const session = create(vscode, document, object);
+      const loaded = new Set([object.object_type + ":" + object.object_name]);
+      const add = async (name, type) => {
+        const key = type + ":" + name;
+        if (loaded.has(key)) return;
+        loaded.add(key);
+        try {
+          const dependency = await session.find(name, type);
+          const result = await parser.parse({ id: dependency.uri.toString(), name, objectName: name,
+            objectType: type, text: dependency.getText() });
+          sources.push(result.source);
+        } catch (_) { /* A missing dependency must not hide the report's own variables. */ }
+      };
+      // Inline DATA from NEW class( )->method( ) gets its type from the method signature.
+      for (const [, name] of document.getText().matchAll(/\bNEW\s+([A-Z][\w/]*)\s*\(/gi))
+        await add(name.toUpperCase(), "CLAS");
+      // RETURNING types commonly live in a separate global interface.
+      for (const source of [...sources])
+        for (const [, name] of source.text.matchAll(/\b([A-Z][\w/]*)\s*=>\s*[A-Z][\w/]*/gi))
+          if (/^(?:Z|Y)IF_/i.test(name)) await add(name.toUpperCase(), "INTF");
+    }
+    const graph = require("./value-origin").analyze(sources, { source: uri, line: 1 });
     const declarations = graph.declarations || [];
     const focus = Number.isInteger(request.line) ? require("./value-origin-points").routineAt(declarations,
       { objectType: object.object_type, objectName: object.object_name, targetSource: uri, line: request.line }) : null;
     const global = declarations.find(item => item.source === uri && item.name === "GLOBAL");
-    return { ...object, line: request.line || null,
+    const answer = { ...object, line: request.line || null,
       scope: focus ? String(focus.owner || "").toUpperCase() + "->" + String(focus.name).toUpperCase() : "",
       name: focus ? String(focus.name).toUpperCase() : "",
       params: focus?.params || [], locals: focus?.locals || [],
       globals: !focus || request.globals ? (global?.locals || []) : null };
+    if (vscode?.workspace?.findFiles) {
+      const session = create(vscode, document, object);
+      answer.warnings = await require("./value-origin-points").completeStructures(
+        { globals: answer.globals || [], routines: [{ params: answer.params, locals: answer.locals }] },
+        require("./value-origin").typeComponents,
+        async name => (await session.find(name, "INTF")).getText());
+    }
+    return answer;
   } finally { await parser.close(); }
 }
 

@@ -57,6 +57,8 @@ async function readVariables(session, threadId) {
 }
 
 function declarationLine(text) {
+  // Inline DATA(...) with an initializer is an executable statement.
+  if (/^\s*DATA\s*\([^)]*\)\s*=/i.test(text)) return false;
   return /^\s*(?:DATA|TYPES|CONSTANTS|STATICS|FIELD-SYMBOLS|PARAMETERS|SELECT-OPTIONS)\b/i.test(text);
 }
 

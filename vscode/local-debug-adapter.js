@@ -14,7 +14,7 @@ function create(vscode, document, launch, publish) {
     const record = trace[index];
     latest = record ? { frame: record.routine || "START-OF-SELECTION", owner: record.owner || name,
       source: record.file, line: record.line,
-      variables: Object.entries(values).map(([name, value]) => ({ name, value: typeof value === "object" ? JSON.stringify(value) : value })) } : null;
+      variables: Object.entries(values).map(([name, value]) => ({ name, value })) } : null;
     publish(picture());
   }
   const isAbap = uri => uri?.scheme === "file" && /\.abap$/i.test(uri.fsPath || "");
@@ -47,8 +47,21 @@ function create(vscode, document, launch, publish) {
     if (pendingStep) { const done = pendingStep; pendingStep = null; done.resolve({ ended: true }); }
     publish(picture());
   }
-  const shown = variable => ({ id: variable.name, name: variable.name, meta: "simple",
-    type: variable.type || "", technical: "", value: String(variable.value ?? "") });
+  const shown = variable => {
+    const value = variable.value;
+    const composite = value !== null && typeof value === "object";
+    return { id: variable.id || variable.name, name: variable.name,
+      meta: Array.isArray(value) ? "table" : composite ? "structure" : "simple",
+      type: variable.type || "", technical: "",
+      value: Array.isArray(value) ? value.length + " rows" : composite ? Object.keys(value).length + " fields" : String(value ?? "") };
+  };
+  const nested = id => {
+    const parts = String(id).split("-");
+    let value = (latest?.variables || []).find(item => item.name.toUpperCase() === parts.shift().toUpperCase())?.value;
+    for (const part of parts) value = value?.[part.toLowerCase()] ?? value?.[part];
+    return value && typeof value === "object" ? Object.entries(value).map(([name, value]) =>
+      shown({ id: id + "-" + name, name, value })) : [];
+  };
   const localGroups = () => [{ id: "vertex-local-variables", name: "Locals",
     children: (latest?.variables || []).map(shown) }];
   async function command(action, args = {}) {
@@ -88,7 +101,7 @@ function create(vscode, document, launch, publish) {
       case "source": return { url: args.url, source: fs.readFileSync(args.url || document.uri.fsPath, "utf8") };
       case "scopes": return { groups: [{ id: "vertex-local-variables", name: "Locals" }], sy: null };
       case "children": return { id: args.id, children: args.id === "vertex-local-variables" ?
-        (latest?.variables || []).map(shown) : [] };
+        (latest?.variables || []).map(shown) : nested(args.id) };
       case "vars": return { variables: (latest?.variables || []).filter(v =>
         !args.names || args.names.some(n => n.toUpperCase() === v.name.toUpperCase())).map(shown) };
       case "set": {

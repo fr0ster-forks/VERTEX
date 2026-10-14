@@ -27,14 +27,22 @@ function mappedLines(map) {
     return 0;
   });
 }
-function instrument(file, sourceFile, source) {
+function instrument(file, sourceFile, source, live = false) {
   const map = JSON.parse(fs.readFileSync(file + ".map", "utf8"));
   const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
   const original = source.split(/\r?\n/);
   const mapping = mappedLines(map);
+  const interfaceTexts = [...source.matchAll(/\bINTERFACES\s+([A-Za-z_]\w*)/gi)].map(match => {
+    const file = path.join(path.dirname(sourceFile), match[1].toLowerCase() + ".intf.abap");
+    return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  });
+  const signatures = [source, ...interfaceTexts].join("\n");
+  const methodParameters = [...signatures.matchAll(/\bMETHODS\s+[\w~]+([^.]*?)\./gi)].flatMap(match =>
+    [...match[1].matchAll(/\b(?:VALUE\s*\(\s*)?([A-Za-z_]\w*)\s*\)?\s+(?:TYPE|LIKE)\b/gi)].map(entry => entry[1].toLowerCase()));
   const names = [...new Set([
     ...[...source.matchAll(/\b(?:DATA|PARAMETERS)\s+([A-Za-z_]\w*)\b/gi)].map(match => match[1].toLowerCase()),
-    ...[...source.matchAll(/\bDATA\s*\(\s*([A-Za-z_]\w*)\s*\)/gi)].map(match => match[1].toLowerCase())
+    ...[...source.matchAll(/\bDATA\s*\(\s*([A-Za-z_]\w*)\s*\)/gi)].map(match => match[1].toLowerCase()),
+    ...methodParameters
   ])];
   const values = names.map(name => `${JSON.stringify(name)}:globalThis.__vertexTrace.read(` +
     `typeof ${name} === 'undefined' ? undefined : ${name})`).join(",");
@@ -54,14 +62,14 @@ function instrument(file, sourceFile, source) {
     if (at && executable(original[at - 1]) &&
         /^\s*(?:abap\.|[A-Za-z_]\w*\.|await\b|return\b|if\s*\(|for\s*\(|while\s*\(|throw\b)/.test(lines[index])) {
       const indent = /^\s*/.exec(lines[index])[0];
-      output.push(`${indent}globalThis.__vertexTrace?.capture(${JSON.stringify(sourceFile)},${at},{${values}},` +
+      output.push(`${indent}${live ? "await " : ""}globalThis.__vertexTrace?.capture(${JSON.stringify(sourceFile)},${at},{${values}},` +
         `${JSON.stringify(owner)},${JSON.stringify(routines[at - 1])});`);
     }
     output.push(lines[index]);
   }
   fs.writeFileSync(file, output.join("\n"));
 }
-function instrumentProject(outputRoot) {
+function instrumentProject(outputRoot, live = false) {
   let count = 0;
   function visit(folder) {
     for (const item of fs.readdirSync(folder, { withFileTypes: true })) {
@@ -71,16 +79,18 @@ function instrumentProject(outputRoot) {
       const map = JSON.parse(fs.readFileSync(file + ".map", "utf8"));
       const source = map.sources?.[0] && path.resolve(path.dirname(file), map.sources[0]);
       if (!source || !/\.abap$/i.test(source) || !fs.existsSync(source)) continue;
-      instrument(file, source, fs.readFileSync(source, "utf8")); count++;
+      instrument(file, source, fs.readFileSync(source, "utf8"), live); count++;
     }
   }
   visit(outputRoot);
   return count;
 }
-function traceBootstrap(outputRoot, entry, traceFile) {
+function traceBootstrap(outputRoot, entry, traceFile, live = false) {
   const wrapper = path.join(outputRoot, "vertex-local-trace.mjs");
   const relative = "./" + path.relative(outputRoot, entry).replaceAll("\\", "/");
   fs.writeFileSync(wrapper, `import fs from 'node:fs';\n` +
+    (live ? `import readline from 'node:readline';\nlet resumeTrace;\n` +
+      `readline.createInterface({input:process.stdin}).on('line',line=>{try{if(JSON.parse(line).vertexTrace==='resume'){const done=resumeTrace;resumeTrace=null;done?.();}}catch{}});\n` : "") +
     `const records=[]; const last=new Map();\n` +
     `function safe(value){try {const seen=new WeakSet();const json=JSON.stringify(value,(_key,item)=>{\n` +
     ` if(typeof item==='bigint')return item.toString();\n` +
@@ -94,15 +104,17 @@ function traceBootstrap(outputRoot, entry, traceFile) {
     ` if(Array.isArray(value))return value.map(row=>this.read(row,depth+1));\n` +
     ` if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).slice(0,100).map(([k,v])=>[k,this.read(v,depth+1)]));\n` +
     ` return value;}catch(error){return '[unavailable: '+error.message+']';}\n` +
-    ` },capture(file,line,values,owner,routine){const changed={};\n` +
+    ` },${live ? "async " : ""}capture(file,line,values,owner,routine){const changed={};\n` +
     ` for(const [name,value] of Object.entries(values)){const [signature,plain]=safe(value);\n` +
     ` if(last.get(name)!==signature){changed[name]=plain;last.set(name,signature);}}\n` +
     ` const stack=String(new Error().stack||'').split('\\n').slice(2).map(frame=>{\n` +
     ` const found=/[\\\\/]([^\\\\/]+)\\.(?:prog|clas|intf)\\.mjs(?::\\d+)?/.exec(frame);\n` +
     ` if(!found)return null;const fn=/^\\s*at (?:async )?([^\\s(]+)\\s*\\(/.exec(frame);\n` +
     ` return {owner:found[1].toUpperCase(),unit:fn?fn[1].split('.').pop().replaceAll('$','~').toUpperCase():found[1].toUpperCase()};\n` +
-    ` }).filter(Boolean).filter((item,index,list)=>index===0||item.owner!==list[index-1].owner);\n` +
-    ` records.push({file,line,owner,routine,stack:stack.length?stack:[{owner,unit:routine}],changed});}};\n` +
+    ` }).filter(Boolean).filter((item,index,list)=>index===0||item.owner!==list[index-1].owner||item.unit!==list[index-1].unit);\n` +
+    ` const record={file,line,owner,routine,stack:stack.length?stack:[{owner,unit:routine}],changed};records.push(record);\n` +
+    (live ? ` process.stdout.write('VERTEX_TRACE_RECORD:'+JSON.stringify(record)+'\\n');await new Promise(resolve=>{resumeTrace=resolve;});` : "") +
+    `}};\n` +
     `try { await import(${JSON.stringify(relative)}); } finally {\n` +
     ` fs.writeFileSync(${JSON.stringify(traceFile)},JSON.stringify(records)); process.stdin.destroy(); }\n`);
   return wrapper;

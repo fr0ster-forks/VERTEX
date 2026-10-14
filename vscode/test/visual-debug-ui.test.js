@@ -151,6 +151,124 @@ test("the diagram of a record draws the branch the run went through, and only th
   assert.ok(edge(key(7), key(8)) && edge(key(8), key(9)), "CASE > WHEN > statement");
 });
 
+test("SAP detailed diagram draws one entry path per node despite repeated calls", () => {
+  const context = vm.createContext({});
+  vm.runInContext(part("function firstPathEdges(edges){", "function sharedFlowGraph(mode){"), context);
+  const edges = [{ from: "root", to: "caller" }, { from: "caller", to: "method" },
+    { from: "other", to: "method" }, { from: "method", to: "statement" }];
+  const shown = vm.runInContext("firstPathEdges(__edges)", Object.assign(context, { __edges: edges }));
+  assert.deepEqual(shown, [edges[0], edges[1], edges[3]]);
+});
+
+test("SAP statement diagram starts at the ABAP report and normalizes class pool names", () => {
+  const report = { program: "ZREPORT", include: "ZREPORT", unit: "START-OF-SELECTION", line: 12 };
+  const method = { program: "ZCL_CALC_FACADE===CP", include: "ZCL_CALC_FACADE===CM001", unit: "RUN", line: 21 };
+  const launcher = { program: "SAPMSSY0", include: "SAPMSSY0", unit: "START", line: 1 };
+  const context = vm.createContext({ INITIAL: { name: "ZREPORT", type: "PROG" },
+    poolName: name => String(name).replace(/=+C[PIOU]$/i, ""),
+    flow: { timeline: [{ cur: { owner: "ZCL_CALC_FACADE", name: "ZCL_CALC_FACADE=>RUN" },
+      at: { url: "/source", line: 21 }, stack: [method, report, launcher] }] },
+    stepIndex: null, stepKey: () => "ZCL_CALC_FACADE:21", closesBlock: () => false,
+    stepText: () => "WRITE result.", shapeIn: () => null });
+  vm.runInContext(part("function callerFrames(frames){", "function shownDepth(frames){") +
+    part("function recordedUnitKey(owner,unit){", "/* The running block, green"), context);
+  const graph = vm.runInContext("stepFlow()", context);
+  assert.equal(graph.entry, "m|ZREPORT=>START-OF-SELECTION");
+  assert.ok(graph.nodes["m|ZCL_CALC_FACADE=>RUN"]);
+  assert.equal(Object.keys(graph.nodes).some(key => /SAPMSSY0|===CP/.test(key)), false);
+});
+
+test("SAP method diagram omits the launcher and uses ABAP class names", () => {
+  const report = { program: "ZREPORT", unit: "START-OF-SELECTION", line: 12 };
+  const method = { program: "ZCL_CALC_FACADE===CP", unit: "RUN", line: 21 };
+  const launcher = { program: "SAPMSSY0", unit: "START", line: 1 };
+  const context = vm.createContext({ INITIAL: { name: "ZREPORT", type: "PROG" },
+    poolName: name => String(name).replace(/=+C[PIOU]$/i, ""),
+    flow: { timeline: [{ cur: { owner: "ZCL_CALC_FACADE", name: "ZCL_CALC_FACADE=>RUN" },
+      at: { url: "/source", line: 21 }, stack: [method, report, launcher] }] } });
+  vm.runInContext(part("function callerFrames(frames){", "function shownDepth(frames){") +
+    part("function recordedUnitKey(owner,unit){", "function stepFlow(){") +
+    part("function callGraph(byOwner){", "/* Where the chosen value changed"), context);
+  const graph = vm.runInContext("callGraph(false)", context);
+  assert.equal(graph.entry, "m|ZREPORT=>START-OF-SELECTION");
+  assert.ok(graph.nodes["m|ZCL_CALC_FACADE=>RUN"]);
+  assert.equal(Object.keys(graph.nodes).some(key => /SAPMSSY0|===CP/.test(key)), false);
+});
+
+test("SAP statements share their method frame, including interface method names", () => {
+  const context = vm.createContext({ INITIAL: { local: false }, flow: { timeline: [] },
+    poolName: name => String(name).replace(/=+C[PIOU]$/i, ""),
+    stepFlow: () => ({ order: ["method", "statement"], nodes: {
+      method: { text: "ZCL_MOD_HAZARD=>ZIF_CALC_MODIFIER~APPLY", type: "unit", owner: "ZCL_MOD_HAZARD",
+        unit: "ZIF_CALC_MODIFIER~APPLY", line: 5 },
+      statement: { text: "cs_context-amount = 5.", type: "statement", owner: "ZCL_MOD_HAZARD",
+        unit: "ZCL_MOD_HAZARD=>ZIF_CALC_MODIFIER~APPLY", line: 21 }
+    }, edges: { link: { from: "method", to: "statement", label: "21" } }, eorder: ["link"], entry: "method" }),
+    valueTrail: () => ({}), sliceStops: () => ({}), sliceAt: () => null, sharedIds: null, sharedNodes: null });
+  vm.runInContext(part("function recordedUnitKey(owner,unit){", "function stepFlow(){") +
+    part("function firstPathEdges(edges){", "function loadControls(){"), context);
+  const nodes = vm.runInContext("sharedFlowGraph('steps').bseFlow.nodes", context);
+  assert.equal(nodes[0].group, nodes[1].group);
+  assert.equal(nodes[0].group, "m|ZCL_MOD_HAZARD=>ZIF_CALC_MODIFIER~APPLY");
+});
+
+test("SAP diagram has one method entry and ordered statements without changing the tree", () => {
+  const context = vm.createContext({ INITIAL: { local: false }, flow: { timeline: [] },
+    poolName: name => name,
+    stepFlow: () => ({ order: ["method", "late", "early"], nodes: {
+      method: { text: "ZCL_X=>RUN", type: "unit", owner: "ZCL_X", unit: "RUN", line: 1 },
+      late: { text: "line 11", type: "statement", owner: "ZCL_X", unit: "RUN", line: 11 },
+      early: { text: "line 7", type: "statement", owner: "ZCL_X", unit: "RUN", line: 7 }
+    }, edges: { a: { from: "method", to: "late" }, b: { from: "method", to: "early" } }, eorder: ["a", "b"], entry: "method" }),
+    valueTrail: () => ({}), sliceStops: () => ({}), sliceAt: () => null, sharedIds: null, sharedNodes: null });
+  vm.runInContext(part("function recordedUnitKey(owner,unit){", "function stepFlow(){") +
+    part("function firstPathEdges(edges){", "function loadControls(){"), context);
+  const graph = vm.runInContext("sharedFlowGraph('steps').bseFlow", context);
+  const statementEdges = graph.diagramEdges.filter(edge => graph.nodes.find(node => node.id === edge.to)?.type === "operation");
+  assert.equal(statementEdges.length, 2);
+  const lines = statementEdges.map(edge => graph.nodes.find(node => node.id === edge.to).line);
+  assert.deepEqual(Array.from(lines), [7, 11]);
+  assert.equal(graph.edges.some(edge => graph.nodes.find(node => node.id === edge.from)?.type === "operation"), false);
+});
+
+test("SAP statement diagram keeps statements as siblings in first observed order", () => {
+  const stop = line => ({ cur: { owner: "ZCL_CALC", name: "ZCL_CALC=>RUN" },
+    at: { url: "/source", line }, stack: [{ program: "ZCL_CALC===CP", include: "ZCL_CALC===CM001", unit: "RUN", line }] });
+  const context = vm.createContext({ INITIAL: { local: false }, flow: { timeline: [stop(7), stop(11), stop(7)] },
+    poolName: name => String(name).replace(/=+C[PIOU]$/i, ""), callerFrames: () => 0,
+    stepKey: t => "step:" + t.at.line, closesBlock: () => false,
+    stepText: f => "line " + f.line, shapeIn: () => null, stepIndex: null });
+  vm.runInContext(part("function recordedUnitKey(owner,unit){", "/* The running block, green"), context);
+  const graph = vm.runInContext("stepFlow()", context);
+  assert.ok(graph.edges["m|ZCL_CALC=>RUN>step:7"]);
+  assert.ok(graph.edges["m|ZCL_CALC=>RUN>step:11"]);
+  assert.equal(graph.edges["step:7>step:11"], undefined);
+  assert.deepEqual(Array.from(graph.order).filter(k => k.startsWith("step:")), ["step:7", "step:11"]);
+  assert.equal(graph.nodes["step:7"].count, 2);
+  context.INITIAL.local = true;
+  const localGraph = vm.runInContext("stepFlow()", context);
+  assert.ok(localGraph.edges["m|ZCL_CALC=>RUN>step:11"], "transpiler keeps its existing layout");
+  assert.equal(localGraph.edges["m|ZCL_CALC=>RUN>step:7"].count, 2);
+});
+
+test("SAP and transpiler detailed calls leave the calling statement, not the method header", () => {
+  const caller = { program: "ZCL_A", include: "ZCL_A", unit: "RUN", line: 11, url: "/a" };
+  const callee = { program: "ZCL_B", include: "ZCL_B", unit: "WORK", line: 7, url: "/b" };
+  const stop = (frame, stack) => ({ cur: { owner: frame.program, name: frame.unit },
+    at: { url: frame.url, line: frame.line }, stack });
+  const context = vm.createContext({ INITIAL: { local: false }, flow: { timeline: [stop(caller, [caller]), stop(callee, [callee, caller])] },
+    poolName: name => name, callerFrames: () => 0, stepKey: t => "step:" + t.cur.owner + ":" + t.at.line,
+    closesBlock: () => false, stepText: f => "line " + f.line, shapeIn: () => null, stepIndex: null });
+  vm.runInContext(part("function recordedUnitKey(owner,unit){", "/* The running block, green"), context);
+  const graph = vm.runInContext("stepFlow()", context);
+  assert.ok(graph.edges["step:ZCL_A:11>m|ZCL_B=>WORK"]);
+  assert.equal(graph.edges["m|ZCL_A=>RUN>m|ZCL_B=>WORK"], undefined);
+  context.INITIAL.local = true;
+  const localGraph = vm.runInContext("stepFlow()", context);
+  assert.ok(localGraph.edges["step:ZCL_A:11>m|ZCL_B=>WORK"]);
+  assert.equal(localGraph.edges["m|ZCL_A=>RUN>m|ZCL_B=>WORK"], undefined);
+});
+
 test("at the level of classes and of methods, what holds a statement of the slice is marked, and logging is not", () => {
   const slice = new Set(["ZVERTEX_DEBUG_LAB:15", "ZCL_CALC_FACADE:28", "ZCL_MOD_FUEL:21"]);
   const stop = (owner, name, line, depth) => ({ cur: { owner, name }, at: { url: "/u/" + owner, line },
@@ -556,8 +674,7 @@ test("a variable of a structure type opens to its components before the run, and
     openValueMenu: (path) => { context.menu = path; }, drawVars: () => { context.redrawn = true; } });
   vm.runInContext(page.slice(page.indexOf("function drawStaticVars(box){"), page.indexOf("function drawVars(){")), context);
   const draw = () => { const b = element("div"); vm.runInContext("drawStaticVars(__box)", Object.assign(context, { __box: b })); return b.children[0].rows; };
-  assert.equal(draw().length, 3, "the group, the structure and the plain variable: the structure is closed");
-  vm.runInContext("staticOpen['LS_RESULT']=true", context);
+  assert.equal(draw().length, 5, "the structure's fields are visible immediately");
   const rows = draw();
   assert.equal(rows.length, 5, "open: its two components follow it");
   assert.equal(rows[2].children[0].children[1].text, "shipment_id");

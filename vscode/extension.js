@@ -881,8 +881,12 @@ function activate(context) {
   // docked panel, not another editor tab showing a second copy of that source.
   let dockedDebugView = null, dockedDebugSource = null, localDebugAdapter = null;
   const localHistoryMark = vscode.window.createTextEditorDecorationType({
-    isWholeLine: true, backgroundColor: "rgba(45, 125, 230, 0.18)",
-    border: "1px solid rgba(45, 125, 230, 0.65)"
+    isWholeLine: true,
+    backgroundColor: new vscode.ThemeColor("editor.stackFrameHighlightBackground"),
+    overviewRulerColor: new vscode.ThemeColor("editor.stackFrameHighlightBackground"),
+    overviewRulerLane: vscode.OverviewRulerLane?.Full,
+    gutterIconPath: vscode.Uri.joinPath(context.extensionUri, "images", "stopped.svg"),
+    gutterIconSize: "contain"
   });
   context.subscriptions.push(localHistoryMark);
   let localHistoryEditor = null;
@@ -897,6 +901,16 @@ function activate(context) {
     scenarios: dockedDebugSource.local ? require("./local-run").scenariosFor(dockedDebugSource.document) : []
   };
   const postDockedPicture = () => {
+    if (dockedDebugSource?.local && localDebugAdapter) {
+      const frame = localDebugAdapter.picture().stopped?.frames?.[0];
+      const editor = (vscode.window.visibleTextEditors || []).find(item =>
+        frame && item.document.uri.fsPath?.toLowerCase() === String(frame.url || "").toLowerCase());
+      if (localHistoryEditor && localHistoryEditor !== editor) clearLocalHistoryMark();
+      if (editor && frame?.line > 0 && frame.line <= editor.document.lineCount) {
+        editor.setDecorations(localHistoryMark, [editor.document.lineAt(frame.line - 1).range]);
+        localHistoryEditor = editor;
+      } else if (!frame) clearLocalHistoryMark();
+    }
     if (dockedDebugView) void dockedDebugView.webview.postMessage({ type: "debug",
       payload: JSON.stringify(dockedDebugSource?.local ? localDebugAdapter?.picture() : dbg.picture()) });
   };
@@ -982,7 +996,7 @@ function activate(context) {
             const request = JSON.parse(String((message.args || [])[0] || "{}"));
             let reply;
             try { reply = { id: request.id, answer: dockedDebugSource?.local && request.variables
-              ? await require("./local-analysis").declaredVariables(dockedDebugSource.document, request.variables)
+              ? await require("./local-analysis").declaredVariables(dockedDebugSource.document, request.variables, vscode)
               : request.open ? await sapCode.originOpen(request.open) : request.variables ? await sapCode.originVariables(request.variables) : await sapCode.originPoints(request,progress=>view.webview.postMessage({type:"originProgress",payload:{id:request.id,...progress}})) }; }
             catch (error) { reply = { id: request.id, error: error.message }; }
             await view.webview.postMessage({ type: "origin", payload: JSON.stringify(reply) });

@@ -480,14 +480,83 @@ async function launch(vscode, debug, options = {}) {
   if (repairedSelects) output.appendLine("Repaired " + repairedSelects + " SELECT work-area assignments.");
   output.appendLine("Entry ready.");
   const bridge = !options.trace && project.automatic && selectorQuery ? await startSelectorBridge() : null;
-  if (options.trace) {
+  if (options.trace || options.live) {
     const outputRoot = path.dirname(project.entry);
     const traceFile = path.join(outputRoot, "vertex-local-trace.json");
-    const instrumented = require("./local-trace").instrumentProject(outputRoot);
+    const instrumented = require("./local-trace").instrumentProject(outputRoot, !!options.live);
     if (!instrumented) throw new Error("No generated ABAP source maps were found for tracing.");
     output.appendLine("Instrumented " + instrumented + " ABAP modules.");
-    const traceEntry = require("./local-trace").traceBootstrap(outputRoot, entry, traceFile);
+    const traceEntry = require("./local-trace").traceBootstrap(outputRoot, entry, traceFile, !!options.live);
     output.appendLine("Trace ready; executing.");
+    if (options.live) {
+      const child = spawn(process.execPath, [traceEntry], { cwd: project.root, windowsHide: true,
+        env: { ...process.env, VERTEX_SELECTOR_PIPE: "1" } });
+      const records = []; let pending = null, initial, firstResolve, firstReject, closed = false;
+      let stdout = "", stderr = "", buffer = "";
+      const first = new Promise((resolve, reject) => { firstResolve = resolve; firstReject = reject; });
+      const fail = error => {
+        if (initial === undefined) firstReject(error);
+        if (pending) { pending.reject(error); pending = null; }
+        output.appendLine(error.message); output.show(true);
+      };
+      const resume = () => { if (!closed) child.stdin.write('{"vertexTrace":"resume"}\n'); };
+      child.stdout.on("data", chunk => {
+        buffer += chunk.toString(); let end;
+        while ((end = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, end).replace(/\r$/, ""); buffer = buffer.slice(end + 1);
+          if (line.startsWith("VERTEX_TRACE_RECORD:")) {
+            const record = JSON.parse(line.slice("VERTEX_TRACE_RECORD:".length)); records.push(record);
+            if (initial === undefined) { initial = record; firstResolve(record); }
+            else if (pending) {
+              pending.records.push(record);
+              const depth = record.stack?.length || 1;
+              const hit = pending.breakpoints.some(bp => bp.active && bp.line === record.line &&
+                bp.url.toLowerCase() === record.file.toLowerCase());
+              const stop = pending.kind === "into" || pending.kind === "continue" && hit ||
+                pending.kind === "over" && depth <= pending.depth || pending.kind === "out" && depth < pending.depth;
+              if (stop) { const done = pending; pending = null; done.resolve({ records: done.records, ended: false }); }
+              else resume();
+            }
+            continue;
+          }
+          const marker = line.indexOf("VERTEX_SELECTOR_REQUEST:");
+          if (marker >= 0) {
+            stdout += line.slice(0, marker);
+            const requestText = line.slice(marker + "VERTEX_SELECTOR_REQUEST:".length);
+            Promise.resolve().then(async () => {
+              const request = JSON.parse(requestText);
+              if (!selectorQuery) throw new Error("Configure and select an SAP system for Open SQL SELECT.");
+              const input = request.input, limit = /\bUP TO\s+(\d+)\s+ROWS\b/i.exec(input.select || "");
+              const data = await selectorQuery(selectorSql(input), limit ? Number(limit[1]) : 10000);
+              return { id: request.id, result: { rows: (data.values || []).map(row =>
+                Object.fromEntries(Object.entries(row).map(([name, value]) => [name.toLowerCase(), value]))) } };
+            }).then(reply => child.stdin.write(JSON.stringify(reply) + "\n"), error => {
+              child.stdin.write(JSON.stringify({ id: JSON.parse(requestText).id, error: error.message }) + "\n");
+            });
+          } else stdout += line + "\n";
+        }
+      });
+      child.stderr.on("data", chunk => { stderr += chunk; });
+      child.on("error", fail);
+      child.on("close", code => {
+        closed = true; bridge?.close();
+        if (code !== 0) { fail(new Error(stderr || "Local ABAP exited with code " + code)); return; }
+        if (initial === undefined) firstReject(new Error("Local ABAP completed without a recorded statement."));
+        if (pending) { const done = pending; pending = null; done.resolve({ records: done.records, ended: true }); }
+      });
+      await first;
+      return { records: [initial], live: {
+        next(kind, breakpoints = []) {
+          if (closed) return Promise.resolve({ records: [], ended: true });
+          if (pending) return Promise.reject(new Error("A local step is already running."));
+          return new Promise((resolve, reject) => {
+            pending = { resolve, reject, records: [], kind, breakpoints,
+              depth: records.at(-1)?.stack?.length || 1 };
+            resume();
+          });
+        }, stop() { if (!closed) child.kill(); }, get output() { return stdout; }
+      } };
+    }
     try {
       const startedAt = Date.now();
       const result = await new Promise((resolve, reject) => {

@@ -92,6 +92,22 @@ test("local source lookup prefers the active file's package folder", async () =>
   assert.equal(await session.find("ZCL_TARGET", "CLAS"), ownClass);
 });
 
+test("local variables expand an inline method result using its interface structure", async () => {
+  const report = document("C:\\work\\src\\zresult.prog.abap",
+    "REPORT zresult.\nSTART-OF-SELECTION.\nDATA(ls_result) = NEW zcl_calc_facade( )->run( ).\nWRITE ls_result-amount.");
+  const facade = document("C:\\work\\src\\zcl_calc_facade.clas.abap",
+    "CLASS zcl_calc_facade DEFINITION.\n PUBLIC SECTION.\n METHODS run RETURNING VALUE(rs_result) TYPE zif_calc_types=>ty_result.\nENDCLASS.\nCLASS zcl_calc_facade IMPLEMENTATION.\n METHOD run.\n ENDMETHOD.\nENDCLASS.");
+  const types = document("C:\\work\\src\\zif_calc_types.intf.abap",
+    "INTERFACE zif_calc_types.\n TYPES: BEGIN OF ty_result,\n amount TYPE i,\n currency TYPE string,\n END OF ty_result.\nENDINTERFACE.");
+  const files = new Map([report, facade, types].map(item => [item.uri.toString(), item]));
+  const host = { ...vscode, workspace: { findFiles: async () => [...files.values()].map(item => item.uri),
+    openTextDocument: async uri => files.get(uri.toString()) } };
+  const result = await local.declaredVariables(report, { line: 3 }, host);
+  const value = result.globals.find(item => item.name.toUpperCase() === "LS_RESULT");
+  assert.equal(value.type.toUpperCase(), "ZIF_CALC_TYPES=>TY_RESULT");
+  assert.deepEqual(value.components?.map(item => item.name.toUpperCase()), ["AMOUNT", "CURRENCY"], JSON.stringify(value));
+});
+
 test("local source lookup rejects ambiguous names outside the active package folder", async () => {
   const owner = document("C:\\work\\src\\zmain.prog.abap", "REPORT zmain.");
   const left = document("C:\\work\\left\\zcl_target.clas.abap", "CLASS zcl_target DEFINITION. ENDCLASS.");

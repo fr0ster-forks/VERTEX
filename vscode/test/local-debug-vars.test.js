@@ -46,14 +46,16 @@ test("local history excludes generated JavaScript temporaries before evaluating 
 
 test("local declaration breakpoints are removed but executable breakpoints remain", async () => {
   assert.equal(declarationLine("data a type i."), true);
+  assert.equal(declarationLine("DATA(ls_result) = NEW zcl_calc_facade( )->run( iv_scenario = lv_scenario )."), false);
   assert.equal(declarationLine("a = 5."), false);
   const make = line => ({ location: { uri: { scheme: "file", fsPath: "C:/src/test.prog.abap" }, range: { start: { line } } } });
-  const declaration = make(0), assignment = make(1);
+  const declaration = make(0), assignment = make(1), inlineAssignment = make(2);
   let removed;
   const vscode = { workspace: { async openTextDocument() {
-    return { lineCount: 2, lineAt: line => ({ text: ["data a type i.", "a = 5."][line] }) };
+    return { lineCount: 3, lineAt: line => ({ text: ["data a type i.", "a = 5.",
+      "DATA(ls_result) = NEW zcl_calc_facade( )->run( iv_scenario = lv_scenario )."][line] }) };
   } }, debug: { removeBreakpoints: items => { removed = items; } } };
-  assert.equal(await removeDeclarationBreakpoints(vscode, [declaration, assignment]), 1);
+  assert.equal(await removeDeclarationBreakpoints(vscode, [declaration, assignment, inlineAssignment]), 1);
   assert.deepEqual(removed, [declaration]);
 });
 

@@ -100,6 +100,9 @@ button.x{background:transparent;border:0}
 #dumppagebody td,#dumppagebody th{border:1px solid var(--vscode-panel-border,GrayText);padding:2px 6px;vertical-align:top}
 #dumppagebody h1,#dumppagebody h2,#dumppagebody h3{font-size:13px;margin:10px 0 4px}
 .empty{padding:4px 8px;color:var(--vscode-descriptionForeground,GrayText);font-family:system-ui,sans-serif}
+.empty.loading{display:flex;align-items:center;gap:8px}
+.empty.loading:before{content:"";width:12px;height:12px;border:2px solid var(--vscode-panel-border,GrayText);border-top-color:var(--vscode-focusBorder,#0a66c2);border-radius:50%;animation:vertex-spin .8s linear infinite}
+@keyframes vertex-spin{to{transform:rotate(360deg)}}
 #filter{width:110px}
 table.vars{border-collapse:collapse;width:100%;table-layout:fixed}
 table.vars td{padding:1px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--vscode-editorWidget-background,transparent)}
@@ -1149,7 +1152,7 @@ function drawStats(s){
   if(typeof INITIAL!=="undefined"&&INITIAL.local){$("stats").textContent=s.steps+" steps \u00b7 depth "+(picture.stopped?picture.stopped.frames.length:0)+" \u00b7 "+sec.toFixed(1)+" s"+(sec>0&&s.steps?" \u00b7 "+(s.steps/sec).toFixed(1)+" steps/s on average":"");return;}
   $("stats").textContent=s.steps+" steps ("+s.predicted+" predicted) · depth "+(picture.stopped?picture.stopped.frames.length:0)+" · "+sec.toFixed(1)+" s"
     +(sec>0&&s.steps?" · "+(s.steps/sec).toFixed(1)+" steps/s on average":"")
-    +(s.loops?" · "+s.loops+" loops passed":"")+(s.blocks?" · "+s.blocks+" blocks passed":"")+(s.skipped?" · "+s.skipped+" runs past statements outside the slice":"")+(s.rests?" · "+s.rests+" loop pass tails passed":"")+(s.standard?" · "+s.standard+" standard calls passed":"")+(s.over?" · "+s.over+" stepped over":"")+(s.missed?" · "+s.missed+" mispredicted":"")
+    +(s.loops?" · "+s.loops+" loops passed":"")+(s.blocks?" · "+s.blocks+" blocks passed":"")+(s.skipped?" · "+s.skipped+" runs past statements outside the slice":"")+(s.rests?" · "+s.rests+" loop pass tails passed":"")+(s.standard?" · "+s.standard+" standard calls passed":"")+(s.over?" · "+s.over+" stepped over":"")+(s.missed?" · "+s.missed+" statement map mismatches":"")
     +(s.inline?" · "+s.inline+" lines with more than one statement":"")+(s.unitend?" · "+s.unitend+" unit ends":"");
 }
 function runLocalVisual(){
@@ -1282,9 +1285,10 @@ function runVisual(){
                 return next();});});
           }
           seen(p);if(!p.stopped||stopsHere(p))return;
+          // With Predict off, SAP alone determines the next stop. Only check the map when Predict was used.
           // The stack was asked after a plain statement: it must stand on the
           // next statement, unless that closes a block or the step raised.
-          if(!r.predicted&&from&&from.here.kind==="plain"&&from.next){
+          if(guessing&&!r.predicted&&from&&from.here.kind==="plain"&&from.next){
             var g=p.stopped.frames[0];
             var off=p.stopped.frames.length!==depth||norm(g.url)!==norm(f.url)
               ||(g.line!==from.next.line&&!CLOSERS.test(from.next.kw));
@@ -1646,7 +1650,7 @@ function stepText(f,url,ord){
 }
 function stepKey(t){var f=t&&t.stack&&t.stack[0];if(!f)return "";
   var ord=t.at&&t.at.ord||0;
-  return (t.cur?t.cur.name:String(f.program||""))+"|"+String(f.include||"")+":"+f.line+(ord?"#"+ord:"");}
+  return (t.cur?t.cur.owner:String(f.program||""))+"=>"+(t.cur?t.cur.name:String(f.unit||f.program||""))+"|"+String(f.include||"")+":"+f.line+(ord?"#"+ord:"");}
 /* The blocks a statement of a routine stands in, by the routine's own text:
    IF, CASE, LOOP, DO, WHILE, TRY open one; WHEN, ELSE, ELSEIF, CATCH close the
    branch before them and own what follows; END* close both. The same reading
@@ -1691,6 +1695,7 @@ function closesBlock(f,url){
   var st=list&&list.filter(function(x){return x.line===f.line;})[0];
   return !!st&&ENDING.test(String(st.kw||""));
 }
+function recordedUnitKey(owner,unit){var name=poolName(owner),method=String(unit||name);if(method.indexOf(name+"=>")===0)method=method.slice(name.length+2);return "m|"+name+"=>"+method;}
 function stepFlow(){
   var tl=flow.timeline||[],nodes={},order=[],edges={},eorder=[],previous=null,entry=null;
   var add=function(key,node){if(!nodes[key]){nodes[key]=node;nodes[key].key=key;nodes[key].count=0;order.push(key);}return nodes[key];};
@@ -1698,21 +1703,28 @@ function stepFlow(){
     if(!edges[ek]){edges[ek]={from:from,to:to,label:String(label||""),count:0};eorder.push(ek);}edges[ek].count++;};
   // How deep a stop stands, counted from the shallowest the record holds, so
   // the caller frames the window hides do not shift everything down.
-  var base=0;tl.forEach(function(t){var n=t.stack?t.stack.length:0;if(n&&(!base||n<base))base=n;});
+  var base=0;tl.forEach(function(t){var stack=t.stack?t.stack.slice(0,t.stack.length-(typeof INITIAL==="undefined"?0:callerFrames(t.stack))):[],n=stack.length;if(n&&(!base||n<base))base=n;});
   tl.forEach(function(t){
-    var f=t.stack&&t.stack[0];if(!f||!t.at)return;
+    var f=t.stack&&t.stack[0],stack=t.stack?t.stack.slice(0,t.stack.length-(typeof INITIAL==="undefined"?0:callerFrames(t.stack))):[];if(!f||!t.at)return;
     var unit=t.cur?t.cur.name:String(f.program||""),owner=t.cur?t.cur.owner:String(f.program||"");
     // A routine is one node and carries its class with it - a class is not a
     // level of the stack, and a method without its class names nothing.
     var label=String(unit).indexOf("=>")>0||String(unit)===String(owner)?String(unit):String(owner)+"=>"+String(unit);
-    var unitKey="m|"+unit,level=Math.max(0,(t.stack.length||base)-base);
+    var unitKey=recordedUnitKey(owner,unit),level=Math.max(0,(stack.length||base)-base);
+    var chain=stack.slice().reverse();
+    chain.forEach(function(part,index){var partOwner=poolName(part.program),partUnit=String(part.unit||partOwner);
+      var partKey=recordedUnitKey(partOwner,partUnit);
+      add(partKey,{text:partOwner===partUnit?partOwner:partOwner+"=>"+partUnit,type:"unit",owner:partOwner,unit:partUnit,
+        url:index===chain.length-1?t.at.url:part.url,line:index===chain.length-1?part.line:part.line,depth:index});
+    });
+    // Routine calls are connected below from the statement that made the call.
     add(unitKey,{text:label,type:"unit",owner:owner,unit:unit,url:t.at.url,line:f.line,depth:level});
     // The run starts in a routine, and that is the top of the picture: a
     // program node above it would only repeat its name.
-    if(!entry)entry=unitKey;
+    if(!entry)entry=chain.length?recordedUnitKey(chain[0].program,chain[0].unit):unitKey;
     var key=stepKey(t);if(!key)return;
     if(closesBlock(f,t.at.url))return;
-    var node=add(key,{text:stepText(f,t.at.url,t.at.ord),type:"statement",owner:owner,unit:unit,url:t.at.url,line:f.line,depth:level});
+    var firstVisit=!nodes[key],node=add(key,{text:stepText(f,t.at.url,t.at.ord),type:"statement",owner:owner,unit:unit,url:t.at.url,line:f.line,depth:level});
     node.count++;
     // Where the statement stands: inside the nearest block of its routine the
     // run also stood on - IF, CASE, LOOP, DO, WHILE, TRY and their branches -
@@ -1727,7 +1739,7 @@ function stepFlow(){
       while(up!=null&&up!==f.line&&chain.length<40){chain.unshift(up);up=shape.parent[up];}
       var above=unitKey;
       chain.forEach(function(blockLine){
-        var pk=unit+"|"+String(f.include||"")+":"+blockLine;
+        var pk=unitKey+"|"+String(f.include||"")+":"+blockLine;
         if(!nodes[pk]){
           add(pk,{text:stepText({program:f.program,include:f.include,unit:f.unit,line:blockLine},t.at.url,0),type:"statement",
             owner:owner,unit:unit,url:t.at.url,line:blockLine,depth:level,branch:true});
@@ -1738,11 +1750,11 @@ function stepFlow(){
       parent=above;
     }
     if(nodes[parent])node.depth=Math.max(node.depth,nodes[parent].depth);
-    join(parent,key,f.line);
+    if(firstVisit||typeof INITIAL!=="undefined"&&INITIAL.local)join(parent,key,f.line);
     // A call is a step down: the statement that called, then the routine it
     // entered, which carries the deeper stack.
-    if(previous&&t.stack.length>previous.depth&&previous.unit!==unit)join(previous.key,unitKey,previous.line);
-    previous={key:key,unit:unit,depth:t.stack.length,line:f.line};
+    if(previous&&stack.length>previous.depth&&previous.unit!==unit)join(previous.key,unitKey,previous.line);
+    previous={key:key,unit:unit,depth:stack.length,line:f.line};
   });
   return stepIndex={nodes:nodes,order:order,edges:edges,eorder:eorder,entry:entry};
 }
@@ -1754,7 +1766,7 @@ function markNow(){
   if(!window.vertexFlow||!window.vertexFlow.mark)return;
   var tl=flow.timeline||[],t=replayAt!=null?tl[replayAt]:tl[tl.length-1];
   if(!t){window.vertexFlow.mark("");return;}
-  var key=(flowMode==="steps"||flowMode==="logic")?stepKey(t):flowMode==="classes"?(t.cur&&t.cur.owner):(t.cur&&t.cur.owner+"=>"+t.cur.name);
+  var key=(flowMode==="steps"||flowMode==="logic")?stepKey(t):flowMode==="classes"?(t.cur&&poolName(t.cur.owner)):(t.cur&&recordedUnitKey(t.cur.owner,t.cur.name));
   window.vertexFlow.mark(key&&sharedIds[key]||"");
 }
 function liveCur(){var top=picture.stopped&&picture.stopped.frames.filter(function(f){return !f.system;})[0];return top?unitOf(top):null;}
@@ -1847,13 +1859,13 @@ var sharedIds={};
 function callGraph(byOwner){
   var tl=flow.timeline||[],nodes={},order=[],edges={},eorder=[],entry=null;
   tl.forEach(function(t){
-    var chain=(t.stack||[]).slice().reverse(),parent=null;
+    var frames=t.stack||[],chain=frames.slice(0,frames.length-(typeof INITIAL==="undefined"?0:callerFrames(frames))).reverse(),parent=null;
     chain.forEach(function(f,index){
       var current=index===chain.length-1;
-      var owner=current&&t.cur?t.cur.owner:String(f.program||"");
+      var owner=poolName(current&&t.cur?t.cur.owner:f.program||"");
       var unit=current&&t.cur?t.cur.name:String(f.unit||f.program||"");
-      var key=byOwner?owner:owner+"=>"+unit;
-      if(!nodes[key]){nodes[key]={key:key,text:byOwner?owner:owner+"=>"+unit,
+      var key=byOwner?owner:recordedUnitKey(owner,unit),label=byOwner?owner:recordedUnitKey(owner,unit).slice(2);
+      if(!nodes[key]){nodes[key]={key:key,text:label,
         url:current&&t.at?t.at.url:f.url,line:current&&t.at?t.at.line:f.line,
         depth:index,count:0};order.push(key);}
       nodes[key].count++;
@@ -1953,6 +1965,7 @@ function staticFlowGraph(mode,quiet){
   return g;
 }
 
+function firstPathEdges(edges){var entered={};return edges.filter(function(edge){if(entered[edge.to])return false;entered[edge.to]=true;return true;});}
 function sharedFlowGraph(mode){
   var detailed=mode==="steps"||mode==="logic",S=detailed?stepFlow():callGraph(mode==="classes"),nodes=[],edges=[];
   S.order.forEach(function(k){var nd=S.nodes[k];
@@ -1972,9 +1985,9 @@ function sharedFlowGraph(mode){
     (t.stack||[]).forEach(function(x,n){
       var owner=n===0&&t.cur?t.cur.owner:String(x.program||"");
       var unit=n===0&&t.cur?t.cur.name:String(x.unit||x.program||"");
-      keep[mode==="classes"?owner:mode==="methods"?owner+"=>"+unit:"m|"+unit]=true;
+      keep[mode==="classes"?poolName(owner):recordedUnitKey(owner,unit)]=true;
     });
-    if(f&&!detailed)keep[mode==="classes"?(t.cur?t.cur.owner:f.program):(t.cur?t.cur.owner:f.program)+"=>"+(t.cur?t.cur.name:f.unit)]=true;
+    if(f&&!detailed)keep[mode==="classes"?poolName(t.cur?t.cur.owner:f.program):recordedUnitKey(t.cur?t.cur.owner:f.program,t.cur?t.cur.name:f.unit)]=true;
   });
   // A node is in the scope when the analysis named its place, or when the
   // record shows the value changed there. Only the node that holds the
@@ -1996,6 +2009,9 @@ function sharedFlowGraph(mode){
   S.eorder.forEach(function(ek){var e=S.edges[ek];
     if(idOf[e.from]&&idOf[e.to])edges.push({from:idOf[e.from],to:idOf[e.to],
       label:String(e.label!==undefined?e.label:(e.count>1?"×"+e.count:""))});});
+  // A recorded SAP routine can be called repeatedly from many statements. The diagram
+  // shows its first entry as a tree; the record and node counts keep every call.
+  if(detailed&&!INITIAL.local)edges=firstPathEdges(edges);
   // What leads to a statement of the slice is part of it: the CASE and the WHEN the run went through, the IF and the
   // LOOP around it, the call that entered its routine. Coloured here, before the view hides what is not in the slice,
   // so that no path to a result is left broken; a statement that leads nowhere - logging - stays out.
@@ -2007,14 +2023,26 @@ function sharedFlowGraph(mode){
     nodes.forEach(function(n){if(n.id===was)n.id="bseroot";});
     edges.forEach(function(e){if(e.from===was)e.from="bseroot";if(e.to===was)e.to="bseroot";});
     idOf[S.entry]="bseroot";}
-  if(detailed)nodes.forEach(function(node){node.group=node.location;});
+  if(detailed)nodes.forEach(function(node){node.group=recordedUnitKey(node.owner,node.location);});
   if(mode==='logic'){
     var remove=nodes.filter(function(node){return node.type==='operation'&&!window.vertexAbapControl.classifyStatement({text:node.text}).logic;});
     remove.forEach(function(node){var incoming=edges.filter(function(edge){return edge.to===node.id;}),outgoing=edges.filter(function(edge){return edge.from===node.id;});edges=edges.filter(function(edge){return edge.from!==node.id&&edge.to!==node.id;});incoming.forEach(function(left){outgoing.forEach(function(right){if(left.from!==right.to)edges.push({from:left.from,to:right.to,label:right.label});});});});nodes=nodes.filter(function(node){return !remove.includes(node);});
   }
+  var diagramEdges=edges;
+  if(detailed&&typeof INITIAL!=="undefined"&&!INITIAL.local){
+    var diagramNodes={};nodes.forEach(function(n){diagramNodes[n.id]=n;});
+    // The tree keeps containment; the diagram shows one entry and a readable sequence per routine.
+    diagramEdges=edges.filter(function(e){var from=diagramNodes[e.from],to=diagramNodes[e.to];
+      return !(from&&to&&from.group&&from.group===to.group&&to.type==="operation");});
+    var byGroup={};nodes.forEach(function(n,index){if(n.type==="operation"&&n.group)(byGroup[n.group]||(byGroup[n.group]=[])).push({node:n,index:index});});
+    Object.keys(byGroup).forEach(function(group){var ordered=byGroup[group].sort(function(a,b){return (Number(a.node.line)||0)-(Number(b.node.line)||0)||a.index-b.index;});
+      var header=nodes.find(function(n){return n.group===group&&(n.type==="unit"||n.type==="method");});
+      if(header&&ordered.length)diagramEdges.push({from:header.id,to:ordered[0].node.id,label:String(ordered[0].node.line||"")});
+      for(var i=1;i<ordered.length;i++)if(ordered[i-1].node.id!==ordered[i].node.id)diagramEdges.push({from:ordered[i-1].node.id,to:ordered[i].node.id});});
+  }
   sharedIds=idOf;sharedNodes=nodes;
   var deepest=0;nodes.forEach(function(n){if(n.stack>deepest)deepest=n.stack;});
-  return {nodes:[],edges:[],formula:{nodes:[],edges:[]},bseFlow:{nodes:nodes,edges:edges,grouped:detailed},
+  return {nodes:[],edges:[],formula:{nodes:[],edges:[]},bseFlow:{nodes:nodes,edges:edges,diagramEdges:diagramEdges,grouped:detailed},
     originTitle:"",maxStack:deepest,maxLevel:0,bseFlowHtml:""};
 }
 function loadControls(){
@@ -2339,10 +2367,13 @@ function showDumpPage(id,name){
 function hideDumpPage(){$("dumppage").hidden=true;$("dumppagebody").textContent="";}
 $("dumppageclose").onclick=hideDumpPage;
 document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!$("dumppage").hidden){e.stopPropagation();hideDumpPage();}},true);
+var localRunSequence=0;
 $("run").onclick=function(){
-  if(INITIAL.local){var selection={};document.querySelectorAll('#local-selection input[type="radio"]:checked').forEach(function(input){selection[input.name]=input.value;});
+  if(INITIAL.local){var runId=++localRunSequence,selection={};document.querySelectorAll('#local-selection input[type="radio"]:checked').forEach(function(input){selection[input.name]=input.value;});
     flow={edges:{},nodes:{},order:[]};flowPath=[];localVarCache={};recordedOpen={};recordedPages={};replayAt=null;recKey="";drawPos();
+    $("stats").textContent="";$("state").textContent="Transpiling and recording a new run.";$("bse-workspace").hidden=true;
     notice("");debug("run",{selection:selection}).then(function(result){
+      if(runId!==localRunSequence)return;
       var trace=result.trace||[],name=String(INITIAL.name||"").toUpperCase();
       flow={edges:{},nodes:{},order:[],timeline:[],ended:picture.ended};flowPath=[];
       trace.forEach(function(row){var owner=row.owner||name,routine=row.routine||"START-OF-SELECTION";
@@ -2354,12 +2385,13 @@ $("run").onclick=function(){
           stack:frames,vars:[{name:"Locals",children:Object.keys(row.changed||{}).map(function(key){return {
             name:key,type:"",value:row.changed[key]};})}],varsDelta:true});
       });
-      if(trace.length){replayAt=0;drawPos();showStop(0).catch(failed);showFlow();}
+      if(!trace.length){$("state").textContent="Transpiler run recorded 0 ABAP steps. See VERTEX Local ABAP output.";notice("No ABAP steps were recorded in this run.");return;}
+      $("bse-workspace").hidden=false;replayAt=0;drawPos();showStop(0).catch(failed);showFlow();
       var sec=(result.durationMs||0)/1000;
-      $("stats").textContent=trace.length+" steps � execution "+sec.toFixed(3)+" s"+
+      $("stats").textContent=trace.length+" recorded steps � execution "+sec.toFixed(3)+" s"+
         (sec>0?" � "+(trace.length/sec).toFixed(0)+" steps/s":"");
-      $("state").textContent="Transpiler execution completed; use the history slider or step buttons.";
-    }).catch(failed);return;}
+      $("state").textContent="Full transpiler run recorded. Showing step 1 of "+trace.length+"; Continue jumps to the next recorded breakpoint.";
+    }).catch(function(error){if(runId!==localRunSequence)return;$("state").textContent="Transpiler run failed.";failed(error);});return;}
   var p=$("program").hidden?String(INITIAL.name):$("program").value.trim();
   // An empty field for a class or a function module: its own test screen,
   // SE24 or SE37 with the name filled in; the test is started there with F8.
@@ -2380,10 +2412,10 @@ function groupKind(name){var n=String(name);return /^glob/i.test(n)?"globals":/^
 function groupOn(g){var k=groupKind(g.name);return !k||$(k).classList.contains("on");}
 var parameterSignatures={};
 function parametersForFrame(f){
-  if(!f||!classUrl(f.url)||!f.unit)return Promise.resolve([]);
-  var key=norm(f.url),unit=String(f.unit).toUpperCase();
+  if(!f||!(classUrl(f.url)||INITIAL.local&&/\.clas\.abap$/i.test(String(f.url||"")))||!f.unit)return Promise.resolve([]);
+  var unit=String(f.unit).toUpperCase(),url=f.url;if(INITIAL.local&&unit.indexOf("~")>=0){var owner=unit.split("~")[0];url=String(f.url).replace(/[^\\/]+\.clas\.abap$/i,owner.toLowerCase()+".intf.abap");unit=unit.split("~").pop();}var key=norm(url);
   if(parameterSignatures[key])return Promise.resolve(parameterSignatures[key][unit]||[]);
-  return debug("source",{url:f.url}).then(function(result){
+  return debug("source",{url:url}).then(function(result){
     var source=String(result.source||""),signatures={};
     var declarations=source.match(/\b(?:CLASS-)?METHODS\s+[\s\S]*?\./gi)||[];
     declarations.forEach(function(declaration){
@@ -2409,8 +2441,9 @@ function splitLocalParameters(groups,names){
   local.children=others;
   groups.splice(groups.indexOf(local),0,{id:"vertex:parameters",name:"Params",children:parameters});
 }
+var scopesLoading=false,scopesRequest=0;
 function loadScopes(){
-  $("partial").textContent="";
+  var seq=++scopesRequest;scopesLoading=true;drawVars();
   var withSy=$("syst").classList.contains("on");
   return debug("scopes",{sy:withSy}).then(function(d){
     scopes=d;current={};
@@ -2426,7 +2459,7 @@ function loadScopes(){
         var open=Object.keys(expanded);
         return open.reduce(function(p,id){return p.then(function(){return debug("children",{id:id}).then(function(c){expanded[id]=c.children;}).catch(function(){delete expanded[id];});});},Promise.resolve());
       });
-  }).then(drawVars);
+  }).finally(function(){if(seq===scopesRequest){scopesLoading=false;drawVars();}});
 }
 /* The value a BSE scope is about. Chosen where the reader is looking at it -
    a row in Variables - because that row already names it, including a
@@ -2577,15 +2610,18 @@ function drawChosen(){
    the routine the reader is in - the one the breakpoint stands in, then the one a link opened last. Names and types, no
    values: those come with the stop. The stack is not there yet, so this is the stack the reader has chosen. */
 var staticVars=null,staticOpen={},variablesSeq=0,variablesKind="",variablesStarted=false,cursorFocus=null,pointFocus=null;
+var variablesLoading=false,variablesError="";
 var readerClosed={};
 /* The variables the analysis declares for the place the reader is in, asked of the analysis's own channel. The place is the
    cursor's in a VERTEX source (the host tells), else a breakpoint's, else the program under debug; a newer question makes an
    older answer stale. In a routine its parameters and locals are shown and the globals are not - they are asked for when the
    Globals switch is turned on; outside every routine the globals are what there is. */
 function askVariables(request){
-  var seq=++variablesSeq;
+  var seq=++variablesSeq;variablesLoading=true;variablesError="";drawVars();
   return askOrigin({variables:request}).then(function(answer){
-    if(seq!==variablesSeq||(answer&&answer.superseded))return;
+    if(seq!==variablesSeq)return;
+    variablesLoading=false;
+    if(answer&&answer.superseded){drawVars();return;}
     staticVars=answer;
     var kind=answer.name?"routine":"program";
     if(kind!==variablesKind){variablesKind=kind;
@@ -2594,6 +2630,9 @@ function askVariables(request){
     // Opened for the first answer of a state, not for every one: a section the reader closed stays closed until the state changes.
     if(!picture.stopped&&!paneOn("varsec")&&!readerClosed.varsec)setPane("varsec",true);
     drawVars();
+  }).catch(function(error){
+    if(seq===variablesSeq){variablesLoading=false;variablesError=error&&error.message||String(error);drawVars();}
+    throw error;
   });
 }
 function autoVariables(){
@@ -2615,7 +2654,7 @@ function drawStaticVars(box){
     var path=(parent?parent+"-":"")+String(v.name).toUpperCase(),open=!!(v.components&&v.components.length);
     n.className="n";t.className="t";n.style.paddingLeft=(6+depth*14)+"px";
     var tw=document.createElement("span");tw.className="tw";
-    if(open){tw.textContent=staticOpen[path]?"▾":"▸";tw.onclick=function(e){e.stopPropagation();if(staticOpen[path])delete staticOpen[path];else staticOpen[path]=true;drawVars();};}
+    if(open){if(!(path in staticOpen))staticOpen[path]=true;tw.textContent=staticOpen[path]?"▾":"▸";tw.onclick=function(e){e.stopPropagation();staticOpen[path]=!staticOpen[path];drawVars();};}
     // A structure the analysis could not read says so on the row, rather than look like a variable with no components.
     else if(v.unresolved){tw.textContent="?";tw.title=v.unresolved;}
     n.appendChild(tw);n.appendChild(document.createTextNode(v.name));
@@ -2689,6 +2728,10 @@ function drawVars(){
   syncVarSwitches();
   drawChosen();
   var box=$("vars");box.textContent="";
+  var waiting=picture.stopped?scopesLoading:variablesLoading;
+  $("partial").textContent=waiting?"Loading variables.":"";
+  if(waiting){var status=document.createElement("div");status.className="empty loading";status.textContent=picture.stopped?"Loading values from SAP.":"Analyzing variable declarations.";box.appendChild(status);return;}
+  if(!picture.stopped&&variablesError&&!staticVars){var error=document.createElement("div");error.className="empty";error.textContent="Cannot read declared variables: "+variablesError;box.appendChild(error);return;}
   if(!picture.stopped&&staticVars){drawStaticVars(box);return;}
   if(!picture.stopped||!scopes){box.innerHTML='<div class="empty">The variables show when the program stops.</div>';return;}
   var filter=$("filter").value.trim().toUpperCase(),showInitials=$("initials").classList.contains("on");

@@ -55,3 +55,25 @@ test("class diagram includes callers from the recorded ABAP stack", () => {
   assert.ok(graph.edges["ZVERTEX_DEBUG_LAB>ZCL_CALC_FACADE"]);
   assert.ok(graph.edges["ZCL_CALC_FACADE>ZCL_PRICE_ROAD"]);
 });
+
+test("statement diagram connects nested routines of the same class", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "pages", "visual-debug.html"), "latin1");
+  const start = html.indexOf("function stepFlow(){");
+  const end = html.indexOf("/* The running block, green", start);
+  assert.ok(start >= 0 && end > start);
+  const frame = (program, unit, line) => ({ program, unit, include: program, line, url: program + ".abap" });
+  const root = frame("ZREPORT", "ZREPORT", 5);
+  const run = frame("ZCL_FACADE", "RUN", 15);
+  const nested = frame("ZCL_FACADE", "MODIFIER_FOR", 25);
+  const timeline = [
+    { stack: [root], cur: { owner: root.program, name: root.unit }, at: { url: root.url, line: root.line } },
+    { stack: [nested, run, root], cur: { owner: nested.program, name: nested.unit }, at: { url: nested.url, line: nested.line } }
+  ];
+  const context = { flow: { timeline }, stepKey: t => t.cur.owner + "=>" + t.cur.name + ":" + t.at.line,
+    stepText: f => f.program + ":" + f.line, shapeIn: () => null, closesBlock: () => false };
+  vm.runInNewContext(html.slice(start, end), context);
+  const graph = context.stepFlow();
+  assert.ok(graph.edges["m|ZREPORT=>ZREPORT>m|ZCL_FACADE=>RUN"]);
+  assert.ok(graph.edges["m|ZCL_FACADE=>RUN>m|ZCL_FACADE=>MODIFIER_FOR"]);
+  assert.ok(graph.edges["m|ZCL_FACADE=>MODIFIER_FOR>ZCL_FACADE=>MODIFIER_FOR:25"]);
+});
