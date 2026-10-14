@@ -17,6 +17,13 @@ VERTEX is a set of plugins for VS Code and Eclipse ADT: an AI assistant with MCP
 editor, an AI-driven ADT debugger, and explorers for code, versions and data. Each window reads over
 the developer's existing ADT connection and renders as HTML.
 
+
+![VERTEX architecture: VS Code and Eclipse ADT connect to shared VERTEX Web UI tools, with an MCP server for AI assistants and an optional SAP backend](docs/architecture2.png)
+
+The ABAP side is this repository's `src/`. It is optional: in VS Code everything works over ADT
+alone, and `src/` is needed only to save a transport's review to SAP; without it, reviews are saved
+to files. The Eclipse plugin does the same. The last column below says what needs it.
+
 In VS Code, the built-in VERTEX Assistant can use Codex, Claude Code, a signed-in
 GitHub Copilot model or API keys for Anthropic, OpenAI, Mistral, Gemini, Groq,
 Cerebras, OpenRouter and NVIDIA. Provider model lists can be collapsed independently.
@@ -24,13 +31,6 @@ Each list has a Clear all / Select all control for its model checkboxes.
 The VS Code chat can explain an active local `.abap` file using its current editor text, even without a SAP connection.
 Local ABAP programs and classes support VERTEX Outline, definition navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis. VERTEX bundles the abaplint transpiler and runtime. **Open Visual Debug** on a local file shows **Run with ABAP Transpiler**, with radio-button selection before launch; project configuration is generated automatically when absent. See [local execution setup](vscode/README.md#local-abap-execution). SAP execution and version history still require a system.
 
-
-
-![VERTEX architecture: VS Code and Eclipse ADT connect to shared VERTEX Web UI tools, with an MCP server for AI assistants and an optional SAP backend](docs/architecture2.png)
-
-The ABAP side is this repository's `src/`. It is optional: in VS Code everything works over ADT
-alone, and `src/` is needed only to save a transport's review to SAP; without it, reviews are saved
-to files. The Eclipse plugin does the same. The last column below says what needs it.
 
 | Tool | Grew out of | What it does | VS Code | Eclipse | ABAP backend |
 |---|---|---|---|---|---|
