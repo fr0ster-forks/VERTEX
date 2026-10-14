@@ -488,7 +488,7 @@ test("after a call, SAP stops at the next statement that is a stop: ENDIF and EN
   assert.equal(after(36), 37);
 });
 
-test("Analyze flow path: from a point in a program or a class to the next checked point the flow meets, wherever it is", async () => {
+test("Analyze flow path: from a point in a program or a class to the next checked point the flow meets, wherever it is, else to the end", async () => {
   const context = vm.createContext({ window: { vertexFlowGraph: flowGraph }, chosenValue: null, sdeOrigin: () => {}, notice: text => { context.said = text; }, drawBreakpoints: () => {}, bpPaths: {},
     setPane: (id, on) => { context.opened = id; }, showFlow: () => { context.shown = true; }, staticFlow: null, paneOn: () => false, drawVars: () => {},
     autoVariables: () => {}, pointFocus: null, publishDebugContext: () => {},
@@ -507,9 +507,12 @@ test("Analyze flow path: from a point in a program or a class to the next checke
   const bp = { id: "1", name: "ZREP", objectType: "PROG", line: 10, url: "u" };
   await assert.rejects(run({ ...bp, objectType: "FUNC" }), /program, an include or a class/);
   context.picture.breakpoints = context.picture.breakpoints.filter(p => p.id === "1");
-  await assert.rejects(run(bp), /Check a second breakpoint/, "one point is no path");
+  await run(bp);
+  assert.equal(vm.runInContext("staticFlow.stopAt", context), null, "one point: the path runs to the end of the flow");
+  assert.equal(vm.runInContext("bpPaths['1'].to", context), "the end of the flow");
   context.picture.breakpoints.push({ id: "2", name: "ZREP", objectType: "PROG", line: 16, active: false });
-  await assert.rejects(run(bp), /Check a second breakpoint/, "an unchecked point does not end the path");
+  await run(bp);
+  assert.equal(vm.runInContext("staticFlow.stopAt", context), null, "an unchecked point does not end the path");
   context.picture.breakpoints.push({ id: "3", name: "ZCL_X", objectType: "CLAS", line: 31, active: true });
   await run(bp);
   assert.deepEqual([context.asked.from, context.asked.to, context.asked.variable, context.asked.object_name], [10, undefined, "", "ZREP"], "asked from the point, with no end of its own");

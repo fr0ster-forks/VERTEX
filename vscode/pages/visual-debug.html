@@ -581,9 +581,9 @@ function analyzePath(b){
   if(typeof sdeOrigin!=="function")return Promise.reject(new Error("This host cannot run the analysis."));
   var type=String(b.objectType||"").toUpperCase();
   if(type!=="PROG"&&type!=="CLAS")return Promise.reject(new Error("The path is analysed from a point in a program, an include or a class for now."));
-  // The path ends at the next checked point the flow meets: in this object or below it on the stack, in a routine this one calls.
+  // The path ends at the next checked point the flow meets - in this object or below it on the stack, in a routine this
+  // one calls - and with none met, at the end of the flow.
   var others=picture.breakpoints.filter(function(o){return o.id!==b.id&&o.active!==false;});
-  if(!others.length)return Promise.reject(new Error("Check a second breakpoint: the path is taken between two points."));
   var what=chosenValue?chosenValue.name:"";
   notice("Analysing the flow"+(what?" and the slice of "+what:"")+" from line "+b.line+" of "+b.name+"…");
   return Promise.all([loadFlowGraph(),askOrigin({object_name:b.name,object_type:type,line:b.line,variable:what,from:b.line},function(progress){notice(progress.stage+(progress.object?' · '+progress.object:'')+' · '+(progress.sources||0)+' sources · '+(progress.steps||0)+' statements parsed · '+progress.seconds+' s');})]).then(function(both){
@@ -595,13 +595,11 @@ function analyzePath(b){
     var sequence=staticFlowGraph("steps",true).sequence,end=null;
     for(var k=1;k<sequence.length&&!end;k++){var w=sequence[k];
       if(others.some(function(o){return String(o.name).toUpperCase()===String(w.name).toUpperCase()&&o.line===w.line;}))end=w;}
-    if(!end){staticFlow=null;delete bpPaths[b.id];drawBreakpoints();
-      throw new Error("No other checked breakpoint is met in the flow from line "+b.line+" of "+b.name+" ("+others.map(function(o){return o.name+":"+o.line;}).join(", ")+").");}
-    staticFlow.stopAt={name:String(end.name).toUpperCase(),line:end.line};
-    var shown=sequence.indexOf(end)+1;
-    bpPaths[b.id]={count:shown,to:end.name+":"+end.line};
+    staticFlow.stopAt=end?{name:String(end.name).toUpperCase(),line:end.line}:null;
+    var shown=end?sequence.indexOf(end)+1:sequence.length;
+    bpPaths[b.id]={count:shown,to:end?end.name+":"+end.line:"the end of the flow"};
     pointFocus={object_name:b.name,object_type:type,line:b.line};autoVariables();
-    notice("The flow from line "+b.line+" of "+b.name+" to "+end.name+":"+end.line+": "+shown+" statements"+(what?", "+rows.filter(function(w){return w.included;}).length+" of the flow in the slice of "+what:"")+" - in the diagram.");
+    notice("The flow from line "+b.line+" of "+b.name+" to "+(end?end.name+":"+end.line:"its end")+": "+shown+" statements"+(what?", "+rows.filter(function(w){return w.included;}).length+" of the flow in the slice of "+what:"")+" - in the diagram.");
     setPane("flowpane",true);showFlow();drawBreakpoints();publishDebugContext();
   });
 }
@@ -2775,7 +2773,7 @@ function drawStaticVars(box){
     var path=(parent?parent+"-":"")+String(v.name).toUpperCase(),open=!!(v.components&&v.components.length);
     n.className="n";t.className="t";n.style.paddingLeft=(6+depth*14)+"px";
     var tw=document.createElement("span");tw.className="tw";
-    if(open){if(!(path in staticOpen))staticOpen[path]=true;tw.textContent=staticOpen[path]?"▾":"▸";tw.onclick=function(e){e.stopPropagation();staticOpen[path]=!staticOpen[path];drawVars();};}
+    if(open){tw.textContent=staticOpen[path]?"▾":"▸";tw.onclick=function(e){e.stopPropagation();staticOpen[path]=!staticOpen[path];drawVars();};}
     // A structure the analysis could not read says so on the row, rather than look like a variable with no components.
     else if(v.unresolved){tw.textContent="?";tw.title=v.unresolved;}
     n.appendChild(tw);n.appendChild(document.createTextNode(v.name));

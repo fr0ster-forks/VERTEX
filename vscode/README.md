@@ -45,7 +45,7 @@ Open Welcome with **VERTEX: Get Started** in the Command Palette.
 
 For calculation code that can run without SAP services, use the transpiler and
 runtime bundled with VERTEX. Open a saved local `.abap` file and choose
-**VERTEX: Open Visual Debug**. The Visual Debug panel is shared with SAP runs;
+**VERTEX: Visual Analysis / Debug**. The Visual Debug panel is shared with SAP runs;
 for local files its title is **Visual Transpiler Debug** and its Run button is
 **Run with ABAP Transpiler**. Choose a radio-button value, then run. VERTEX
 instruments generated program and class modules: the program pauses before each
@@ -338,18 +338,22 @@ Changes made there are still sent to SAP only through **Review & Activate** or *
 
 ## Value Origin
 
-Without a variable under the cursor, Forward Usage Analysis offers FLOW with Full scope; Formula, Expression and BSE are disabled until a variable is selected.
+In VS Code the analysis is reached through **VERTEX: Visual Analysis / Debug**: a breakpoint's *Analyze flow path* is
+Forward Usage Analysis between two points, for the value chosen in Variables, and its *Where used* is Backward Usage
+Analysis. Neither has an editor menu or palette entry of its own. What follows describes the analysis itself.
+
+Without a value chosen in Variables, Analyze flow path offers FLOW with Full scope; Formula, Expression and BSE are disabled until a value is chosen.
 
 Both Value Origin windows expose **Analysis log** directly above the flow. **Copy log** copies the engine, source loading and parsing times, source closure, definitions, dependency edges, traversal, warnings, and Formula/Expression diagnostics. The log is accessible without enabling the technical sections.
 
 **Experimental client BSE.** In a VERTEX ABAP source tab, select the same variable and run **VERTEX: BSE — only ADT + linter** beside **VERTEX: Forward Usage Analysis**. The new command loads source through standard ADT, parses it locally with bundled `@abaplint/core`, and opens a separate window labelled **ADT + abaplint**. It does not request the SAP ACE origin index. It uses open editor buffers, including unsaved edits; compare saved, activated code to give both engines the same input. Source loading follows the selected value: main files first, external dependencies and local class includes only when needed, with metadata and source cached within each analysis. Full FLOW shows the loaded source closure. Interface-qualified method names are supported. The implementation shares the existing slice algorithm and reports unsupported statements. Alias analysis, dynamic dispatch and source closure are still experimental.
 
 
-Put the cursor on a variable in a VERTEX ABAP source tab and run **VERTEX: Forward Usage
-Analysis** (formerly *Analyze Variable Value Origin*). It answers where that value came from, backwards across calls, without running
+Choose a value in Variables of **VERTEX: Visual Analysis / Debug** and click *Analyze flow path* on a breakpoint
+(Forward Usage Analysis, formerly *Analyze Variable Value Origin*). It answers where that value came from, backwards across calls, without running
 the program: ACE indexes and the customer sources they reference (`Z*`, `Y*`, `/namespace/`)
 are read from the same system, and standard ABAP objects stay analysis boundaries.
-With no variable under the cursor it draws the flow forward from that line - the routine from there on and every customer routine it calls - without a slice of a value.
+With no value chosen it draws the flow forward from the breakpoint - the routine from there on and every customer routine it calls - without a slice of a value.
 
 The result has a **Type**. *FLOW* is what the program does - its statements grouped by class and
 method, nested by blocks and their branches, with a node on each call edge naming what that call
@@ -360,7 +364,7 @@ views of whichever Type is chosen; **Depth** decides how far the tree opens - al
 stack in FLOW, along the derivation in Formula - and one button beside it, which offers *Collapse all* and then *Expand all*, says whether the levels shown are open, whatever
 the depth. Breakpoints in the editor stop the flow where a run would stop: VERTEX names the breakpoint reached and asks whether to stop the analysis there, continue to the next breakpoint or ignore the breakpoints.
 
-**VERTEX: Backward Usage Analysis** goes the other way: from the routine at the cursor up into the code that calls it - a where-used that follows the value. SAP's where-used finds the calls in the saved sources; in each caller the value is followed on from the call - what it is assigned to, tested in, passed to, written with - and, where it leaves the caller through a parameter of the caller's own, up again. A value passed in is followed to where each caller took it from. With a variable under the cursor that variable is followed (a local through the parameters and attributes it reaches); with none, every parameter of the routine and every attribute it uses; with neither, the calls themselves, as SAP's where-used gives them. Standard SAP code is not followed and is named. Breakpoints stop the walk as in Forward Usage Analysis, a level of callers at a time. The tab must be saved: where-used searches the saved source.
+*Where used* (Backward Usage Analysis) goes the other way: from the routine at the breakpoint up into the code that calls it - a where-used that follows the value. SAP's where-used finds the calls in the saved sources; in each caller the value is followed on from the call - what it is assigned to, tested in, passed to, written with - and, where it leaves the caller through a parameter of the caller's own, up again. A value passed in is followed to where each caller took it from. With a variable under the cursor that variable is followed (a local through the parameters and attributes it reaches); with none, every parameter of the routine and every attribute it uses; with neither, the calls themselves, as SAP's where-used gives them. Standard SAP code is not followed and is named. Breakpoints stop the walk as in Forward Usage Analysis, a level of callers at a time. The tab must be saved: where-used searches the saved source.
 
 **Run Select.** **VERTEX: Run Select** (editor context menu of a VERTEX ABAP tab): the SELECT at the cursor runs through ADT's data preview, read only, as Eclipse's SQL console runs a query, and the rows open beside the code. What only the running program would supply is left out: INTO and FOR ALL ENTRIES go, UP TO n ROWS is the row limit (otherwise 100; SELECT SINGLE reads one), and a WHERE condition that reads a program value - a variable, a parameter, a select-option - is dropped, an OR holding one dropped whole. What was dropped is listed above the rows. A program value under NOT or outside WHERE, or a dynamic table, list or condition, refuses the SELECT and says why. The statement is parsed with abaplint, saved or not. A SELECT on one table whose WHERE select-options can say opens in SelecTor instead, its conditions filled in as selection lines and each program value as an empty line to fill in; any other SELECT runs in the plain window, which says why it did not open in SelecTor. A SELECT with INNER or LEFT OUTER joins opens in SelecTor's Join, its tables in order, their ON conditions and the SELECT list carried over, when SelecTor's join takes them - it joins only the tables the dictionary offers; the selection starts folded. In a table the selection panel is a list of fields, as SAP GUI's selection screen is, each with a Shown checkbox. From Run Select only the SELECT's fields are read at first; Show hidden reads every field of the table and leaves the ones the SELECT did not ask for unticked, still there to select on.
 
@@ -877,8 +881,8 @@ program, its classes and routines, the statements of ACE's stream under them wit
 parent of its body, a called routine's statements under the statement that calls it, in the order of execution.
 The start may be in a program, an include or a class; the end statement is the last one drawn. Classes,
 Methods and Statements, Full or BSE, as the record is drawn. With a value chosen in Variables the statements its
-slice reaches are marked; without one the flow is drawn alone. A recorded run replaces the flow. It needs a second
-checked point the flow meets, and says so when there is none.
+slice reaches are marked; without one the flow is drawn alone. A recorded run replaces the flow. With no other checked
+point on the way - none set, or none the flow meets - the path runs to the end of the flow.
 
 **Where used.** Beside *Analyze flow path* (forward), a point carries *Where used* (backward): it opens the point's line
 and runs **VERTEX: Backward Usage Analysis** there for the value chosen in Variables - wherever it is named in the

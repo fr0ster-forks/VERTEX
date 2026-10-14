@@ -123,7 +123,7 @@
       },
       {
         "command": "vertex.openVisualDebug",
-        "title": "VERTEX: Open Visual Debug"
+        "title": "VERTEX: Visual Analysis / Debug"
       },
       {
         "command": "vertex.debugInto",
@@ -423,16 +423,6 @@
           "group": "navigation@11"
         },
         {
-          "command": "vertex.valueOrigin",
-          "when": "editorLangId == abap",
-          "group": "navigation@9"
-        },
-        {
-          "command": "vertex.backwardUsage",
-          "when": "editorLangId == abap && (resourceScheme == vertex-sap || resourceScheme == file || resourceScheme == untitled)",
-          "group": "navigation@9"
-        },
-        {
           "command": "vertex.runSelect",
           "when": "(resourceScheme == vertex-sap || resourceScheme == file) && editorLangId == abap",
           "group": "navigation@9"
@@ -623,11 +613,11 @@
         },
         {
           "command": "vertex.valueOrigin",
-          "when": "editorLangId == abap"
+          "when": "false"
         },
         {
           "command": "vertex.backwardUsage",
-          "when": "resourceScheme == vertex-sap && editorLangId == abap"
+          "when": "false"
         },
         {
           "command": "vertex.runSelect",

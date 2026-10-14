@@ -29,7 +29,7 @@ GitHub Copilot model or API keys for Anthropic, OpenAI, Mistral, Gemini, Groq,
 Cerebras, OpenRouter and NVIDIA. Provider model lists can be collapsed independently.
 Each list has a Clear all / Select all control for its model checkboxes.
 The VS Code chat can explain an active local `.abap` file using its current editor text, even without a SAP connection.
-Local ABAP programs and classes support VERTEX Outline, definition navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis. VERTEX bundles the abaplint transpiler and runtime. **Open Visual Debug** on a local file shows **Run with ABAP Transpiler**, with radio-button selection before launch; the run stops at breakpoints and steps on from there, and project configuration is generated automatically when absent. In Visual Debug, Formula and Expression of a chosen value are also built from a recorded run, with its values when recorded: the statement that changed it, followed into the routines that returned it, and the values it read. See [local execution setup](vscode/README.md#local-abap-execution). SAP execution and version history still require a system.
+Local ABAP programs and classes support VERTEX Outline, definition navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis. VERTEX bundles the abaplint transpiler and runtime. **Visual Analysis / Debug** on a local file shows **Run with ABAP Transpiler**, with radio-button selection before launch; the run stops at breakpoints and steps on from there, and project configuration is generated automatically when absent. In Visual Debug, Formula and Expression of a chosen value are also built from a recorded run, with its values when recorded: the statement that changed it, followed into the routines that returned it, and the values it read. See [local execution setup](vscode/README.md#local-abap-execution). SAP execution and version history still require a system.
 
 
 | Tool | Grew out of | What it does | VS Code | Eclipse | ABAP backend |
@@ -140,6 +140,8 @@ Both Value Origin windows expose **Analysis log** directly above the flow. **Cop
 
 **Experimental client BSE.** In a VERTEX ABAP source tab, select the same variable and run **VERTEX: BSE — only ADT + linter** beside **VERTEX: Forward Usage Analysis**. The new command loads source through standard ADT, parses it locally with bundled `@abaplint/core`, and opens a separate window labelled **ADT + abaplint**. It does not request the SAP ACE origin index. It uses open editor buffers, including unsaved edits; compare saved, activated code to give both engines the same input. Source loading follows the selected value: main files first, external dependencies and local class includes only when needed, with metadata and source cached within each analysis. Full FLOW shows the loaded source closure. Interface-qualified method names are supported. The implementation shares the existing slice algorithm and reports unsupported statements. Alias analysis, dynamic dispatch and source closure are still experimental.
 
+
+In VS Code both directions are reached through **VERTEX: Visual Analysis / Debug** - a breakpoint's *Analyze flow path* (forward) and *Where used* (backward) - not from the editor menu or the palette.
 
 **VERTEX: Forward Usage Analysis** (formerly *Analyze Variable Value Origin*), on the cursor in a VERTEX ABAP source tab, answers
 where that value came from - backwards across calls, without running the program. ACE indexes

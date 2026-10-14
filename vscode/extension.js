@@ -1114,6 +1114,8 @@ function activate(context) {
     if (dockedDebugSource?.local && localDebugAdapter) localDebugAdapter.finish();
     void vscode.commands.executeCommand("setContext", "vertex.localHistory", false);
   }));
+  // In the transpiler panel the breakpoints are VS Code's own: a point set or removed in the editor is shown at once.
+  context.subscriptions.push(vscode.debug.onDidChangeBreakpoints(() => { if (dockedDebugSource?.local && localDebugAdapter) postDockedPicture(); }));
   const openVisualDebug = () => {
     void vscode.commands.executeCommand("setContext", "vertex.localHistory", false);
     const editor = vscode.window.activeTextEditor;
@@ -1161,7 +1163,7 @@ function activate(context) {
       return;
     }
     if (!dbg.picture().stopped) {
-      vscode.window.showWarningMessage("VERTEX: no stopped ABAP program. Open Visual Debug and run to a breakpoint first.");
+      vscode.window.showWarningMessage("VERTEX: no stopped ABAP program. Open Visual Analysis / Debug and run to a breakpoint first.");
       return;
     }
     dbg.drivenBy("editor");
