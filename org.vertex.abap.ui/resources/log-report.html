@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{{NONCE}}';">
+<title>VERTEX Session Logs</title>
+<style>
+  /* Every surface follows the active VS Code theme. */
+  body {
+    margin: 0; padding: 12px 16px;
+    background: var(--vscode-editor-background); color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
+  }
+  header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  h1 { font-size: 1.2em; margin: 0 auto 0 0; }
+  button {
+    background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground);
+    border: 1px solid var(--vscode-button-border, transparent); padding: 3px 10px; cursor: pointer; font: inherit;
+  }
+  button:hover { background: var(--vscode-button-secondaryHoverBackground); }
+  .muted { color: var(--vscode-descriptionForeground); }
+  .error { color: var(--vscode-errorForeground); }
+  .totals { margin: 6px 0 12px; }
+  details.session { border: 1px solid var(--vscode-panel-border); background: var(--vscode-editorWidget-background); margin-bottom: 6px; }
+  details.session > summary { padding: 6px 8px; cursor: pointer; display: flex; gap: 12px; flex-wrap: wrap; }
+  .provider { font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 4px 8px; border-top: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border)); vertical-align: top; }
+  th { color: var(--vscode-descriptionForeground); font-weight: 600; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  tr.prompt { cursor: pointer; }
+  tr.prompt:hover { background: var(--vscode-list-hoverBackground); }
+  .text { white-space: pre-wrap; word-break: break-word; max-height: 4.5em; overflow: hidden; }
+  tr.open .text { max-height: none; }
+  .detail { margin: 4px 0; padding: 4px 6px; background: var(--vscode-textCodeBlock-background); white-space: pre-wrap; word-break: break-word; font-family: var(--vscode-editor-font-family); font-size: 0.9em; max-height: 20em; overflow: auto; }
+  .kind { color: var(--vscode-descriptionForeground); font-size: 0.85em; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Session Logs</h1>
+  <button id="folder">Choose Folder…</button>
+  <button id="refresh">Refresh</button>
+</header>
+<div id="status" class="muted">Loading…</div>
+<div id="content"></div>
+<script nonce="{{NONCE}}">
+(function () {
+  "use strict";
+  var vscode = acquireVsCodeApi();
+  var status = document.getElementById("status");
+  var content = document.getElementById("content");
+  document.getElementById("refresh").onclick = function () { vscode.postMessage({ action: "refresh" }); };
+  document.getElementById("folder").onclick = function () { vscode.postMessage({ action: "chooseFolder" }); };
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+  function n(value) { return Number(value || 0).toLocaleString(); }
+  function time(value) { return value ? new Date(value).toLocaleString() : ""; }
+  function span(a, b) {
+    if (!a || !b) return "";
+    var s = Math.round((b - a) / 1000);
+    return s < 60 ? s + "s" : Math.floor(s / 60) + "m " + (s % 60) + "s";
+  }
+  function usageText(u) {
+    return "in " + n(u.input) + " · out " + n(u.output) + " · cache read " + n(u.cacheRead) + " · cache write " + n(u.cacheWrite);
+  }
+
+  function render(report) {
+    content.textContent = "";
+    if (!report.configured) { status.className = "muted"; status.textContent = "No log folder is set. Choose a folder to read session logs from."; return; }
+    if (!report.sessions.length) { status.className = "muted"; status.textContent = "No sessions in " + report.folder + "."; return; }
+    var total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    report.sessions.forEach(function (s) { for (var k in total) total[k] += s.usage[k]; });
+    status.className = "muted";
+    status.textContent = report.sessions.length + " sessions in " + report.folder;
+    content.appendChild(el("div", "totals", "Total: " + usageText(total)));
+
+    report.sessions.forEach(function (s) {
+      var box = el("details", "session");
+      var head = el("summary");
+      head.appendChild(el("span", "provider", s.provider));
+      head.appendChild(el("span", "", time(s.start)));
+      head.appendChild(el("span", "muted", span(s.start, s.end)));
+      head.appendChild(el("span", "muted", s.prompts.length + " prompts"));
+      head.appendChild(el("span", "muted", usageText(s.usage)));
+      box.appendChild(head);
+
+      var table = el("table");
+      var hr = el("tr");
+      ["Time", "Prompt", "Model", "In", "Out", "Cache read"].forEach(function (h, i) { hr.appendChild(el("th", i > 2 ? "num" : "", h)); });
+      table.appendChild(hr);
+      s.prompts.forEach(function (p) {
+        var row = el("tr", "prompt");
+        row.appendChild(el("td", "", time(p.time)));
+        var cell = el("td");
+        cell.appendChild(el("div", "text", p.text));
+        var more = el("div");
+        more.hidden = true;
+        p.details.forEach(function (d) {
+          more.appendChild(el("div", "kind", d.type));
+          more.appendChild(el("div", "detail", d.text));
+        });
+        cell.appendChild(more);
+        row.appendChild(cell);
+        row.appendChild(el("td", "", p.model));
+        row.appendChild(el("td", "num", n(p.usage.input)));
+        row.appendChild(el("td", "num", n(p.usage.output)));
+        row.appendChild(el("td", "num", n(p.usage.cacheRead)));
+        row.onclick = function (e) {
+          if (e.target.closest(".detail")) return;
+          more.hidden = !more.hidden;
+          row.classList.toggle("open", !more.hidden);
+        };
+        table.appendChild(row);
+      });
+      box.appendChild(table);
+      content.appendChild(box);
+    });
+  }
+
+  window.addEventListener("message", function (event) {
+    var m = event.data || {};
+    if (m.action === "data") render(m.report);
+    if (m.action === "error") { status.className = "error"; status.textContent = m.error; }
+  });
+  vscode.postMessage({ action: "ready" });
+})();
+</script>
+</body>
+</html>

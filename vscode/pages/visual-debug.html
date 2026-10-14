@@ -146,7 +146,9 @@ body.vdrag{cursor:row-resize;user-select:none}
 #flowbar{align-items:center}
 #fzoom{min-width:3.5em;text-align:center;color:var(--vscode-descriptionForeground,GrayText);font-family:var(--vscode-editor-font-family,monospace)}
 #fspeed{background:var(--vscode-dropdown-background,Canvas);color:var(--vscode-dropdown-foreground,CanvasText);border:1px solid var(--vscode-dropdown-border,GrayText)}
-#fslide{width:120px;accent-color:var(--vscode-focusBorder,#2e7d32)}
+#fslide{appearance:none;-webkit-appearance:none;width:120px;height:4px;padding:0;border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;background:var(--vscode-input-background)}
+#fslide::-webkit-slider-runnable-track{height:4px;background:var(--vscode-input-background);border-radius:3px}
+#fslide::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:12px;height:12px;margin-top:-4px;border-radius:50%;background:var(--vscode-focusBorder);border:1px solid var(--vscode-editor-background)}
 #flowpane.full{position:fixed;inset:0;height:auto;z-index:300;background:var(--vscode-editor-background,Canvas)}
 #flowpane .mermaid-panel.fullscreen{z-index:320;background:var(--vscode-editor-background,Canvas)}
 #fdepthbox{display:inline-flex;align-items:center;gap:8px;margin-left:4px}
@@ -161,7 +163,7 @@ body.vdrag{cursor:row-resize;user-select:none}
 #flowpane #flowpane .bse-view-toggle{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 6px}
 #flowpane .bse-view-toggle .grow{flex:1}
 .vars td.n.pick{cursor:pointer}
-.vars tr.chosen-row td{background:var(--vscode-editor-selectionBackground,rgba(100,150,255,.25))}
+.vars tr.chosen-row td{color:var(--vscode-testing-iconPassed,var(--vscode-terminal-ansiGreen))}
 #chosenvalue{display:inline-flex;gap:4px;align-items:center;padding:1px 6px;border-radius:6px;
   border:1px solid var(--vscode-focusBorder);white-space:nowrap}
 #chosenvalue[hidden]{display:none}
