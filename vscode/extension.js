@@ -995,9 +995,10 @@ function activate(context) {
             // error included: it is the analysis's, not the next debugger answer's.
             const request = JSON.parse(String((message.args || [])[0] || "{}"));
             let reply;
-            try { reply = { id: request.id, answer: dockedDebugSource?.local && request.variables
+            try { reply = { id: request.id, answer: request.recordFormula ? require("./record-formula").build(request.recordFormula)
+              : dockedDebugSource?.local && request.variables
               ? await require("./local-analysis").declaredVariables(dockedDebugSource.document, request.variables, vscode)
-              : request.open ? await sapCode.originOpen(request.open) : request.variables ? await sapCode.originVariables(request.variables) : await sapCode.originPoints(request,progress=>view.webview.postMessage({type:"originProgress",payload:{id:request.id,...progress}})) }; }
+              : request.open ? await sapCode.originOpen(request.open) : request.variables ? await sapCode.originVariables(request.variables) : await sapCode.originPoints(request,progress=>view.webview.postMessage({type:"originProgress",payload:{id:request.id,...progress}}),dockedDebugSource?.local?dockedDebugSource.document:null) }; }
             catch (error) { reply = { id: request.id, error: error.message }; }
             await view.webview.postMessage({ type: "origin", payload: JSON.stringify(reply) });
             return;

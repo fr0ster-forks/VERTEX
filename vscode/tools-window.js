@@ -226,6 +226,8 @@ function open(vscode, context, deps, initial) {
         await panel.webview.postMessage({type:"requestSearch",payload}); return;
       }
       if(message.call === "origin") {
+        const asked=JSON.parse(String(args[0]||"{}"));
+        if(asked.recordFormula){await panel.webview.postMessage({type:"result",payload:JSON.stringify(require("./record-formula").build(asked.recordFormula))});return;}
         if(local)throw new Error("Value origin for local files is not yet available in this window.");
         // The same analysis the editor command runs, asked for by object and
         // variable: the window needs the places a value can be changed.

@@ -204,7 +204,7 @@ body.vertex-docked-debug #right{width:100%}
        program, how to step, and how a run behaves. -->
   <span class="grp"><button id="run" title="Start the program in SAP (WebGUI) - the breakpoints catch it there"><svg class="clock" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="#fff" stroke="#3a3a3a" stroke-width="1.2"/><path d="M8 3.8V8l2.6 1.6" fill="none" stroke="#3a3a3a" stroke-width="1.3" stroke-linecap="round"/><path d="M9.2 12.2l1.8 1.8 3.6-4" fill="none" stroke="#2e9e3e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Run in SAP</button><input id="program" placeholder="Program, or empty for a test" title="A class or a function module is not run by itself: name the program that calls it, started in WebGUI" spellcheck="false"><span id="title">Visual Debug</span><button id="terminate" title="End the program here, as the debugger's Exit does; the breakpoints stay for the next run" disabled>Exit program</button><button id="stop" title="Let the program go and stop listening; the breakpoints stay here for the next run" disabled>Detach</button></span>
   <span class="grp"><button id="into" title="Single Step (F5)" disabled><svg class="dbg" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 3h6M9 6h6M9 9h6M9 12h6" stroke="currentColor" stroke-width="1.2" opacity=".6"/><path d="M2 2v8h5" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 8l2 2-2 2" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lbl">Single Step</span></button><button id="over" title="Execute (F6)" disabled><svg class="dbg" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 3h6M9 6h6M9 9h6M9 12h6" stroke="currentColor" stroke-width="1.2" opacity=".6"/><path d="M2 2v11h5" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 11l2 2-2 2" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lbl">Execute</span></button><button id="out" title="Return (F7)" disabled><svg class="dbg" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 3h6M9 6h6M9 9h6M9 12h6" stroke="currentColor" stroke-width="1.2" opacity=".6"/><path d="M3 14V4h4" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 2l2 2-2 2" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lbl">Return</span></button><button id="cont" title="Continue to the next breakpoint (F8)" disabled><svg class="dbg" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 3h6M9 6h6M9 9h6M9 12h6" stroke="currentColor" stroke-width="1.2" opacity=".6"/><path d="M4 1.5v12" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 11.5l2 2 2-2" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lbl">Continue</span></button></span>
-  <span class="grp"><button id="zonly" class="on" title="In a run of F5 steps, a step that lands outside Z/Y code returns at once (F7): SAP's own code is passed in one go">Z only</button><button id="flow" title="Continue (F8) from call to call, recording which routine calls which - the program's real flow, drawn as a diagram">Flow</button><span class="vertex-segment-toggle" id="recmode" role="group" aria-label="Record" title="Continue (F8) as a run of F5 steps, keeping every stop for the player. Values are the expensive half of a stop - the parameters and locals where a routine starts and ends - so they are recorded only when asked for"><button data-rec="off">No record</button><button class="active" data-rec="steps">Rec steps</button><button data-rec="values">Steps &amp; values</button></span><button id="predict" class="on" title="Use the statement map to go faster: the next line is taken from it where the text alone decides it, and, with a value followed, a loop, an IF/CASE block, a run of statements or a call its slice does not touch is passed in one go. On by default. Off, SAP is asked where the program is after every step - slower, and every stop was read rather than worked out. Loops are always stepped through otherwise">Predict</button></span>
+  <span class="grp"><button id="zonly" class="on" title="In a run of F5 steps, a step that lands outside Z/Y code returns at once (F7): SAP's own code is passed in one go">Z only</button><button id="flow" title="Continue (F8) from call to call, recording which routine calls which - the program's real flow, drawn as a diagram">Flow</button><span class="vertex-segment-toggle" id="recmode" role="group" aria-label="Record" title="Continue (F8) as a run of F5 steps, keeping every stop for the player. Values are the expensive half of a stop - with Steps &amp; values the parameters and locals are read at every stop, so Formula and Expression can say which statement changed a value"><button data-rec="off">No record</button><button class="active" data-rec="steps">Rec steps</button><button data-rec="values">Steps &amp; values</button></span><button id="predict" class="on" title="Use the statement map to go faster: the next line is taken from it where the text alone decides it, and, with a value followed, a loop, an IF/CASE block, a run of statements or a call its slice does not touch is passed in one go. On by default. Off, SAP is asked where the program is after every step - slower, and every stop was read rather than worked out. Loops are always stepped through otherwise">Predict</button></span>
   <span id="state">Click beside a line number to set a breakpoint; right-click for a condition.</span>
 </header>
 <div id="local-selection" hidden></div>
@@ -243,7 +243,7 @@ body.vertex-docked-debug #right{width:100%}
       <button id="dumpfull" hidden title="Show the whole dump as SAP wrote it">Whole dump</button>
       <button id="dumpopen" title="Open ST22 in SAP, where this dump is the first entry">Open ST22</button></h3>
       <div class="list" id="dumpbox"></div></section>
-    <div id="flowpane" hidden><div id="flowbar"><button id="fclasses" class="active">Classes</button><button id="fmethods">Methods</button><button id="flogic" title="Branches, loops, calls and control transfers">Logic</button><button id="fsteps" hidden title="The recorded run as statements: one node per statement, however many times it ran">Statements</button><span id="fdepthbox" hidden><span class="vertex-segment-toggle" id="fexpand" role="group" aria-label="Branches"><button class="active" data-open="collapse">Collapse all</button><button data-open="expand">Expand all</button></span><label class="fdepth" title="How deep the statements are shown - the program is 0, a class 1, a routine 2">Depth <input type="range" id="fdepth" min="1" max="1" value="1" step="1" aria-label="Depth"><output id="fdepthvalue" class="dim">all</output></label></span><span class="grow"></span><button id="ffull" title="The whole window (Esc to leave)">&#10530;</button><button id="fclose" class="x" title="Hide the diagram">&#215;</button></div><div id="bse-workspace" class="bse-workspace"></div></div>
+    <div id="flowpane" hidden><div id="flowbar"><button id="fvalues" class="vertex-toggle on" hidden title="Formula from the run: show the recorded value at each node of the diagram">With values</button><button id="fclasses" class="active">Classes</button><button id="fmethods">Methods</button><button id="flogic" title="Branches, loops, calls and control transfers">Logic</button><button id="fsteps" hidden title="The recorded run as statements: one node per statement, however many times it ran">Statements</button><span id="fdepthbox" hidden><span class="vertex-segment-toggle" id="fexpand" role="group" aria-label="Branches"><button class="active" data-open="collapse">Collapse all</button><button data-open="expand">Expand all</button></span><label class="fdepth" title="How deep the statements are shown - the program is 0, a class 1, a routine 2">Depth <input type="range" id="fdepth" min="1" max="1" value="1" step="1" aria-label="Depth"><output id="fdepthvalue" class="dim">all</output></label></span><span class="grow"></span><button id="ffull" title="The whole window (Esc to leave)">&#10530;</button><button id="fclose" class="x" title="Hide the diagram">&#215;</button></div><div id="bse-workspace" class="bse-workspace"></div></div>
     <section id="logsec" hidden><h3><span>Log</span><span id="logtime" class="dim"></span></h3><div id="logbox" class="list"></div></section>
   </div>
 </main>
@@ -1220,12 +1220,12 @@ function runVisual(){
     if(!flow.order.length||flow.ended!==picture.ended||flow.closed){flow={edges:{},nodes:{},order:[],ended:picture.ended};flowPath=[];}
     record(picture.stopped.frames);s.valueDue=!!chosenValue;$("cont").title="Pause the recording (F8)";
   }
-  // Values are read where a routine starts and ends, and only when the reader
-  // asked for them: that is the expensive half of a stop.
+  // Steps & values reads the values at every stop: the record then says which statement changed a value,
+  // which Formula and Expression are built from. It is the expensive half of a stop, so only when asked for.
   function wantValues(){return recordingValues();}
   function seen(p){
     picture=p;
-    if(s.rec&&p.stopped){record(p.stopped.frames);s.snapDue=wantValues()&&snapDue(p.stopped.frames);s.valueDue=!!chosenValue||!!slicePoints;}
+    if(s.rec&&p.stopped){record(p.stopped.frames);s.snapDue=wantValues();s.valueDue=!!chosenValue||!!slicePoints;}
     if(s.draw)apply(p);
   }
   function next(){
@@ -1382,7 +1382,9 @@ function snapshot(captured){
   var tl=flow.timeline,at=tl[tl.length-1];
   var read=INITIAL.local?(captured?Promise.resolve({groups:captured}):debug("localSnapshot")):debug("scopes",{sy:false});
   return read.then(function(d){
-    var groups=d.groups.filter(function(g){var k=groupKind(g.name);return INITIAL.local||k==="params"||k==="locals";});
+    // Outside a routine - an event of a report - its variables are the program's globals.
+    var top=picture.stopped&&picture.stopped.frames[0],inEvent=top&&!/^(?:METHOD|FORM|FUNCTION)$/i.test(String(top.unitType||""));
+    var groups=d.groups.filter(function(g){var k=groupKind(g.name);return INITIAL.local||k==="params"||k==="locals"||inEvent&&k==="globals";});
     return groups.reduce(function(p,g){return p.then(function(){return INITIAL.local&&g.children?undefined:debug("children",{id:g.id}).then(function(c){g.children=c.children;});});},Promise.resolve())
       .then(function(){
         var values=groups.map(function(g){return {name:g.name,children:(g.children||[]).map(function(v){return {name:v.name,type:v.type,value:v.value,meta:v.meta};})};});
@@ -1481,7 +1483,7 @@ function recordStop(p){
   logStep(p);recFrom=String(p.stopped.frames[0]&&p.stopped.frames[0].label||p.stopped.at);
   if(!flow.timeline||!flow.timeline.length||flow.ended!==p.ended||flow.closed){flow={edges:{},nodes:{},order:[],ended:p.ended};flowPath=[];}
   record(p.stopped.frames);
-  if((INITIAL.local||recordingValues())&&(INITIAL.local||snapDue(p.stopped.frames)))snapshot().catch(failed);
+  if(INITIAL.local||recordingValues())snapshot().catch(failed);
   if(chosenValue)readChosenValue().catch(failed);
   publishDebugContext();
   if(paneOn("flowpane")&&replayAt==null){
@@ -2065,8 +2067,11 @@ function sharedFlowGraph(mode){
   }
   sharedIds=idOf;sharedNodes=nodes;
   var deepest=0;nodes.forEach(function(n){if(n.stack>deepest)deepest=n.stack;});
-  return {nodes:[],edges:[],formula:{nodes:[],edges:[]},bseFlow:{nodes:nodes,edges:edges,diagramEdges:diagramEdges,grouped:detailed},
-    originTitle:"",maxStack:deepest,maxLevel:0,bseFlowHtml:""};
+  // Formula and Expression are the analysis's, not the record's: a recorded run keeps those of the analysed path.
+  var analysed=typeof staticFlow!=="undefined"?staticFlow:null,fm=analysed&&analysed.formula;
+  return {nodes:[],edges:[],formula:fm?{nodes:fm.nodes.map(function(n){return Object.assign({},n,{source:"origin:"+n.source+"|"+(n.location||"")});}),edges:fm.edges}:{nodes:[],edges:[]},
+    bseFlow:{nodes:nodes,edges:edges,diagramEdges:diagramEdges,grouped:detailed},panes:analysed&&analysed.panes||undefined,
+    originTitle:"",maxStack:deepest,maxLevel:fm?fm.maxLevel:0,bseFlowHtml:""};
 }
 function loadControls(){
   if(controlsReady)return controlsReady;
@@ -2164,6 +2169,7 @@ function showFlow(){
     // through vertexFlowReading when it is switched to, and keeps it until the record is drawn anew.
     var labels={classes:"Classes",methods:"Methods",logic:"Logic",steps:"Statements"};
     var data=buildReading(flowMode);
+    return withRecordFormula(data).then(function(data){
     data.flowReadings={active:flowMode,baseStack:0,items:["classes","methods","logic","steps"].map(function(m){return m===flowMode?{mode:m,label:labels[m],bseFlow:data.bseFlow,maxStack:data.maxStack}:{mode:m,label:labels[m]};})};
     // Built once, redrawn with a new graph afterwards: the view attaches its
     // listeners when it is built, and a record that has grown - or another
@@ -2176,8 +2182,43 @@ function showFlow(){
     // The panes that are HTML go in as templates, as Value origin's page gives them; the view fills its panes from these.
     if(data.panes)$("bse-workspace").innerHTML='<template data-flow-pane="formula">'+data.panes.formula+'</template><template data-flow-pane="expression">'+data.panes.expression+'</template>';
     return loadFlowView().then(openRecordFlow).then(markNow);
+    });
   }).catch(failed);
 }
+/* Formula and Expression from the record: where the chosen value changed, the statement that changed it and what that
+   statement read, with the values the record holds. Built by the host (abaplint reads the statements); the analysis's,
+   when there is one, is kept beside it. The diagram shows the record's, with or without the values. */
+function recordSteps(){
+  var tl=flow.timeline||[],values={},steps=[];
+  tl.forEach(function(t){
+    if(Array.isArray(t.vars)){
+      if(!t.varsDelta)values={};else values=Object.assign({},values);
+      t.vars.forEach(function(g){(g.children||[]).forEach(function(v){var key=String(v.name).toUpperCase();if(v.deleted)delete values[key];else values[key]=v.value;});});
+    }
+    var f=t.stack&&t.stack[0];
+    steps.push({url:t.at&&t.at.url||"",line:t.at&&t.at.line||0,location:t.cur?String(t.cur.name).indexOf("=>")>0?t.cur.name:t.cur.owner+"=>"+t.cur.name:String(f&&f.program||""),values:values});
+  });
+  return steps;
+}
+function withRecordFormula(data){
+  $("fvalues").hidden=true;
+  if(!chosenValue||!(flow.timeline||[]).length||typeof sdeOrigin!=="function")return Promise.resolve(data);
+  if(!(flow.timeline||[]).some(function(t){return Array.isArray(t.vars)&&t.vars.length;}))return Promise.resolve(data);
+  var steps=recordSteps(),sources={};
+  steps.forEach(function(s){var lines=texts[norm(s.url)];if(s.url&&lines&&!(s.url in sources))sources[s.url]=lines.join("\n");});
+  var at=replayAt!=null?replayAt:steps.length-1;
+  return askOrigin({recordFormula:{variable:chosenValue.name,at:at,steps:steps,sources:sources}}).then(function(rf){
+    if(!rf||!rf.formula||!rf.formula.nodes.length)return data;
+    var on=$("fvalues").classList.contains("on");$("fvalues").hidden=false;
+    var analysed=data.panes,heading=function(text){return '<h3 class="edge">'+text+'</h3>';};
+    data.formula={nodes:rf.formula.nodes.map(function(n){return Object.assign({},n,{label:on?n.label:n.text,dataText:on?n.label:n.text});}),edges:rf.formula.edges};
+    data.maxLevel=rf.formula.maxLevel;
+    data.panes=analysed?{formula:heading("From the run")+rf.panes.formula+heading("From the analysis")+analysed.formula,
+      expression:heading("From the run")+rf.panes.expression+heading("From the analysis")+analysed.expression}:rf.panes;
+    return data;
+  }).catch(function(error){notice("Formula from the run: "+(error&&error.message||error));return data;});
+}
+$("fvalues").onclick=function(){$("fvalues").classList.toggle("on");showFlow();};
 /* The zoom, the fit and the magnifier belong to the view now; the window
    keeps only the pane around it. */
 $("ffull").onclick=function(){$("flowpane").classList.toggle("full");};

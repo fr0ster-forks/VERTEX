@@ -228,7 +228,8 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
      another, and an automatic request for the variables does not pile up behind the reader's moving cursor: only the newest
      waits. A session that is busy with something else is waited for, not reported, for a few seconds. */
   const gate = require('./request-gate').createGate();
-  const originPoints = (request,progress=()=>{}) => {progress({stage:'Waiting for SAP session'});return gate.gated(() => readOrigin(request,progress));};
+  // A local source is read from the workspace, not through the SAP session.
+  const originPoints = (request,progress=()=>{},document=null) => {if(document)return readOrigin(request,progress,document);progress({stage:'Waiting for SAP session'});return gate.gated(() => readOrigin(request,progress));};
   const originOpen = request => gate.gated(() => openOrigin(request));
   const originVariables = gate.newest(readVariables);
   // The sources of the last analysis: what a node of its flow opens, as Value origin opens its nodes.
@@ -277,14 +278,14 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     await revealSource(opened.document, at, false);
     return {};
   }
-  async function readOrigin({ object_name, object_type, line, variable, from: boundFrom, to: boundTo }, progress = () => {}) {
+  async function readOrigin({ object_name, object_type, line, variable, from: boundFrom, to: boundTo }, progress = () => {}, localDocument = null) {
     const up = text => String(text || '').toUpperCase();
     const bounded = Number.isInteger(boundFrom);
     // A path from a breakpoint needs no value; the points of a slice do.
     if (!object_name || (!variable && !bounded)) { throw new Error('An object and a variable are needed.'); }
-    const from = [...opened.values()].find(item => item.repo);
-    if (!from || !from.repo) { throw new Error('Open a VERTEX ABAP source tab so the analysis knows which system to read.'); }
-    const entry = await sourceDocument(from.repo, { object_type: object_type || 'PROG', object_name });
+    const from = localDocument ? null : [...opened.values()].find(item => item.repo);
+    if (!localDocument && (!from || !from.repo)) { throw new Error('Open a VERTEX ABAP source tab so the analysis knows which system to read.'); }
+    const entry = localDocument ? { document: localDocument } : await sourceDocument(from.repo, { object_type: object_type || 'PROG', object_name });
     // The analysis starts from the last use of the value in the source, wherever the run stands.
     const source = entry.document.getText(), at = (variable ? require('./value-origin-points').lastUse(source, variable) : 0) || Number(line) || 1;
     const lineText = source.split(/\r?\n/)[at - 1] || '';
