@@ -59,13 +59,18 @@ function fakeSap({ stops = [], conflict = false, probe = fakeDumps(), dumpOnEnd 
     },
     async debuggerAttach() { calls.push("attach"); position = 0; return {}; },
     async debuggerStackTrace() {
+      calls.push("stack");
       const s = stops[position];
       return { stack: [{ programName: "Z_CALC", includeName: "Z_CALC", line: s.line, eventType: "EVENT", eventName: "START-OF-SELECTION", uri: { uri: URL_MAIN } }] };
     },
     async debuggerChildVariables(parents) {
       calls.push("children");
+      if (parents[0] === "@ROOT" && parents.length > 1) {
+        return { hierarchies: [{ PARENT_ID: "@ROOT", CHILD_ID: "@GLOBALS" }].concat(vars().map(v => ({ PARENT_ID: "@GLOBALS", CHILD_ID: v.ID }))),
+          variables: vars() };
+      }
       if (parents[0] === "@ROOT") { return { hierarchies: [{ PARENT_ID: "@ROOT", CHILD_ID: "@GLOBALS" }], variables: [] }; }
-      if (parents[0] === "@GLOBALS") { return { hierarchies: [], variables: vars() }; }
+      if (parents[0] === "@GLOBALS") { return { hierarchies: vars().map(v => ({ PARENT_ID: "@GLOBALS", CHILD_ID: v.ID })), variables: vars() }; }
       // Components of structured rows: LT_ORDERS[n] -> CUSTOMER
       return { hierarchies: parents.map(p => ({ PARENT_ID: p, CHILD_ID: p + "-CUSTOMER" })),
         variables: parents.map(p => ({ ID: p + "-CUSTOMER", NAME: "CUSTOMER", META_TYPE: "simple", VALUE: "CUST_" + p.slice(-2, -1) })) };
@@ -83,6 +88,42 @@ function fakeSap({ stops = [], conflict = false, probe = fakeDumps(), dumpOnEnd 
         throw new Error("An exception was raised");
       }
       return { reachedBreakpoints: stops[position].reached ? [{ id: stops[position].reached }] : [] };
+    },
+    // ADT's debugger batch: the step and the stack after it, as SAP answers them.
+    httpClient: {
+      async request(url, options) {
+        if (url !== "/sap/bc/adt/debugger/batch") { throw new Error("unexpected request " + url); }
+        calls.push("batch");
+        const kind = /method=(\w+) HTTP/.exec(options.body)[1];
+        const boundary = "ejjeeffe1";
+        const part = (status, body) => "--" + boundary + "\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 " + status
+          + "\r\nContent-Type: application/xml\r\n\r\n" + body + "\r\n";
+        let step;
+        try { await session.debuggerStep(kind); step = part("200 OK", '<?xml version="1.0"?><dbg:step xmlns:dbg="http://www.sap.com/adt/debugger" isSteppingPossible="true"/>'); }
+        catch (error) {
+          const failed = '<?xml version="1.0"?><exc:exception xmlns:exc="http://www.sap.com/abapxml/types/communicationframework"><message lang="EN">' + error.message + "</message></exc:exception>";
+          return { status: 202, body: part("400 Bad Request", failed) + part("400 Bad Request", failed) + "--" + boundary + "--\r\n" };
+        }
+        const s = stops[position];
+        const stack = '<?xml version="1.0"?><dbg:stack xmlns:dbg="http://www.sap.com/adt/debugger"><dbg:stackEntry programName="Z_CALC" includeName="Z_CALC" line="'
+          + s.line + '" eventType="EVENT" eventName="START-OF-SELECTION" uri="' + URL_MAIN + '"/></dbg:stack>';
+        let values = "";
+        if (/method=getVariables/.test(options.body)) {
+          const ids = [...options.body.matchAll(/<ID>([^<]*)<\/ID>/g)].map(m => m[1]);
+          const rows = ids.map(id => vars().find(v => v.NAME === id)).filter(Boolean).map(v => "<STPDA_ADT_VARIABLE><ID>" + v.NAME
+            + "</ID><NAME>" + v.NAME + "</NAME><META_TYPE>" + v.META_TYPE + "</META_TYPE><VALUE>" + v.VALUE + "</VALUE></STPDA_ADT_VARIABLE>").join("");
+          values = part("200 OK", '<?xml version="1.0"?><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><DATA>' + rows + "</DATA></asx:values></asx:abap>");
+        }
+        let scopes = "";
+        if (/method=getChildVariables/.test(options.body)) {
+          const row = v => "<STPDA_ADT_VARIABLE><ID>" + v.ID + "</ID><NAME>" + v.NAME + "</NAME><META_TYPE>" + v.META_TYPE + "</META_TYPE><VALUE>" + (v.VALUE || "") + "</VALUE></STPDA_ADT_VARIABLE>";
+          const link = (parent, child) => "<STPDA_ADT_VARIABLE_HIERARCHY><PARENT_ID>" + parent + "</PARENT_ID><CHILD_ID>" + child + "</CHILD_ID></STPDA_ADT_VARIABLE_HIERARCHY>";
+          scopes = part("200 OK", '<?xml version="1.0"?><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><DATA><HIERARCHIES>'
+            + link("@ROOT", "@GLOBALS") + vars().map(v => link("@GLOBALS", v.ID)).join("") + "</HIERARCHIES><VARIABLES>" + vars().map(row).join("")
+            + "</VARIABLES></DATA></asx:values></asx:abap>");
+        }
+        return { status: 202, body: step + part("200 OK", stack) + values + scopes + "--" + boundary + "--\r\n" };
+      }
     },
     async getObjectSource() { return Array.from({ length: 60 }, (_, i) => "line " + (i + 1)).join("\n"); },
     async debuggerGoToStack(position) { calls.push("goto " + position); },
@@ -478,6 +519,66 @@ test("a quick step reads no variables, says how long it took, and still stops fo
   await dbg.stop();
 });
 
+test("a step gets its stack in the same request", async () => {
+  const { dbg, calls } = fakeSap({ stops: [
+    { line: 45, reached: "BP45", vars: [simple("LV_TOTAL", "600.00")] },
+    { line: 46, vars: [simple("LV_TOTAL", "700.00")] }
+  ] });
+  await dbg.setBreakpoint({ name: "Z_CALC", line: 45 });
+  await dbg.wait(5);
+  const from = calls.length;
+  const timing = await dbg.advance("into", true);
+  assert.deepEqual(calls.slice(from).filter(c => c === "batch" || c === "stack" || c === "stepInto"), ["batch", "stepInto"]);
+  assert.equal(dbg.picture().stopped.at, "Z_CALC:46");
+  assert.equal(typeof timing.queued, "number");
+  await dbg.stop();
+});
+
+test("a step can read the followed value at the new stop in the same request", async () => {
+  const { dbg, calls } = fakeSap({ stops: [
+    { line: 45, reached: "BP45", vars: [simple("LV_TOTAL", "600.00")] },
+    { line: 46, vars: [simple("LV_TOTAL", "700.00")] }
+  ] });
+  await dbg.setBreakpoint({ name: "Z_CALC", line: 45 });
+  await dbg.wait(5);
+  const from = calls.length;
+  const answer = await dbg.advance("into", true, ["lv_total"]);
+  assert.deepEqual(calls.slice(from).filter(c => c === "batch" || c === "stack"), ["batch"]);
+  assert.deepEqual(answer.values.names, ["LV_TOTAL"]);
+  assert.equal(answer.values.read[0].value, "700.00");
+  await dbg.stop();
+});
+
+test("a recorded stop's values come in two requests: every scope at once, then their structures' components", async () => {
+  const { dbg, calls } = fakeSap({ stops: [{ line: 45, reached: "BP45", vars: [simple("LV_TOTAL", "600.00"),
+    { ID: "LT_ORDERS[1]", NAME: "LS_ORDER", META_TYPE: "structure", VALUE: "" }] }] });
+  await dbg.setBreakpoint({ name: "Z_CALC", line: 45 });
+  await dbg.wait(5);
+  const from = calls.filter(c => c === "children").length;
+  const { groups } = await dbg.stopValues(["globals"]);
+  assert.equal(calls.filter(c => c === "children").length - from, 2);
+  assert.deepEqual(groups.map(g => g.name), ["GLOBALS"]);
+  assert.equal(groups[0].children.find(v => v.name === "LV_TOTAL").value, "600.00");
+  assert.deepEqual(groups[0].children.find(v => v.name === "LS_ORDER").value, { CUSTOMER: "CUST_1" });
+  assert.deepEqual((await dbg.stopValues(["locals"])).groups, [], "a scope not asked for is not read");
+  await dbg.stop();
+});
+
+test("a step of Steps & values brings every scope with it; only a structure's components take a request more", async () => {
+  const { dbg, calls } = fakeSap({ stops: [
+    { line: 45, reached: "BP45", vars: [simple("LV_TOTAL", "600.00")] },
+    { line: 46, vars: [simple("LV_TOTAL", "700.00"), { ID: "LT_ORDERS[1]", NAME: "LS_ORDER", META_TYPE: "structure", VALUE: "" }] }] });
+  await dbg.setBreakpoint({ name: "Z_CALC", line: 45 });
+  await dbg.wait(5);
+  const from = calls.length;
+  const answer = await dbg.advance("into", true, null, ["params", "locals", "globals"]);
+  assert.deepEqual(calls.slice(from).filter(c => c === "batch" || c === "children" || c === "stack"), ["batch", "children"]);
+  const globals = answer.scopes.groups.find(g => g.name === "GLOBALS");
+  assert.equal(globals.children.find(v => v.name === "LV_TOTAL").value, "700.00");
+  assert.deepEqual(globals.children.find(v => v.name === "LS_ORDER").value, { CUSTOMER: "CUST_1" });
+  await dbg.stop();
+});
+
 test("terminate ends the program and keeps the breakpoints and the listener", async () => {
   const { dbg, calls } = fakeSap({ stops: [{ line: 45, reached: "BP45", vars: [simple("LV_TOTAL", "600.00")] }] });
   await dbg.setBreakpoint({ name: "Z_CALC", line: 45 });
@@ -488,75 +589,6 @@ test("terminate ends the program and keeps the breakpoints and the listener", as
   assert.equal(dbg.picture().breakpoints.length, 1);
   const news = await dbg.wait(1);
   assert.match(news.finished[0].note, /Terminated/);
-  await dbg.stop();
-});
-
-test("a predicted step takes the line it was given and does not ask for the stack", async () => {
-  const { dbg, calls } = fakeSap({ stops: [
-    { line: 45, reached: "BP45", vars: [simple("LV_TOTAL", "600.00")] },
-    { line: 46, vars: [simple("LV_TOTAL", "700.00")] },
-    { line: 47, vars: [simple("LV_TOTAL", "800.00")] }
-  ] });
-  let stacks = 0;
-  await dbg.setBreakpoint({ name: "Z_CALC", line: 45 });
-  await dbg.wait(5);
-  const counted = calls.length;
-  const r = await dbg.advance("into", true, { line: 46 });
-  assert.equal(r.predicted, true);
-  assert.equal(dbg.picture().stopped.at, "Z_CALC:46");
-  assert.equal(dbg.picture().stopped.frames[0].line, 46);
-  assert.deepEqual(calls.slice(counted), ["stepInto"]);
-  // Without a prediction the stack is asked again.
-  const again = await dbg.advance("into", true);
-  assert.equal(again.predicted, undefined);
-  assert.equal(dbg.picture().stopped.at, "Z_CALC:47");
-  await dbg.stop();
-});
-
-test("a predicted PERFORM adds its frame, a predicted ENDFORM takes it away, and settle asks SAP", async () => {
-  const { dbg, calls } = fakeSap({ stops: [
-    { line: 13, reached: "BP13", vars: [] }, { line: 26, vars: [] }, { line: 14, vars: [] }, { line: 14, vars: [] }
-  ] });
-  await dbg.setBreakpoint({ name: "Z_CALC", line: 13 });
-  await dbg.wait(5);
-  const inc = "/sap/bc/adt/programs/programs/z_calc/source/main";
-  await dbg.advance("into", true, { line: 26, enter: { label: "Z_CALC:26 FORM ADD_LINE", url: inc, include: "Z_CALC", program: "Z_CALC" } });
-  let p = dbg.picture().stopped;
-  assert.equal(p.predicted, true);
-  assert.equal(p.frames.length, 2);
-  assert.equal(p.frames[0].label, "Z_CALC:26 FORM ADD_LINE");
-  await assert.rejects(dbg.frame(1), /predicted/);
-  await dbg.advance("into", true, { line: 14, leave: true });
-  p = dbg.picture().stopped;
-  assert.equal(p.frames.length, 1);
-  assert.equal(p.at, "Z_CALC:14");
-  const stacks = calls.length;
-  assert.equal(await dbg.settle(), true);
-  assert.equal(dbg.picture().stopped.predicted, false);
-  assert.equal(await dbg.settle(), false);
-  await dbg.stop();
-});
-
-test("run to a line: a point for the one run, F8, and the point gone before the stop is read", async () => {
-  const { dbg, calls, sent, scopedSent } = fakeSap({ stops: [{ line: 18, reached: "BP18", vars: [] }, { line: 22, vars: [] }] });
-  await dbg.setBreakpoint({ name: "Z_CALC", line: 18 });
-  await dbg.wait(5);
-  const before = sent.length;
-  const r = await dbg.runTo(URL_MAIN, [22, 30]);
-  assert.equal(r.placed, 2);
-  // The points go to the stopped program (scope "debugger"), beside the user's,
-  // never to the breakpoints of the runs to come.
-  assert.equal(sent.length, before);
-  assert.ok(scopedSent.some(x => x.scope === "debugger" && x.bps.length === 3));
-  assert.deepEqual(scopedSent.at(-1), { scope: "debugger", bps: [URL_MAIN + "#start=18"] });
-  assert.ok(calls.includes("stepContinue"));
-  const p = dbg.picture();
-  assert.equal(p.stopped.at, "Z_CALC:22");
-  assert.equal(p.stopped.breakpoint, null);
-  assert.deepEqual(p.breakpoints.map(b => b.line), [18]);
-  // A line SAP does not take is said, and nothing runs.
-  const refused = await dbg.runTo(URL_MAIN, 999);
-  assert.equal(refused.placed, 0);
   await dbg.stop();
 });
 

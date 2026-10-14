@@ -70,3 +70,17 @@ test("a structure of a transpiler stop opens to its fields, whichever variable i
   assert.deepEqual(fields.map(field => field.name), ["x"], "not only the first variable can be opened");
   assert.equal((await adapter.command("children", { id: "ls_b" })).children.find(f => f.name === "amount").value, "5");
 });
+
+test("the panel sees only the breakpoints of its own object's sources, and Clear all takes only those", async () => {
+  const at = (id, file, line) => ({ id, enabled: true, location: { uri: { scheme: "file", fsPath: file }, range: { start: { line: line - 1 } } } });
+  const removed = [];
+  const vscode = { debug: { breakpoints: [at("A", "C:/TMP/test.prog.abap", 3), at("B", "C:/work/zvertex_debug_lab.prog.abap", 18)],
+    removeBreakpoints(list) { removed.push(...list.map(b => b.id)); } }, commands: { async executeCommand() {} } };
+  const document = { uri: { fsPath: "C:/TMP/test.prog.abap" } };
+  const adapter = create(vscode, document, async () => {}, () => {}, () => ({ files: ["C:/TMP/test.prog.abap"] }));
+  assert.deepEqual(adapter.picture().breakpoints.map(b => b.id), ["A"]);
+  await adapter.command("clear", {});
+  assert.deepEqual(removed, ["A"]);
+  await adapter.command("allBreakpoints", { on: true });
+  assert.deepEqual(adapter.picture().breakpoints.map(b => b.id), ["A", "B"], "All BP: every ABAP breakpoint");
+});

@@ -28,7 +28,7 @@ test("local snapshot records every variable group at a stop", async () => {
     debug: action => Promise.resolve(action === "localSnapshot" ?
       { groups: [{ id: "g", name: "Globals" }, { id: "l", name: "Locals" }, { id: "p", name: "Params" }]
         .map(group => ({ ...group, children: [{ name: group.id, type: "I", value: values[group.id], meta: "simple" }] })) } : {}) });
-  vm.runInContext(section("function snapshot(captured){", "/* The values the player shows"), context);
+  vm.runInContext(section("function snapshot(captured,pre){", "/* The values the player shows"), context);
   await vm.runInContext("snapshot()", context);
   assert.deepEqual(Array.from(timeline[0].vars, group => group.name), ["Globals", "Locals", "Params"]);
   assert.deepEqual(Array.from(timeline[0].vars, group => group.children[0].value), ["g", "l", "p"]);

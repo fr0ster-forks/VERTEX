@@ -894,6 +894,10 @@ function activate(context) {
     if (localHistoryEditor) localHistoryEditor.setDecorations(localHistoryMark, []);
     localHistoryEditor = null;
   };
+  const localEntry = source => {
+    try { return require("./local-run").entryScreen(source.document, source.entryLine); }
+    catch (error) { return { error: error.message }; }
+  };
   const dockedDebugInitial = () => !dockedDebugSource ? null : {
     name: dockedDebugSource.object_name,
     type: dockedDebugSource.object_type,
@@ -902,7 +906,10 @@ function activate(context) {
     runOnly: dockedDebugSource.local === true && dockedDebugSource.runOnly === true,
     // Opened by the Run command, not by Clear: the program runs at once.
     autoRun: dockedDebugSource.local === true && dockedDebugSource.autoRun === true,
-    scenarios: dockedDebugSource.local ? require("./local-run").scenariosFor(dockedDebugSource.document) : []
+    scenarios: dockedDebugSource.local ? require("./local-run").scenariosFor(dockedDebugSource.document) : [],
+    // A method or function module under the cursor: the screen of its parameters, or why it cannot be called.
+    entry: dockedDebugSource.local ? localEntry(dockedDebugSource) : null,
+    parameters: dockedDebugSource.local ? require("./local-run").parametersFor(dockedDebugSource.document) : []
   };
   const postDockedPicture = () => {
     if (dockedDebugSource?.local && localDebugAdapter) {
@@ -1094,9 +1101,12 @@ function activate(context) {
             await showTools({...selected,action:"scheme",boundObject:true},embedded);
             await view.webview.postMessage({type:"result",payload:"{}"});return;
           }
+          const handled = Date.now();
           const answer = await pinTo(dockedDebugSource && dockedDebugSource.system_name, () =>
             require("./tools-window").debugCommand(dbg, command, commandArgs,
               resource => fetch(context, resource)));
+          // How long the host held a step, for the window's time per stage.
+          if (command === "step" && answer && typeof answer === "object") { answer.handler = Date.now() - handled; }
           await view.webview.postMessage({ type: "result", payload: JSON.stringify(answer) });
         } catch (error) {
           if (message.call === "localRun") {
@@ -1133,7 +1143,7 @@ function activate(context) {
     const local = require("./local-analysis");
     const localObject = local.isLocalAbap(editor?.document) ? local.sourceObject(editor.document) : null;
     // Clear starts the same panel again, for the object it shows, whichever editor is in front.
-    const source = again || (localObject ? { ...localObject, local: true, document: editor.document } : sapCode.editorContext());
+    const source = again || (localObject ? { ...localObject, local: true, document: editor.document, entryLine: editor.selection.active.line + 1 } : sapCode.editorContext());
     if (!source || !source.object_name) {
       vscode.window.showWarningMessage("VERTEX: open a local or SAP ABAP source tab first.");
       return;
@@ -1146,8 +1156,9 @@ function activate(context) {
     sapCode.forgetOrigin?.();
     dockedDebugSource = { ...source, runOnly: runOnly === true, autoRun: runOnly === true && !again };
     localDebugAdapter = source.local ? require("./local-debug-adapter").create(vscode, source.document,
-      selection => require("./local-run").launch(vscode, false, { document: source.document, selection, live: true }),
-      postDockedPicture) : null;
+      selection => require("./local-run").launch(vscode, false, { document: source.document, selection, live: true, entryLine: source.entryLine }),
+      postDockedPicture, () => require("./local-run").runScope(vscode, source.document),
+      { entry: () => localEntry(source), variants: context.workspaceState }) : null;
     if (source.local && latestLocalVariables && dockedDebugView) {
       setTimeout(() => void dockedDebugView?.webview.postMessage({ type: "localVariables", state: latestLocalVariables }), 150);
     }

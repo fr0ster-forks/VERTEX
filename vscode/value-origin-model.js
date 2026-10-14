@@ -238,6 +238,24 @@ function radioGroups(sources) {
   }
   return [...groups.values()];
 }
+/* The selection screen's other PARAMETERS - a value or AS CHECKBOX - with DEFAULT as written (a literal unquoted) and
+   whether SAP would upper-case the input (no LOWER CASE, a character type). Radio buttons are radioGroups'. */
+function selectionParameters(sources) {
+  const result = [];
+  for (const source of sources) for (const statement of localStatements(source)) {
+    const ts = statement.tokens;
+    if (val(ts, 0) !== 'PARAMETERS' || find(ts, 'RADIOBUTTON') >= 0) continue;
+    const parameter = pathAt(ts, 1); if (!parameter) continue;
+    const checkbox = find(ts, 'CHECKBOX') >= 0, def = find(ts, 'DEFAULT'), type = find(ts, 'TYPE');
+    let value = def >= 0 && ts[def + 1] ? String(ts[def + 1].value) : '';
+    if (/^'.*'$|^`.*`$/.test(value)) value = value.slice(1, -1).replace(/''/g, "'");
+    const typeName = type >= 0 ? val(ts, type + 1) : 'C';
+    const numeric = ['I', 'INT8', 'P', 'F', 'N', 'DECFLOAT16', 'DECFLOAT34'].includes(typeName);
+    result.push({ name: parameter.name, kind: checkbox ? 'checkbox' : 'value', default: checkbox ? (U(value) === 'X' ? 'X' : '') : value,
+      numeric, upper: !checkbox && !numeric && !(find(ts, 'LOWER') >= 0 && val(ts, find(ts, 'LOWER') + 1) === 'CASE') });
+  }
+  return result;
+}
 function buildIndex(sources) {
   const procedures = [], signatures = new Map(), interfaces = new Map(), dependencies = new Map(), referenceTypes = new Map();
   for (const source of sources) {
@@ -901,4 +919,4 @@ async function collectSources(initial, load, options = {}) {
   }
   return { sources, warnings, skipped };
 }
-module.exports = { analyze, buildIndex, collectSources, radioGroups, variableAt, literalAt, customerObject, typeComponents, assignment, variablePaths, callsIn, resolver, declaredIn, formParameters };
+module.exports = { analyze, buildIndex, collectSources, radioGroups, selectionParameters, variableAt, literalAt, customerObject, typeComponents, assignment, variablePaths, callsIn, resolver, declaredIn, formParameters };

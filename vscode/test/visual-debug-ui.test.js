@@ -8,7 +8,7 @@ test("a value is followed from the row's menu, not by a click on it", () => {
   const nodes = {}, listeners = {}, chosen = [];
   const node = id => nodes[id] || (nodes[id] = { id, style: {}, classList: { on: false, add() { this.on = true; }, remove() { this.on = false; } } });
   const context = vm.createContext({ failed() {}, $: node, window: { innerWidth: 800, innerHeight: 600 },
-    document: { addEventListener: (type, fn) => { listeners[type] = fn; } }, chosenValue: null, followed: [],
+    document: { addEventListener: (type, fn) => { listeners[type] = fn; } }, chosenValue: null, followed: [], replayAt: null, flow: {},
     follow: name => { chosen.push(context.followed.includes(name) ? "" : name); } });
   vm.runInContext(part("var menuFor=", "function chooseValue(name){"), context);
 
@@ -51,9 +51,12 @@ test("the stats line gives the average steps per second", () => {
   const out = {};
   const context = vm.createContext({ $: () => out, picture: { stopped: { frames: [1, 2, 3, 4] } }, lastStats: null,
     Date: { now: () => 25600 } });
-  vm.runInContext(part("function drawStats(s){", "function runVisual(){"), context);
+  vm.runInContext(part("function spent(s,name,t0){", "function runVisual(){"), context);
   vm.runInContext("drawStats({steps:36,predicted:0,t0:0})", context);
-  assert.match(out.textContent, /^36 steps \(0 predicted\) · depth 4 · 25\.6 s · 1\.4 steps\/s on average/);
+  assert.match(out.textContent, /^36 steps · depth 4 · 25\.6 s · 1\.4 steps\/s on average/);
+  assert.doesNotMatch(out.textContent, /ms per step/, "no breakdown without stage times");
+  vm.runInContext("drawStats({steps:10,predicted:0,t0:25600-6500,ms:{sap:1000,host:500,picture:2000,map:400,plan:100}})", context);
+  assert.match(out.textContent, / · ms per step: SAP 100, stack\/host 50, picture 200, rest 300$/);
   vm.runInContext("drawStats({steps:0,predicted:0,t0:25600})", context);
   assert.doesNotMatch(out.textContent, /steps\/s/, "no rate before a step or a second has passed");
 });
@@ -297,7 +300,7 @@ test("the analysis starts from the object's own frame, not from the frame the ru
   const frame = (program, line) => ({ program, line });
   const run = (frames, object, placed) => {
     const context = vm.createContext({ object, maps: { PROG: {} }, currentFrame: () => frames[0],
-      picture: { stopped: { frames } }, placeOf: (f) => placed(f) });
+      picture: { stopped: { frames } }, placeOf: (f) => placed(f), replayAt: null });
     vm.runInContext(part("function originLine(){", "function fetchSlice(){"), context);
     return () => vm.runInContext("originLine()", context);
   };
@@ -337,13 +340,12 @@ test("a new run keeps the analysis the user already waited for, and asks again o
     const context = vm.createContext({ maps: { a: 1 }, lists: { a: 1 }, methodsAt: { a: 1 }, slicePoints, sliceAsked: slicePoints ? {} : null, sliceFor: "X",
       chosenValue: { name: "X" }, sdeOrigin() {}, notice() {},
       fetchSlice: () => { asked.push(context.slicePoints === null); return Promise.resolve(); } });
-    vm.runInContext(part("function fresh(){", "function runFlow(){").split("function runFlow(){")[0], context);
+    vm.runInContext(part("function fresh(){", "/* The record as statements").split("/* The record as statements")[0], context);
     return context;
   };
   const kept = make({ "A:1": {} });
   vm.runInContext("fresh()", kept);
   assert.notEqual(kept.slicePoints, null, "the slice read before the run is still there");
-  assert.deepEqual(Object.keys(kept.maps), [], "the maps are read again, they belong to the run");
   const empty = make({});
   vm.runInContext("fresh()", empty);
   assert.equal(empty.slicePoints, null, "an empty answer is dropped");
@@ -407,86 +409,10 @@ test("the </> of a node in the diagram opens its source: the editor when docked"
   assert.equal(shown.length, 0);
 });
 
-test("the next statement is the first on another line: a chain of one line is one step of the debugger", () => {
-  // 41 COMPUTE, 42 WRITE: / a, b - two statements of the map on one line, 43 ULINE.
-  const list = [{ line: 41, kw: "COMPUTE" }, { line: 42, kw: "WRITE" }, { line: 42, kw: "WRITE" }, { line: 43, kw: "ULINE" }];
-  const frame = { program: "P", line: 42 };
-  const context = vm.createContext({ picture: { stopped: { frames: [frame] } }, spots: [], listFor: () => list, frame });
-  vm.runInContext(part("function placeOf(f,map){", "/* The statement after the end of the loop that starts here"), context);
-  context.spots[1] = list[1];   // the statement the run itself arrived at: the first of the two
-  const place = vm.runInContext("placeOf(frame, {})", context);
-  assert.equal(place.here, list[1]);
-  assert.equal(place.next, list[3], "line 43, not the second half of line 42");
-});
-
-test("Predict passes a loop in one go only when the chosen value's slice does not touch it", () => {
-  const frame = { program: "ZCL_CALC_FACADE===CP", line: 35 };
-  const exit = { lines: [41, 42], line: 41 };
-  const context = vm.createContext({ chosenValue: null, slicePoints: null, unitOf: () => ({ owner: "ZCL_CALC_FACADE" }), frame, exit });
-  vm.runInContext(part("function loopUnlessSliced(f,exit,block,map){", "/* A statement whose every call the map could place"), context);
-  const decide = () => vm.runInContext("loopUnlessSliced(frame, exit)", context);
-  assert.equal(decide(), null, "no value chosen: nothing says the loop is free of it, so it is stepped through");
-  context.chosenValue = { name: "X" };
-  assert.equal(decide(), null, "the slice is still being asked for: the loop is not known to be free of it");
-  context.slicePoints = { "ZCL_CALC_FACADE:41": {}, "ZCL_MOD_FUEL:21": {} };
-  assert.equal(decide(), context.exit, "the slice has nothing between the loop and its end: passed");
-  context.slicePoints = { "ZCL_CALC_FACADE:38": {} };
-  assert.equal(decide(), null, "line 38 is in the body: the loop is stepped through");
-  context.slicePoints = { "ZCL_OTHER:38": {} };
-  assert.equal(decide(), context.exit, "the same line of another class is not in this body");
-});
-
-test("Predict runs past straight-line statements outside the slice in one go, and past a call it does not touch", () => {
-  const list = [{ line: 10, kw: "DATA", kind: "plain" }, { line: 11, kw: "+CALL_METHOD", kind: "call", calls: true, owners: "?" },
-    { line: 12, kw: "MOVE", kind: "plain" }, { line: 13, kw: "MOVE", kind: "plain" }, { line: 14, kw: "IF", kind: "plain" }];
-  const frame = { url: "u", line: 10, program: "P" };
-  const context = vm.createContext({ chosenValue: { name: "X" }, slicePoints: { "ZCL_CALC_FACADE:13": {}, "ZCL_MOD_FUEL:5": {} }, frame, list,
-    unitOf: () => ({ owner: "ZCL_CALC_FACADE" }), listFor: () => list, placeOf: f => ({ here: list.find(s => s.line === f.line), next: list[list.indexOf(list.find(s => s.line === f.line)) + 1] }),
-    MIN_RUN: 1, breakpointOn: () => false, inSlice: (o, l) => !!context.slicePoints[o + ":" + l],
-    CLOSERS: /^(ENDIF|ENDMETHOD)$/i, EVENTS: /^(METHOD|FORM)$/i });
-  vm.runInContext(part("var NONLINEAR=", "/* A statement whose every call the map could place"), context);
-  vm.runInContext(part("/* A statement whose every call the map could place", "/* A statement whose every call the map could place"), context);
-  const skip = () => JSON.parse(JSON.stringify(vm.runInContext("skipAhead(frame, null)", context)));
-  assert.deepEqual(skip().lines, [13], "the log call and the statement after it are outside the slice: run to line 13");
-  context.slicePoints["ZCL_CALC_FACADE:11"] = {};
-  assert.equal(vm.runInContext("skipAhead(frame, null)", context), null, "the call is itself a place of the slice: it is looked into");
-});
-
 test("the names of the page's global regular expressions are not declared twice", () => {
   const names = (page.match(/^var ([A-Z]+)=\//gm) || []).concat(page.match(/^ {4}([A-Z]+)=\//gm) || []);
   const seen = new Set();
   for (const name of names.map(n => n.replace(/^var |=\/$|^ +/g, ""))) { assert.ok(!seen.has(name), name + " is declared twice"); seen.add(name); }
-});
-
-test("Predict passes an IF block in one go when the slice has no place in it and no breakpoint stands in it", () => {
-  const frame = { url: "u", program: "ZCL_X===CP", line: 11 };
-  const context = vm.createContext({ chosenValue: { name: "X" }, slicePoints: { "ZCL_X:30": {} }, frame, exit: { lines: [16], line: 16 },
-    unitOf: () => ({ owner: "ZCL_X" }), breakpointOn: () => false, MIN_BLOCK: 4,
-    listFor: () => [12, 13, 14, 15].map(line => ({ line, kind: "plain" })), map: {} });
-  vm.runInContext(part("function loopUnlessSliced(f,exit,block,map){", "/* A statement whose every call the map could place"), context);
-  const decide = () => vm.runInContext("loopUnlessSliced(frame, exit, true, map)", context);
-  assert.equal(decide(), context.exit);
-  assert.equal(context.exit.block, true);
-  context.MIN_BLOCK = 5;
-  assert.equal(decide(), null, "four statements in the block spare less than the F8 costs");
-  context.MIN_BLOCK = 4;
-  context.slicePoints["ZCL_X:13"] = {};
-  assert.equal(decide(), null, "a place of the slice in the block: it is stepped through");
-  context.slicePoints = {};
-  context.breakpointOn = (u, l) => l === 14;
-  assert.equal(decide(), null, "a breakpoint in the block: it is stepped through");
-});
-
-test("after a call, SAP stops at the next statement that is a stop: ENDIF and ENDCASE are not, ENDLOOP and ENDMETHOD are", () => {
-  const list = [{ line: 36, kw: "COMPUTE" }, { line: 37, kw: "IF" }, { line: 38, kw: "+CALL_METHOD" }, { line: 39, kw: "ENDIF" },
-    { line: 40, kw: "ENDLOOP" }, { line: 50, kw: "CASE" }, { line: 51, kw: "WHEN" }, { line: 52, kw: "COMPUTE" }, { line: 53, kw: "WHEN" },
-    { line: 54, kw: "IF" }, { line: 55, kw: "COMPUTE" }, { line: 56, kw: "ENDIF" }, { line: 57, kw: "ENDCASE" }, { line: 58, kw: "ENDMETHOD" }];
-  const context = vm.createContext({ list });
-  vm.runInContext(part("var BLOCK_OPEN=", "/* With a value followed and its analysis loaded"), context);
-  const after = line => vm.runInContext("stopAfter(list, " + list.findIndex(s => s.line === line) + ")", context).line;
-  assert.equal(after(38), 40, "the call before ENDIF: the next stop is ENDLOOP");
-  assert.equal(after(52), 58, "the last statement of a WHEN: the other WHEN, with its IF, is jumped over, ENDCASE passed");
-  assert.equal(after(36), 37);
 });
 
 test("Analyze flow path: from a point in a program or a class to the next checked point the flow meets, wherever it is, else to the end", async () => {
@@ -791,32 +717,32 @@ test("the chat is given what the window shows in two labelled parts: what ran, w
   context.flow = { timeline: [] }; context.staticFlow = null;
   assert.equal(vm.runInContext("debugContext()", context), null, "neither a record nor an analysis: nothing to give");
 });
+test("the followed value read with the step is used without asking again", async () => {
+  const asked = [];
+  const context = vm.createContext({ flow: { timeline: [{ stack: [{ line: 46, program: "Z_CALC" }], cur: null }] },
+    chosenValue: { name: "lv_total" }, sliceAt: () => null,
+    debug: (command, args) => { asked.push(command); return Promise.resolve({ variables: [{ name: "LV_TOTAL", value: "1" }] }); } });
+  vm.runInContext(part("function readChosenValue(pre){", "function valueTrail(){"), context);
+  await vm.runInContext('readChosenValue({ names: ["LV_TOTAL"], read: [{ name: "LV_TOTAL", value: "700.00", type: "P" }] })', context);
+  assert.deepEqual(asked, []);
+  assert.equal(context.flow.timeline[0].watch.value, "700.00");
+  await vm.runInContext("readChosenValue(null)", context);
+  assert.deepEqual(asked, ["vars"], "nothing read with the step: asked as before");
+});
 
-test("Predict runs the rest of a loop pass in one go once the slice has nothing more in it: points on the body's first statement and after the loop", () => {
-  // 43 LOOP, 45 COMPUTE, 49 IF, 50 COMPUTE (the slice), 51 ENDIF, 54..58 WRITE chain, 67 ENDLOOP, 70 IF, 72 ENDMETHOD.
-  const list = [{ line: 40, kw: "METHOD" }, { line: 43, kw: "LOOP" }, { line: 45, kw: "COMPUTE" }, { line: 49, kw: "IF" },
-    { line: 50, kw: "COMPUTE" }, { line: 51, kw: "ENDIF" }, { line: 54, kw: "WRITE" }, { line: 55, kw: "WRITE" },
-    { line: 56, kw: "WRITE" }, { line: 57, kw: "WRITE" }, { line: 58, kw: "WRITE" }, { line: 67, kw: "ENDLOOP" },
-    { line: 70, kw: "IF" }, { line: 72, kw: "ENDMETHOD" }];
-  const frame = { program: "ZCL_X===CP", url: "u", line: 51 };
-  const context = vm.createContext({ chosenValue: { name: "LV_DISCOUNT" }, slicePoints: { "ZCL_X:50": {} },
-    unitOf: () => ({ owner: "ZCL_X" }), picture: { breakpoints: [] }, norm: x => x, frame,
-    listFor: () => list, placeOf: f => { const here = list.find(s => s.line === f.line); return here ? { here } : null; } });
-  vm.runInContext(part("function routine(list,at){", "/* Each run reads the statement maps again"), context);
-  vm.runInContext("var ENDS=/^(ENDMETHOD|ENDFORM|ENDFUNCTION|ENDMODULE)$/,UNITS=/^(METHOD|FORM|FUNCTION|MODULE)$/;"
-    + "var EVENTS=/^(FORM|METHOD|FUNCTION|MODULE|START-OF-SELECTION|END-OF-SELECTION|INITIALIZATION|LOAD-OF-PROGRAM|TOP-OF-PAGE|END-OF-PAGE|AT|GET)$/i;"
-    + "function breakpointOn(url,line){return picture.breakpoints.some(function(b){return b.url===url&&b.line===line;});}"
-    + "function inSlice(o,l){return !!slicePoints[o+':'+l];}", context);
-  vm.runInContext(part("var MIN_RUN=3", "function straight("), context);
-  vm.runInContext(part("var LOOP_OPEN=", "/* Where SAP stops next after the statement"), context);
-  const rest = () => vm.runInContext("loopRest(frame, {})", context);
-  assert.deepEqual(JSON.parse(JSON.stringify(rest())), { lines: [45, 70, 72], line: 45, rest: true, count: 6 });
-  frame.line = 45;
-  assert.equal(rest(), null, "line 50 of the slice is still ahead in this pass");
-  frame.line = 51;
-  context.picture.breakpoints = [{ url: "u", line: 56 }];
-  assert.equal(rest(), null, "never over a breakpoint");
-  context.picture.breakpoints = [];
-  frame.line = 57;
-  assert.equal(rest(), null, "58 and ENDLOOP spare too little");
+test("a recorded stop is a point the analyses start from: its object, the object's type and the line", () => {
+  const local = ["C:", "TMP", "test.prog.abap"].join(String.fromCharCode(92));
+  const context = vm.createContext({ flow: { timeline: [
+    { at: { url: "/sap/bc/adt/oo/classes/zcl_calc_facade/source/main", line: 35 } },
+    { at: { url: "/sap/bc/adt/programs/programs/zvertex_debug_lab/source/main", line: 15 } },
+    { at: { url: local, line: 7 } },
+    { at: { url: "c:/work/src/zcl_a.clas.abap", line: 3 } },
+    { stack: [] }] } });
+  vm.runInContext(part("function stopPoint(i){", "function openValueMenu("), context);
+  const point = i => { const p = vm.runInContext("stopPoint(" + i + ")", context); return p && [p.name, p.objectType, p.line].join(" "); };
+  assert.equal(point(0), "ZCL_CALC_FACADE CLAS 35");
+  assert.equal(point(1), "ZVERTEX_DEBUG_LAB PROG 15");
+  assert.equal(point(2), "TEST PROG 7");
+  assert.equal(point(3), "ZCL_A CLAS 3");
+  assert.equal(point(4), null, "a stop without a place starts nothing");
 });

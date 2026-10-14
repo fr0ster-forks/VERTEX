@@ -1,7 +1,7 @@
 {
   "name": "vertex-abap",
   "displayName": "SAP ABAP VERTEX Tools",
-  "description": "Value origin without running the program (BSE) · debug recording with replay · code review · explorers, UML and metrics · object and function context for an AI client over MCP",
+  "description": "Serverless ABAP: run, debug and analyse ABAP on your machine with the ABAP transpiler, no SAP system needed · visual SAP debugger with recording and replay · value origin (BSE) without running · code review · explorers, UML and metrics · MCP context for AI clients",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -25,7 +25,7 @@
     "codex",
     "reviewer"
   ],
-  "version": "0.8.15",
+  "version": "0.8.17",
   "publisher": "YuriiSychov",
   "engines": {
     "vscode": "^1.85.0"

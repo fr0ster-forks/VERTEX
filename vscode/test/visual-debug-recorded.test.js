@@ -22,7 +22,7 @@ test("recorded structures expand and table rows are paged", () => {
     },
     createTextNode(text) { return { text }; }
   };
-  const context = { document, replayAt: 0, drawRecordedVars() {} };
+  const context = { document, replayAt: 0, drawRecordedVars() {}, chosenValue: null, openValueMenu() {} };
   vm.runInNewContext(helpers(html) + html.slice(start, end), context);
   const table = { appendChild(row) { rows.push(row); } };
   const structure = { amount: 9, currency: "EUR" };

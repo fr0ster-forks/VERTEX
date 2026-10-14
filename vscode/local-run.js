@@ -53,6 +53,9 @@ function modulePath(root, name) { return path.join(root, "node_modules", ...name
 function scenariosFor(document) {
   return require("./value-origin-model").radioGroups([{ id: document.uri.fsPath, text: document.getText() }]);
 }
+function parametersFor(document) {
+  return require("./value-origin-model").selectionParameters([{ id: document.uri.fsPath, text: document.getText() }]);
+}
 
 function automaticInputFilter(file, inputRoot) {
   const candidates = new Map();
@@ -70,6 +73,11 @@ function automaticInputFilter(file, inputRoot) {
   function include(sourceFile) {
     if (selected.has(sourceFile)) return;
     selected.add(sourceFile);
+    // A function module is part of its group: the group's XML and every include of it go with it.
+    const group = /^(.+?)\.fugr\./i.exec(path.basename(sourceFile));
+    if (group) for (const sibling of fs.readdirSync(path.dirname(sourceFile))) {
+      if (sibling.toLowerCase().startsWith(group[1].toLowerCase() + ".fugr.")) include(path.join(path.dirname(sourceFile), sibling));
+    }
     if (/\.(?:clas|intf|prog)\.abap$/i.test(sourceFile)) {
       const metadata = sourceFile.replace(/\.abap$/i, ".xml");
       if (fs.existsSync(metadata)) selected.add(metadata);
@@ -194,7 +202,42 @@ async function prepareFlow(project, document, output) {
   } catch (error) { output.appendLine("Flow analysis unavailable: " + error.message); }
 }
 
-function projectFor(document, workspaceRoot) {
+/* Where a file without abap_transpile.json is transpiled from: the workspace it is in, else its folder (the one above a
+   src folder), and the input folder inside that. */
+function automaticRoot(file, workspaceRoot) {
+  const workspace = workspaceRoot && path.resolve(workspaceRoot);
+  const insideWorkspace = workspace && (file === workspace || file.startsWith(workspace + path.sep));
+  const parent = path.dirname(file);
+  const root = insideWorkspace ? workspace : path.basename(parent).toLowerCase() === "src" ? path.dirname(parent) : parent;
+  const input = fs.existsSync(path.join(root, "src")) && file.startsWith(path.join(root, "src") + path.sep) ? "src" : ".";
+  return { root, input };
+}
+
+/* A method or function module at the line of a class or function group file, with the screen of its parameters:
+   null where the line is in neither, or the file is no class or group. An error says why it cannot be called. */
+function entryScreen(document, line) {
+  const entry = require("./local-entry");
+  const file = path.resolve(document.uri.fsPath);
+  const target = entry.targetAt(file, document.getText(), line);
+  if (!target) return null;
+  const { root, input } = automaticRoot(file, null);
+  const files = automaticInputFilter(file, path.join(root, input)).files;
+  return entry.screenOf(entry.parametersOf(target, files), files);
+}
+
+/* The sources a transpiler run of this document takes: under its abap_transpile.json project, or the file and what it
+   uses. A breakpoint anywhere else belongs to another object, not to this run. */
+function runScope(vscode, document) {
+  const file = path.resolve(document.uri.fsPath);
+  for (let dir = path.dirname(file); ; dir = path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, "abap_transpile.json"))) return { root: dir };
+    if (path.dirname(dir) === dir) break;
+  }
+  const { root, input } = automaticRoot(file, vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath);
+  return { files: automaticInputFilter(file, path.join(root, input)).files.filter(f => /\.abap$/i.test(f)).map(f => path.resolve(f)) };
+}
+
+function projectFor(document, workspaceRoot, driver) {
   if (!document || document.uri.scheme !== "file" || !/\.abap$/i.test(document.uri.fsPath)) {
     throw new Error("Open a saved local .abap file first.");
   }
@@ -215,6 +258,7 @@ function projectFor(document, workspaceRoot) {
       if (!fs.existsSync(cli)) {
         throw new Error("The VERTEX transpiler is missing. Reinstall the VS Code extension.");
       }
+      if (driver) throw new Error("A method or function module of a project with its own abap_transpile.json cannot be run yet: its inputs are the project's.");
       return { root: dir, configFile, cli, entry: path.resolve(dir, config.output_folder, "index.mjs") };
     }
     const parent = path.dirname(dir);
@@ -222,11 +266,7 @@ function projectFor(document, workspaceRoot) {
     dir = parent;
   }
   const file = path.resolve(document.uri.fsPath);
-  const workspace = workspaceRoot && path.resolve(workspaceRoot);
-  const insideWorkspace = workspace && (file === workspace || file.startsWith(workspace + path.sep));
-  const parent = path.dirname(file);
-  const root = insideWorkspace ? workspace : path.basename(parent).toLowerCase() === "src" ? path.dirname(parent) : parent;
-  const input = fs.existsSync(path.join(root, "src")) && file.startsWith(path.join(root, "src") + path.sep) ? "src" : ".";
+  const { root, input } = automaticRoot(file, workspaceRoot);
   const dependencyList = automaticInputFilter(file, path.join(root, input));
   const key = crypto.createHash("sha256").update(root).digest("hex").slice(0, 16);
   const temporary = path.join(os.tmpdir(), "vertex-local-abap", key + "-" + process.pid);
@@ -241,6 +281,8 @@ function projectFor(document, workspaceRoot) {
     "(?:^|[/\\\\])" + name.toLowerCase() + "\\.dtel\\.xml$"));
   if (hasCore) filters.push("(?:^|[/\\\\])[^/\\\\]+\\.(?:dtel|doma)\\.xml$");
   const inputs = [input];
+  // A method or function module run: the program that calls it, from a folder of its own.
+  if (driver) { inputs.push(path.dirname(driver)); filters.push("(?:^|[/\\\\])" + path.basename(driver).replace(/[.]/g, "\\.") + "$"); }
   if (hasCore) inputs.push(path.join(core, "src", "ddic"));
   if (aliases.length) inputs.push(path.join(temporary, "ddic"));
   fs.writeFileSync(configFile, JSON.stringify({ input_folder: inputs.length > 1 ? inputs : input,
@@ -371,10 +413,34 @@ function entryFor(project, document, selection = {}) {
     }
   }
   visit(outputRoot);
+  if (!candidates.length && !/\.prog\.abap$/i.test(filename)) {
+    // abaplint takes the object type from the abapGit file name: a plain .abap file is no program to it.
+    throw new Error("The transpiler made no program of " + filename + ": it takes the object type from the file name. Name it "
+      + filename.replace(/\.abap$/i, ".prog.abap") + ".");
+  }
   if (candidates.length !== 1) {
     throw new Error("Expected one generated program for " + filename + "; found " + candidates.length + ".");
   }
   const groups = scenariosFor(document);
+  // Plain PARAMETERS and checkboxes: the value the selection screen was given, set after the program's own DEFAULT and
+  // upper-cased as SAP would.
+  const given = selection.$parameters || {};
+  const parameters = parametersFor(document).filter(parameter => Object.prototype.hasOwnProperty.call(given, parameter.name));
+  if (parameters.length) {
+    const lines = fs.readFileSync(candidates[0], "utf8").split(/\r?\n/);
+    for (const parameter of parameters) {
+      const name = parameter.name.toLowerCase();
+      let at = lines.findIndex(line => line.trimStart().startsWith("let " + name + " = "));
+      if (at < 0) throw new Error("Generated parameter " + parameter.name + " was not found.");
+      while (lines[at + 1]?.trimStart().startsWith(name + ".set(")) at++;
+      let value = String(given[parameter.name] ?? "");
+      if (parameter.kind === "checkbox") value = value ? "X" : "";
+      else if (parameter.upper) value = value.toUpperCase();
+      if (parameter.numeric && !/^-?\d+(?:\.\d+)?$/.test(value.trim() || "0")) throw new Error("Parameter " + parameter.name + " needs a number, not " + JSON.stringify(value) + ".");
+      lines[at] += name + ".set(" + (parameter.numeric ? String(Number(value.trim() || "0")) : JSON.stringify(value)) + ");";
+    }
+    fs.writeFileSync(candidates[0], lines.join("\n"));
+  }
   if (groups.some(group => selection[group.group])) {
     const lines = fs.readFileSync(candidates[0], "utf8").split(/\r?\n/);
     repairInlineProgramDeclarations(source, lines);
@@ -450,8 +516,21 @@ function repairSelectLoops(outputRoot) {
 async function launch(vscode, debug, options = {}) {
   const document = options.document || vscode.window.activeTextEditor?.document;
   const workspaceRoot = vscode.workspace.getWorkspaceFolder(document?.uri)?.uri.fsPath;
-  const project = projectFor(document, workspaceRoot);
   if (document.isDirty) await document.save();
+  // A method or a function module: the program that calls it with the values of the screen is what runs.
+  let driver = null, driverDocument = null;
+  const called = options.selection && options.selection.$entry;
+  if (called) {
+    const screen = entryScreen(document, options.entryLine);
+    if (!screen) throw new Error("The cursor is no longer in a method or a function module of " + path.basename(document.uri.fsPath) + ".");
+    const source = require("./local-entry").driverSource(screen, called);
+    const folder = path.join(os.tmpdir(), "vertex-local-entry", String(process.pid));
+    fs.mkdirSync(folder, { recursive: true });
+    driver = path.join(folder, require("./local-entry").DRIVER + ".prog.abap");
+    fs.writeFileSync(driver, source);
+    driverDocument = { uri: { fsPath: driver, scheme: "file" }, getText: () => source, isDirty: false };
+  }
+  const project = projectFor(document, workspaceRoot, driver);
   const output = vscode.window.createOutputChannel("VERTEX Local ABAP");
   output.appendLine("Transpiling " + project.root);
   try {
@@ -469,13 +548,25 @@ async function launch(vscode, debug, options = {}) {
     throw error;
   }
   const selection = { ...(options.selection || {}) };
+  if (driverDocument) delete selection.$entry;
   if (!options.selection) for (const group of scenariosFor(document)) {
     const choices = group.choices.map(choice => ({ label: choice.name, description: choice.name === group.default ? "default" : "" }));
     const picked = await vscode.window.showQuickPick(choices, { title: "Local ABAP · radio group " + group.group, placeHolder: "Choose the value for this run" });
     if (!picked) return;
     selection[group.group] = picked.label;
   }
-  const entry = entryFor(project, document, selection);
+  if (!options.selection) {
+    const parameters = parametersFor(document);
+    if (parameters.length) selection.$parameters = {};
+    for (const parameter of parameters) {
+      const value = parameter.kind === "checkbox"
+        ? (await vscode.window.showQuickPick([{ label: "X" }, { label: "(blank)" }], { title: "Local ABAP · " + parameter.name, placeHolder: "Checkbox" }))?.label
+        : await vscode.window.showInputBox({ title: "Local ABAP · " + parameter.name, value: parameter.default, prompt: "Selection screen parameter" });
+      if (value === undefined) return;
+      selection.$parameters[parameter.name] = value === "(blank)" ? "" : value;
+    }
+  }
+  const entry = entryFor(project, driverDocument || document, selection);
   const repairedSelects = repairSelectLoops(path.dirname(project.entry));
   if (repairedSelects) output.appendLine("Repaired " + repairedSelects + " SELECT work-area assignments.");
   output.appendLine("Entry ready.");
@@ -483,7 +574,8 @@ async function launch(vscode, debug, options = {}) {
   if (options.trace || options.live) {
     const outputRoot = path.dirname(project.entry);
     const traceFile = path.join(outputRoot, "vertex-local-trace.json");
-    const instrumented = require("./local-trace").instrumentProject(outputRoot, !!options.live);
+    // The program written to call a method or function module is not recorded: the run shows the code it calls.
+    const instrumented = require("./local-trace").instrumentProject(outputRoot, !!options.live, driver ? [path.basename(driver)] : []);
     if (!instrumented) throw new Error("No generated ABAP source maps were found for tracing.");
     output.appendLine("Instrumented " + instrumented + " ABAP modules.");
     const traceEntry = require("./local-trace").traceBootstrap(outputRoot, entry, traceFile, !!options.live);
@@ -650,6 +742,6 @@ function register(vscode, context) {
   }
 }
 
-module.exports = { projectFor, scenariosFor, transpile, stageRuntime, initializeSelectorDatabase, startSelectorBridge,
+module.exports = { projectFor, runScope, scenariosFor, parametersFor, entryScreen, transpile, stageRuntime, initializeSelectorDatabase, startSelectorBridge,
   selectorSql, setSelectorQuery, entryFor, debugConfiguration,
   flowClasses, prepareFlow, repairSelectLoops, launch, register };

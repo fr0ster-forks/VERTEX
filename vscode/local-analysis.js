@@ -15,6 +15,9 @@ function sourceObject(document) {
   const declaration = /^\s*(?:CLASS|INTERFACE|REPORT|PROGRAM)\s+([\w/]+)/im.exec(text);
   const kind = /^\s*(CLASS|INTERFACE|REPORT|PROGRAM)\b/im.exec(text)?.[1]?.toUpperCase();
   const filename = path.basename(document.uri.fsPath || document.uri.path || "");
+  // A function group's file (abapGit: <group>.fugr.<include or module>.abap): the module or include it holds.
+  const group = /^([^.]+)\.fugr\.([^.]+)\.abap$/i.exec(filename);
+  if (group) return /^[A-Z0-9_/$]+$/i.test(group[2]) ? { object_name: group[2].toUpperCase(), object_type: "FUNC", group: group[1].toUpperCase() } : null;
   const suffix = /\.(clas|intf|prog|incl)\.abap$/i.exec(filename)?.[1]?.toUpperCase();
   const base = filename.replace(/\.(?:clas|intf|prog|incl)\.abap$/i, "").replace(/\.abap$/i, "");
   const name = (suffix ? base : declaration?.[1] || base).toUpperCase();

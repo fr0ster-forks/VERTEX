@@ -148,17 +148,17 @@ test("local definition navigates from a program to a class and its method", asyn
 
 test("local definition follows NEW facade call to RUN implementation", async () => {
   const source = document("zvertex_debug_lab.prog.abap",
-    "REPORT zvertex_debug_lab.\nDATA(ls_result) = NEW zcl_calc_facade( )->run( iv_scenario = lv_scenario ).");
+    "REPORT zvertex_debug_lab.\nDATA lv_scenario TYPE string.\nDATA(ls_result) = NEW zcl_calc_facade( )->run( iv_scenario = lv_scenario ).");
   const facade = document("zcl_calc_facade.clas.abap",
-    "CLASS zcl_calc_facade DEFINITION.\n METHODS run.\nENDCLASS.\n" +
+    "CLASS zcl_calc_facade DEFINITION PUBLIC.\n PUBLIC SECTION.\n METHODS run IMPORTING iv_scenario TYPE string RETURNING VALUE(rv) TYPE string.\nENDCLASS.\n" +
     "CLASS zcl_calc_facade IMPLEMENTATION.\n METHOD run.\n ENDMETHOD.\nENDCLASS.");
   const files = new Map([source, facade].map(item => [item.uri.toString(), item]));
   const host = { ...vscode, workspace: { findFiles: async () => [...files.values()].map(item => item.uri),
     openTextDocument: async uri => files.get(uri.toString()) } };
-  const column = source.getText().split("\n")[1].indexOf("run(") + 1;
-  const result = await navigation.resolve(host, source, { line: 1, character: column });
+  const column = source.getText().split("\n")[2].indexOf("run(") + 1;
+  const result = await navigation.resolve(host, source, { line: 2, character: column });
   assert.equal(result.target.uri.toString(), facade.uri.toString());
-  assert.equal(result.target.range.start.line, 4);
+  assert.equal(result.target.range.start.line, 5);
 });
 
 test("local backward usage finds calls in workspace source without SAP", async () => {

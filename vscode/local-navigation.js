@@ -1,59 +1,105 @@
 "use strict";
 
+/* Go to definition in local ABAP files, by abaplint: it knows the type of a variable - an inline DATA(...) = NEW,
+   a parameter, an attribute - so lo_x->m( ) leads to m of lo_x's class, zcl_x=>m( ) to zcl_x's, an interface's method
+   to the interface. The sources are the workspace's ABAP and XML files and, for a file outside the workspace, its own
+   folder's - each as the editor has it where it is open, else as saved. A method found at its declaration leads on to its implementation where the class has one. */
+
+const fs = require("fs");
+const path = require("path");
 const local = require("./local-analysis");
-const upper = value => String(value || "").toUpperCase();
 
-function anchor(document, position) {
-  const line = document.getText().split(/\r?\n/)[position.line] || "";
-  let from = Math.min(position.character, line.length), to = from;
-  while (from > 0 && /[\w/]/.test(line[from - 1])) { from--; }
-  while (to < line.length && /[\w/]/.test(line[to])) { to++; }
-  return from === to ? null : { line, from, to, word: upper(line.slice(from, to)) };
+const cache = { registry: null, texts: new Map(), uris: new Map() };
+
+/* Every source the definition may be in: name -> { uri, text }. */
+async function sourcesFor(vscode, document) {
+  const found = new Map(), open = new Map((vscode.workspace.textDocuments || []).map(d => [String(d.uri), d]));
+  const add = async uri => {
+    const name = path.basename(uri.fsPath || uri.path || String(uri)).toLowerCase();
+    if (!/\.(?:abap|xml)$/.test(name) || found.has(name)) return;
+    const shown = open.get(String(uri));
+    let text = shown ? shown.getText() : null;
+    if (text == null && uri.scheme === "file" && uri.fsPath && fs.existsSync(uri.fsPath)) text = fs.readFileSync(uri.fsPath, "utf8");
+    if (text == null) text = (await vscode.workspace.openTextDocument(uri)).getText();
+    found.set(name, { uri, text });
+  };
+  found.set(path.basename(document.uri.fsPath || document.uri.path || "").toLowerCase(), { uri: document.uri, text: document.getText() });
+  if (vscode.workspace.findFiles) for (const uri of await vscode.workspace.findFiles("**/*.{abap,xml}", "**/node_modules/**", 5000)) await add(uri);
+  // A file outside the workspace: its neighbours on disk.
+  if (document.uri.scheme === "file" && document.uri.fsPath && fs.existsSync(document.uri.fsPath)) {
+    const dir = path.dirname(document.uri.fsPath);
+    for (const item of fs.readdirSync(dir)) await add({ scheme: "file", fsPath: path.join(dir, item), toString: () => "file:///" + path.join(dir, item) });
+  }
+  return found;
 }
 
-function findLine(document, expression) {
-  return document.getText().split(/\r?\n/).findIndex(line => expression.test(line));
+/* The registry of those sources, parsed again only where a text changed. */
+function registryFor(sources) {
+  const abaplint = require("@abaplint/core");
+  if (!cache.registry) cache.registry = new abaplint.Registry();
+  const registry = cache.registry;
+  for (const [name, { uri, text }] of sources) {
+    cache.uris.set(name, uri);
+    if (cache.texts.get(name) === text) continue;
+    const file = new abaplint.MemoryFile(name, text);
+    if (registry.getFileByName(name)) registry.updateFile(file); else registry.addFile(file);
+    cache.texts.set(name, text);
+  }
+  for (const name of [...cache.texts.keys()]) if (!sources.has(name)) {
+    registry.removeFile(registry.getFileByName(name)); cache.texts.delete(name); cache.uris.delete(name);
+  }
+  registry.parse();
+  return registry;
 }
 
-function destination(vscode, document, line, word) {
-  if (line < 0) { return null; }
-  const text = document.getText().split(/\r?\n/)[line] || "";
-  const column = Math.max(0, upper(text).indexOf(upper(word)));
-  const range = new vscode.Range(line, column, line, column + word.length);
-  return { document, target: new vscode.Location(document.uri, range) };
+/* The implementation of a method, in the file its class is defined in: from abaplint's statements. */
+function implementationLine(registry, fileName, method) {
+  const abaplint = require("@abaplint/core");
+  const file = registry.getFileByName(fileName);
+  const object = file && registry.findObjectForFile(file);
+  for (const abapFile of object?.getABAPFiles?.() || []) {
+    for (const statement of abapFile.getStatements()) {
+      if (!(statement.get() instanceof abaplint.Statements.MethodImplementation)) continue;
+      const name = statement.findDirectExpression(abaplint.Expressions.MethodName)?.concatTokens() || "";
+      if (name.toUpperCase() === method.toUpperCase()) return { file: abapFile.getFilename(), line: statement.getStart().getRow() - 1 };
+    }
+  }
+  return null;
 }
 
 async function resolve(vscode, document, position) {
-  const current = local.sourceObject(document), at = anchor(document, position);
-  if (!current || !at) { return null; }
-  const escaped = at.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const prefix = at.line.slice(0, at.from), suffix = at.line.slice(at.to);
-  const method = /(?:->|=>)\s*$/.test(prefix) || /^\s*(?:CLASS-)?METHODS?\s*:?(?:\s|$)/i.test(prefix)
-    || /^\s*METHOD\s*$/i.test(prefix);
-  const perform = /\bPERFORM\s+$/i.test(prefix);
-  if (perform) return destination(vscode, document, findLine(document, new RegExp("^\\s*FORM\\s+" + escaped + "\\b", "i")), at.word);
-  if (method) {
-    let target = document;
-    const receiver = /(?:NEW\s+([\w/]+)\s*\([^)]*\)|([\w/]+))\s*(?:->|=>)\s*$/i.exec(prefix);
-    const owner = receiver && upper(receiver[1] || (/=>\s*$/.test(prefix) ? receiver[2] : ""));
-    if (owner && owner !== current.object_name) {
-      try { target = await local.create(vscode, document, current).find(owner, "CLAS"); }
-      catch (_) { return null; }
+  if (!local.sourceObject(document)) return null;
+  const registry = registryFor(await sourcesFor(vscode, document));
+  const abaplint = require("@abaplint/core");
+  const server = new abaplint.LanguageServer(registry);
+  const name = path.basename(document.uri.fsPath || document.uri.path || "").toLowerCase();
+  let found = server.gotoDefinition({ textDocument: { uri: name }, position: { line: position.line, character: position.character } });
+  // A global class or interface named at the cursor (NEW zcl_x( ), TYPE REF TO zif_x): its definition.
+  const under = (document.getText().split(/\r?\n/)[position.line] || "").slice(0, position.character).match(/[\w/]*$/)[0]
+    + ((document.getText().split(/\r?\n/)[position.line] || "").slice(position.character).match(/^[\w/]*/)[0]);
+  const global = under && (registry.getObject("CLAS", under.toUpperCase()) || registry.getObject("INTF", under.toUpperCase()));
+  if (global && (!found || String(found.uri).toLowerCase() === name && found.range.start.line === position.line)) {
+    const kind = global.getType() === "CLAS" ? abaplint.Statements.ClassDefinition : abaplint.Statements.Interface;
+    for (const abapFile of global.getABAPFiles()) {
+      const statement = abapFile.getStatements().find(s => s.get() instanceof kind);
+      if (statement) { found = { uri: abapFile.getFilename(), range: { start: { line: statement.getStart().getRow() - 1, character: statement.getStart().getCol() - 1 } } }; break; }
     }
-    const implementation = findLine(target, new RegExp("^\\s*METHOD\\s+" + escaped + "\\b", "i"));
-    const declaration = findLine(target, new RegExp("^\\s*(?:CLASS-)?METHODS\\s+:?\\s*" + escaped + "\\b", "i"));
-    const line = /^\s*METHOD\s*$/i.test(prefix) ? declaration : implementation >= 0 ? implementation : declaration;
-    if (target === document && line === position.line) return null;
-    return destination(vscode, target, line, at.word);
   }
-  const classContext = /\b(?:NEW|CLASS|INTERFACE|TO|TYPE)\s+$/i.test(prefix) || /^\s*=>/.test(suffix);
-  if (classContext) {
-    const target = at.word === current.object_name ? document
-      : await local.create(vscode, document, current).find(at.word, "CLAS").catch(() => null);
-    if (target) return destination(vscode, target,
-      findLine(target, new RegExp("^\\s*CLASS\\s+" + escaped + "\\s+DEFINITION\\b", "i")), at.word);
+  if (!found) return null;
+  let file = String(found.uri).toLowerCase(), line = found.range.start.line, character = found.range.start.character;
+  // A method's declaration leads on to its implementation, as SAP's navigation does.
+  const declared = registry.getFileByName(file)?.getRaw().split(/\r?\n/)[line] || "";
+  const word = declared.slice(character).match(/^[\w~/]+/)?.[0];
+  if (word && /^\s*(?:CLASS-)?METHODS\b/i.test(declared)) {
+    const implemented = implementationLine(registry, file, word);
+    if (implemented) { file = implemented.file.toLowerCase(); line = implemented.line; character = (registry.getFileByName(file)?.getRaw().split(/\r?\n/)[line] || "").toUpperCase().indexOf(word.toUpperCase()); }
   }
-  return null;
+  if (file === name && line === position.line) return null;
+  const uri = cache.uris.get(file);
+  if (!uri) return null;
+  const target = file === name ? document : await vscode.workspace.openTextDocument(uri);
+  const range = new vscode.Range(line, Math.max(0, character), line, Math.max(0, character) + (word || "").length);
+  return { document: target, target: new vscode.Location(target.uri, range) };
 }
 
 function register(vscode, context) {

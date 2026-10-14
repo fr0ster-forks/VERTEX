@@ -31,6 +31,96 @@ const DUMPS_SETTLE = 1500;     // SAP formats the short dump after the program i
 
 const STEPS = { over: "stepOver", into: "stepInto", out: "stepReturn", continue: "stepContinue" };
 
+/* A step and the stack after it in one request: ADT's debugger batch, a
+   multipart POST of both. Measured on ALC (2026-10-14): about 62 ms against
+   110 for the two apart. Each part needs its own Accept, or SAP answers it
+   400. The answers are read as abap-adt-api reads the separate requests. */
+const { fullParse, xmlNodeAttr, xmlArray, encodeEntity, numberParseOptions, toInt } = require("abap-adt-api/build/utilities");
+const { parseUri } = require("abap-adt-api/build/api/urlparser");
+const STACK_REQUEST = "/sap/bc/adt/debugger?method=getStack&emode=_&semanticURIs=true";
+const VARIABLES_TYPE = "application/vnd.sap.as+xml;charset=UTF-8;dataname=com.sap.adt.debugger.Variables";
+function batchBody(boundary, parts) {
+  return parts.map(p => "--" + boundary + "\r\nContent-Type: application/http\r\ncontent-transfer-encoding: binary\r\n\r\n"
+    + "POST " + p.path + " HTTP/1.1\r\nAccept: " + (p.accept || "application/xml") + "\r\n"
+    + (p.body ? "Content-Type: " + p.accept + "\r\n" : "") + "\r\n" + (p.body || "") + "\r\n").join("") + "--" + boundary + "--\r\n";
+}
+function variablesBody(names) {
+  return '<?xml version="1.0" encoding="UTF-8" ?><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><DATA>'
+    + names.map(n => "<STPDA_ADT_VARIABLE><ID>" + encodeEntity(n) + "</ID></STPDA_ADT_VARIABLE>").join("") + "</DATA></asx:values></asx:abap>";
+}
+const CHILDREN_TYPE = "application/vnd.sap.as+xml;charset=UTF-8;dataname=com.sap.adt.debugger.ChildVariables";
+/* Every scope SAP may have at a stop, with @ROOT among them: its answer says which scopes this stop really has, and SAP
+   answers nothing for one it does not have. Seen on ALC (2026-10-14): @ROOT -> @GLOBALS in a report event; ME,
+   @PARAMETERS, @LOCALS in a method; one request of all four took 55-80 ms. */
+const SCOPES = ["@ROOT", "@GLOBALS", "@PARAMETERS", "@LOCALS"];
+function childrenBody(parents) {
+  return '<?xml version="1.0" encoding="UTF-8" ?><asx:abap version="1.0" xmlns:asx="http://www.sap.com/abapxml"><asx:values><DATA><HIERARCHIES>'
+    + parents.map(p => "<STPDA_ADT_VARIABLE_HIERARCHY><PARENT_ID>" + encodeEntity(p) + "</PARENT_ID></STPDA_ADT_VARIABLE_HIERARCHY>").join("")
+    + "</HIERARCHIES></DATA></asx:values></asx:abap>";
+}
+function parseChildren(body) {
+  const raw = fullParse(body, { removeNSPrefix: true, parseTagValue: false, numberParseOptions });
+  return { hierarchies: xmlArray(raw, "abap", "values", "DATA", "HIERARCHIES", "STPDA_ADT_VARIABLE_HIERARCHY"),
+    variables: xmlArray(raw, "abap", "values", "DATA", "VARIABLES", "STPDA_ADT_VARIABLE")
+      .map(v => ({ ...v, TABLE_LINES: toInt(v.TABLE_LINES), LENGTH: toInt(v.LENGTH), INHERITANCE_LEVEL: toInt(v.INHERITANCE_LEVEL) })) };
+}
+function parseVariables(body) {
+  const raw = fullParse(body, { removeNSPrefix: true, parseTagValue: false, numberParseOptions });
+  return xmlArray(raw, "abap", "values", "DATA", "STPDA_ADT_VARIABLE")
+    .map(v => ({ ...v, TABLE_LINES: toInt(v.TABLE_LINES), LENGTH: toInt(v.LENGTH), INHERITANCE_LEVEL: toInt(v.INHERITANCE_LEVEL) }));
+}
+function batchParts(raw) {
+  const text = String(raw || ""), first = /^--(\S+)/m.exec(text);
+  if (!first) { throw new Error("The debugger batch answer has no multipart boundary."); }
+  return text.split("--" + first[1]).map(part => part.replace(/^\r?\n/, "")).filter(part => part.trim() && part.trim() !== "--")
+    .map(part => {
+      const http = part.split(/\r?\n\r?\n/), at = http.findIndex(h => /^HTTP\/\d\.\d\s+\d{3}/.test(h));
+      if (at < 0) { throw new Error("A part of the debugger batch answer has no HTTP status: " + part.slice(0, 200)); }
+      return { status: Number(/^HTTP\/\d\.\d\s+(\d{3})/.exec(http[at])[1]), body: http.slice(at + 1).join("\n\n").trim() };
+    });
+}
+function sapText(body) {
+  const m = /<message[^>]*>([^<]*)<\/message>/.exec(String(body || ""));
+  return m ? m[1] : String(body || "").slice(0, 300);
+}
+function parseStep(body) {
+  const raw = fullParse(body, { removeNSPrefix: true });
+  return { ...xmlNodeAttr(raw.step), actions: xmlArray(raw, "step", "actions", "action").map(xmlNodeAttr), settings: xmlNodeAttr(raw.step && raw.step.settings) };
+}
+function parseStack(body) {
+  const raw = fullParse(body, { removeNSPrefix: true });
+  return { ...xmlNodeAttr(raw.stack), stack: xmlArray(raw, "stack", "stackEntry").map(xmlNodeAttr).map(x => ({ ...x, uri: parseUri(x.uri) })) };
+}
+/* names: variables read at the new stop in the same request - the value the
+   window follows; scopes: every scope's variables too (SCOPES). A part of those
+   failing is reported with the answer; the step and the stack stand. */
+async function stepWithStack(client, type, names, scopes) {
+  const reading = Array.isArray(names) && names.length ? names.map(n => String(n).toUpperCase()) : null;
+  const boundary = "batch_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+  const answer = await client.httpClient.request("/sap/bc/adt/debugger/batch", {
+    method: "POST",
+    headers: { "Content-Type": "multipart/mixed; boundary=" + boundary, Accept: "multipart/mixed" },
+    body: batchBody(boundary, [{ path: "/sap/bc/adt/debugger?method=" + type }, { path: STACK_REQUEST }]
+      .concat(reading ? [{ path: "/sap/bc/adt/debugger?method=getVariables", accept: VARIABLES_TYPE, body: variablesBody(reading) }] : [])
+      .concat(scopes ? [{ path: "/sap/bc/adt/debugger?method=getChildVariables", accept: CHILDREN_TYPE, body: childrenBody(SCOPES) }] : []))
+  });
+  const parts = batchParts(answer.body), expected = 2 + (reading ? 1 : 0) + (scopes ? 1 : 0);
+  if (parts.length !== expected) { throw Object.assign(new Error("The debugger batch answered " + parts.length + " parts instead of " + expected + "; the step may have run."), { stepRan: true }); }
+  // The step failed: the program is gone, as when a separate step throws.
+  if (parts[0].status >= 400) { throw new Error(sapText(parts[0].body)); }
+  const step = parseStep(parts[0].body);
+  if (parts[1].status >= 400) { throw Object.assign(new Error("The step ran, but the stack after it could not be read: " + sapText(parts[1].body)), { stepRan: true }); }
+  const result = { step, stack: parseStack(parts[1].body) };
+  if (reading) {
+    result.variables = parts[2].status >= 400 ? { names: reading, error: sapText(parts[2].body) } : { names: reading, found: parseVariables(parts[2].body) };
+  }
+  if (scopes) {
+    const part = parts[parts.length - 1];
+    result.scopes = part.status >= 400 ? { error: sapText(part.body) } : parseChildren(part.body);
+  }
+  return result;
+}
+
 /* The source URL a breakpoint is set on. A program and an include are read
    the way VERTEX opens them; a class line counts in its main source, as in the
    VERTEX class tab. */
@@ -78,12 +168,12 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   let problems = [];           // what went wrong outside a tool call
   let logged = [], loggedRead = 0;
   let values = new Map();      // name -> shown value, to report what changed
+  let sources = new Map();     // source url -> text, read once per attached run
   let waiters = [];
   const breakpoints = [];      // { id, objectType, name, url, line, condition, mode, adt }
   let numbered = 0, answers = { calls: 0, chars: 0 };
   let sap = null;              // { system, user, listener, open }
   let frames = [];             // the stack of the stop, for the Visual Debug window
-  let temporaries = [];        // the window's run-to points: { id, url, line, adt }
   let ended = 0;               // runs that ended, counted for the window
   // Where the reader is debugging from, so a stop is followed there and
   // nowhere else: the editor, or a VERTEX window that shows the source
@@ -563,6 +653,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
     session = { client, debuggee: hit, program: hit.PRG_CURR };
     unplaced = "";
     values = new Map();
+    sources = new Map();
     await client.debuggerAttach("user", hit.DEBUGGEE_ID, user, true);
     // The breakpoints that caught this run are SAP's "external" set, which
     // is for runs to come. The program now attached has a set of its own,
@@ -592,9 +683,10 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
      line and the stack only. What changed is then reported at the next
      ordinary stop, against the last values read. A log breakpoint met on the
      way is still recorded, and the run goes on step by step, not by continue. */
-  async function arrive(step, quick) {
+  async function arrive(step, quick, read) {
     for (;;) {
-      const stack = await session.client.debuggerStackTrace();
+      const stack = read || await session.client.debuggerStackTrace();
+      read = null;
       const top = stack.stack[0];
       const ids = (step && step.reachedBreakpoints || []).map(r => r.id);
       const bp = breakpoints.find(b => b.adt && ids.indexOf(b.adt.id) >= 0)
@@ -676,7 +768,11 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
 
   async function lines(client, frame) {
     try {
-      const text = await client.getObjectSource(frame.uri.uri);
+      // A program cannot change while it stands in the debugger, so its
+      // source is read once per run, not again at every stop.
+      const url = frame.uri.uri;
+      if (!sources.has(url)) { sources.set(url, await client.getObjectSource(url)); }
+      const text = sources.get(url);
       const all = text.split(/\r?\n/), at = frame.line;
       return all.slice(Math.max(0, at - 3), at + 2)
         .map((l, i) => { const n = Math.max(1, at - 2) + i; return (n === at ? "> " : "  ") + n + " " + l; }).join("\n");
@@ -742,13 +838,12 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
 
   /* A step, without collecting the news: the window steps too, and what
      happened stays for the assistant's debug_wait. */
-  /* expect: the line the window predicted from ACE's statement map, for a
-     step from a plain statement to a plain one in the same include. Then the
-     stack is not asked for - SAP's answer to a step does not say where the
-     program is - and the top frame moves to that line. A breakpoint SAP
-     reports on the way makes it ask after all. */
-  function advance(kind, quick, expect) {
+  /* The step and the stack after it go to SAP in one request; names: the
+     variables to read at the new stop in the same request. */
+  function advance(kind, quick, names, kinds) {
+    const asked = Date.now();
     return exclusive(async () => {
+      const queued = Date.now() - asked;
       mustBeStopped();
       const type = STEPS[kind || "over"];
       if (!type) { throw new Error('step is "over", "into", "out" or "continue".'); }
@@ -757,84 +852,30 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
       let result;
       // How long SAP took for the step itself, and for the whole of it here.
       const started = Date.now();
-      try { result = await session.client.debuggerStep(type); }
+      let read = null, values = null;
+      let scopes = null;
+      try { const both = await stepWithStack(session.client, type, names, !!kinds); result = both.step; read = both.stack; values = both.variables; scopes = both.scopes; }
       catch (error) {
+        if (error && error.stepRan) { stopped = before; throw error; }
         // The step killed the run. END already asked ST22 why, so the answer
         // to this very call can say whether it finished or dumped.
         const run = await end(error);
-        return { sap: Date.now() - started, total: Date.now() - started, ended: true,
+        return { sap: Date.now() - started, total: Date.now() - started, ended: true, queued,
           dumped: run.dumped, note: run.note || undefined };
       }
       const sap = Date.now() - started;
-      if (quick === true && expect && Number(expect.line) > 0 && frames.length
-        && !(expect.leave && frames.length < 2)
-        && !(result && result.reachedBreakpoints && result.reachedBreakpoints.length)) {
-        // Into a FORM: a frame of its own, known only from the map - no stack
-        // position to switch to until SAP is asked. Out of it: the frame goes.
-        if (expect.enter) {
-          const e = expect.enter;
-          frames.unshift({ label: String(e.label || ""), url: String(e.url || ""), line: Number(expect.line),
-            include: String(e.include || ""), program: String(e.program || ""), system: false, position: undefined });
-        } else if (expect.leave) {
-          frames.shift();
+      await arrive(result, quick === true, read);
+      const answer = { sap, total: Date.now() - started, queued };
+      if (values) { answer.values = values.error ? { names: values.names, error: values.error } : { names: values.names, read: values.found.filter(Boolean).map(shown) }; }
+      if (scopes) {
+        if (scopes.error) { answer.scopes = { error: scopes.error }; }
+        else {
+          // The structures' components are a request after the step: their time is the values', not the step's.
+          const groups = scopeGroups(scopes, kinds), began = Date.now();
+          await structureFields(session.client, groups); answer.scopes = { groups }; answer.structures = Date.now() - began;
         }
-        frames.forEach((f, n) => { f.n = n; });
-        const top = frames[0];
-        top.line = Number(expect.line);
-        top.label = String(top.label).replace(/:\d+/, ":" + top.line);
-        frames.forEach(f => { f.current = f === top; });
-        stopped = { breakpoint: null, at: top.label.split(" ")[0], stack: frames.slice(0, 6).map(f => f.label),
-          source: "", note: (before && before.note) || "", predicted: true };
-        wake();
-        return { sap, total: Date.now() - started, predicted: true };
       }
-      await arrive(result, quick === true);
-      return { sap, total: Date.now() - started };
-    });
-  }
-
-  /* Run on to a line - or to the first of several that the program reaches -
-     as F8 to breakpoints set there for the one run: a loop is passed in one
-     go, a routine left at its next call. A breakpoint of the user's on the
-     way stops it, as F8 would. The points are taken away before the stop is
-     read, so none is ever mistaken for one of theirs. */
-  function runTo(url, lines) {
-    return exclusive(async () => {
-      mustBeStopped();
-      const at = String(url).split("#")[0];
-      temporaries = [].concat(lines).map(Number).filter((n, i, all) => n > 0 && all.indexOf(n) === i)
-        .map((n, i) => ({ id: "run-to-" + i, url: at, line: n }));
-      // Into the stopped program's own set, beside the user's breakpoints.
-      let set;
-      try { set = await scoped(breakpoints.concat(temporaries)); } catch (error) { temporaries = []; throw error; }
-      const placed = temporaries.filter(t => set.some(a => a.uri.uri === t.url && a.uri.range.start.line === t.line)).length;
-      temporaries = [];
-      if (!placed) { await scoped(breakpoints); return { placed: 0 }; }
-      stopped = null;
-      const started = Date.now();
-      let result;
-      try { result = await session.client.debuggerStep(STEPS.continue); }
-      catch (error) {
-        const run = await end(error);
-        return { placed, sap: Date.now() - started, total: Date.now() - started, ended: true,
-          dumped: run.dumped, note: run.note || undefined };
-      }
-      const sap = Date.now() - started;
-      // Gone before the stop is read, so it is never taken for the user's.
-      await scoped(breakpoints);
-      await arrive(result, true);
-      return { placed, sap, total: Date.now() - started };
-    });
-  }
-
-  /* After predicted steps, ask SAP where the program really stands: the
-     stack as it is, with positions a click on a level can use. */
-  function settle() {
-    return exclusive(async () => {
-      if (!session || !stopped || !stopped.predicted) { return false; }
-      stopped = null;
-      await arrive(null, true);
-      return true;
+      return answer;
     });
   }
 
@@ -1002,8 +1043,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
         hasPage: !!d.page })) } : null,
       breakpoints: breakpoints.map(b => ({ id: b.id, objectType: b.objectType, name: b.name, url: b.url, line: b.line,
         condition: b.condition || "", mode: b.mode, active: b.active !== false })),
-      stopped: stopped ? { at: stopped.at, breakpoint: stopped.breakpoint, problem: stopped.problem || "", frames,
-        predicted: stopped.predicted === true } : null
+      stopped: stopped ? { at: stopped.at, breakpoint: stopped.breakpoint, problem: stopped.problem || "", frames } : null
     };
   }
 
@@ -1029,6 +1069,41 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
       const [sy] = withSy === false ? [] : await client.debuggerVariables(["SY"]);
       return { groups, sy: sy ? shown(sy) : null };
     });
+  }
+
+  /* The values a recorded stop keeps, in three requests at most: the scopes, the variables of the scopes asked for
+     (kinds: params, locals, globals) in one request, and the components of their structures in one more. */
+  function stopValues(kinds) {
+    return exclusive(async () => {
+      mustBeStopped();
+      const client = session.client;
+      const groups = scopeGroups(await client.debuggerChildVariables(SCOPES), kinds);
+      await structureFields(client, groups);
+      return { groups };
+    });
+  }
+
+  /* The scopes SAP named under @ROOT in an answer for SCOPES, of the kinds asked for, each with its variables. */
+  function scopeGroups(all, kinds) {
+    const kindOf = name => /^glob/i.test(name) ? "globals" : /^param/i.test(name) ? "params" : /^loc/i.test(name) ? "locals" : "";
+    const byId = new Map(all.variables.map(v => [v.ID, v]));
+    return all.hierarchies.filter(h => h.PARENT_ID === "@ROOT" && String(h.CHILD_ID).startsWith("@"))
+      .map(h => ({ id: h.CHILD_ID, name: h.CHILD_NAME || String(h.CHILD_ID).replace(/^@/, "") }))
+      .filter(g => (kinds || []).includes(kindOf(g.name)))
+      .map(g => ({ ...g, children: all.hierarchies.filter(h => h.PARENT_ID === g.id).map(h => byId.get(h.CHILD_ID)).filter(Boolean).map(shown) }));
+  }
+
+  /* A structure comes as one row: its components are read one level down, all structures together. */
+  async function structureFields(client, groups) {
+    const structures = [].concat(...groups.map(g => g.children)).filter(v => v.meta === "structure" && v.id);
+    if (!structures.length) { return; }
+    const parts = await client.debuggerChildVariables(structures.map(v => v.id));
+    const partById = new Map(parts.variables.map(v => [v.ID, v]));
+    for (const v of structures) {
+      const fields = {};
+      parts.hierarchies.filter(h => h.PARENT_ID === v.id).forEach(h => { const c = partById.get(h.CHILD_ID); if (c) { fields[c.NAME] = plain(c); } });
+      v.value = fields;
+    }
   }
 
   /* What is inside a scope, a structure or an object. */
@@ -1061,7 +1136,6 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
       mustBeStopped();
       const f = frames[Number(n)];
       if (!f) { throw new Error("There is no stack level " + n + "."); }
-      if (stopped.predicted) { throw new Error("This stack was predicted, not read: its levels can be chosen at the next stop that asks SAP."); }
       await session.client.debuggerGoToStack(f.position);
       frames.forEach(x => { x.current = x === f; });
       changed();
@@ -1122,7 +1196,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   return { drivenBy, drivenFrom,
     setBreakpoint, clearBreakpoints, activateBreakpoints, wait, step, read, run, openDump, dumpPage, checkDumps, stop, detach, status, counted,
     log: () => logged.slice(),
-    setBreakpointAt, advance, runTo, settle, terminate, watch, picture, scopes, children, variables, tableRows, frame, source,
+    setBreakpointAt, advance, terminate, stopValues, watch, picture, scopes, children, variables, tableRows, frame, source,
     classMethods };
 }
 

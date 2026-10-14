@@ -63,16 +63,9 @@ function allowed(resource, body) {
    sets breakpoints, steps and starts a run, as the debug_* tools do. */
 async function debugCommand(dbg, command, a, fetchVertex) {
   switch (command) {
-    // ACE's statement map of a program, for stepping without the stack.
-    case "statements": {
-      if (!/^[A-Za-z0-9_/$=]+$/.test(String(a.program || ""))) { throw new Error("A program name is needed for the statement map."); }
-      const raw = await fetchVertex("/sap/bc/adt/vertex/flow/" + encodeURIComponent(String(a.program).toUpperCase()) + "?mode=statements&type=PROG");
-      if (typeof raw === "string" && raw.indexOf("ERROR:") === 0) { throw new Error(raw.slice(6)); }
-      return typeof raw === "string" ? JSON.parse(raw) : raw;
-    }
     case "picture": return dbg.picture();
+    case "snapshot": return dbg.stopValues(a.kinds);
     case "source": return { url: a.url, source: await dbg.source(a.url) };
-    case "methods": return { url: a.url, methods: await dbg.classMethods(a.url, { fresh: true }) };
     case "set": {
       const bp = await dbg.setBreakpointAt({ url: a.url, line: a.line, condition: a.condition, mode: a.mode, take_over: a.take_over === true });
       return { id: bp.id };
@@ -85,7 +78,7 @@ async function debugCommand(dbg, command, a, fetchVertex) {
     }
     case "clear": await dbg.clearBreakpoints(a.id); return {};
     case "activate": await dbg.activateBreakpoints(a.id, a.active !== false); return {};
-    case "step": return (await dbg.advance(a.kind, a.quick === true, a.expect)) || {};
+    case "step": return (await dbg.advance(a.kind, a.quick === true, a.read, a.scopes)) || {};
     case "vars": return { variables: await dbg.variables(a.names) };
     case "frame": await dbg.frame(a.n); return {};
     case "scopes": return dbg.scopes(a.sy !== false);
@@ -99,8 +92,6 @@ async function debugCommand(dbg, command, a, fetchVertex) {
     case "stop": await dbg.stop(); return {};
     case "detach": await dbg.detach(); return {};
     case "terminate": await dbg.terminate(); return {};
-    case "settle": return { settled: await dbg.settle() };
-    case "runTo": return dbg.runTo(a.url, a.lines || a.line);
   }
   throw new Error("Visual Debug has no command " + command + ".");
 }

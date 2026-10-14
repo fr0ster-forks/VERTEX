@@ -1,8 +1,11 @@
 # SAP ABAP VERTEX Tools
 
-[**VERTEX**](https://github.com/ysichov/VERTEX) is a new set of plugins for VS Code and Eclipse ADT:
-AI assistant and MCP, an enhanced ABAP editor, an AI-driven debugger and explorers for code,
-versions and data. Several of them grew out of earlier SAP GUI tools.
+[**VERTEX**](https://github.com/ysichov/VERTEX) is a new set of plugins for VS Code and Eclipse ADT.
+In VS Code it also works serverless: the ABAP transpiler runs, debugs and analyses local ABAP files
+on your machine, with no SAP system - step through a report, record its run with every value,
+replay it and follow a value's origin. Against SAP: an AI assistant and MCP, an enhanced ABAP
+editor, a visual debugger with recording and replay, and explorers for code, versions and data.
+Several of them grew out of earlier SAP GUI tools.
 
 ![VERTEX architecture: VS Code and Eclipse ADT connect to shared VERTEX Web UI tools, with an MCP server for AI assistants and an optional SAP backend](https://raw.githubusercontent.com/ysichov/VERTEX/main/docs/architecture.jpg)
 
@@ -49,9 +52,30 @@ runtime bundled with VERTEX. Open a saved local `.abap` file and choose
 breakpoint, or to the end with the output when there is none - or **VERTEX: Visual Analysis / Debug**, which opens the
 panel without running. The panel is shared with SAP runs;
 for local files its title is **Visual Transpiler Debug** and its Run button is **Run with ABAP Transpiler**. Run
-asks the selection screen in a window of its own - the radio buttons, Execute (F8) - so it takes no room in the
-panel. Opened by Run with ABAP Transpiler and with no breakpoint set, the panel is a run: the Run button and the
-Output, nothing else; set a breakpoint and it is the debugger, and back when the last one is removed. Opened by Visual
+asks the selection screen in a window of its own - the radio buttons, the other PARAMETERS (a value field with its
+DEFAULT, AS CHECKBOX as a checkbox; a value is upper-cased as SAP does unless LOWER CASE), Execute (F8) - so it takes
+no room in the panel. SELECT-OPTIONS are not asked. The panel counts the breakpoints of its own object and the sources it uses - a point in another object's file
+neither shows nor stops it, and Clear all leaves it; **All BP** in the Breakpoints header counts every ABAP breakpoint
+in VS Code instead. Opened by Run with ABAP Transpiler and with none of those set, the panel is a run: the Run button and the
+Output, nothing else; set a breakpoint and it is the debugger, and back when the last one is removed. A transpiler run
+always records every step with its values: it is fast enough that there is no record switch.
+
+**A method or a function module runs too.** With the cursor inside a method of a local class
+(`zcl_x.clas.abap`) or inside a function module of a local function group (`zfg.fugr.z_fm.abap`, abapGit
+layout), the panel's screen is the call's: the constructor's importing parameters for an instance method, then
+the importing, changing and tables parameters - a field for a simple type (its DEFAULT shown), the fields of a
+structure, and a grid for a table with **+ row** and × per row. An optional parameter left empty is not passed.
+**Variant** keeps named sets of the values in VS Code, per method or module: Save, pick, Delete. Execute writes a
+small ABAP program that sets the values and calls the method (`NEW zcl_x( ... )->m( ... )`, `zcl_x=>m( ... )`)
+or the module (`CALL FUNCTION`), and runs it as any program: breakpoints, steps, the record. That program lives in a
+temporary folder, is written again for every run, and is not recorded - the run starts in the method or module
+itself. The exporting, changing and returning results are written to Output: a simple value, a structure field by
+field, a table as a table - a heading of its columns and a line per row, each column as wide as its type. A function module's file is recognised by its abapGit name, `<group>.fugr.<module>.abap`.
+Any method runs, whatever its visibility: the transpiler does not check it, so a private or protected method is
+called as a public one would be (SAP itself would refuse that call). A method of an interface the class
+implements (`METHOD zif_x~m`) is called through the interface. A reference parameter is not entered; as a result
+it stands in Variables. A parameter of a type with no name or one not among the local sources, a table inside a structure, and a project with its own `abap_transpile.json` are refused with the
+reason; nothing else is run in their place. Opened by Visual
 Analysis / Debug it is always the whole panel, for analysis with no run at all. A SELECT that fails says why in the
 Output and the VERTEX Local ABAP channel instead of reading as an empty result. VERTEX
 instruments generated program and class modules: the program pauses before each
@@ -847,21 +871,8 @@ Formula and Expression. That is the expensive half of a stop, and a run is often
 shape alone.
 
 Recording is also what makes Continue a run of F5 steps rather than SAP's own: with it off,
-Continue is Continue. A run always draws where the program is as it goes. **Predict** says
-how it steps. On - the default - the next line comes from the statement map where the text alone
-decides it. Off, SAP is asked where the program is after every step and loops are stepped
-through, so every stop was read rather than worked out. Even with it on the map is not used
-within one line, where nothing could check it, nor across the end of a method or form, where
-the frame changes.
-
-With a value followed and its analysis loaded, Predict also skips what the value cannot come
-from, and the run does not spend time on those steps: a loop or an IF/CASE block with no
-place of the slice in it, and a run of statements outside the slice, are passed in one go (F8 to
-a temporary point on what follows); a call that is not itself a place of the slice is stepped over with F6 (a call that is one is
-entered, so the calculations inside it stay in the record and in BSE), the record keeps the line
-it stood on, and the stack is not read after it. F8 to a point costs about two steps, so a run of statements is passed that way
-from three of them and a block from four. A breakpoint of yours on the way keeps a block
-stepped through. The statistics count the loops, blocks and runs passed.
+Continue is Continue. A run always draws where the program is as it goes. Every step reads where the program now is:
+the stack comes back with the step in one request to SAP.
 
 **One magnifier.** Every diagram - Tools (UML, Calls, Logic), the flow of Value origin and the
 debugger's diagram - has the same magnifier, a magnifier icon in the toolbar. It follows the pointer
@@ -928,11 +939,11 @@ path and the values of an earlier local debug session; a live SAP debug session 
 branch* and *Collapse this branch*. Show from here draws the diagram from that node down; the path bar above
 it returns to a wider view, and Escape steps back.
 
-A Visual, Rec or Flow run is F8 made of F5 steps, and it ends at a breakpoint it steps onto -
+A Visual or Rec run is F8 made of F5 steps, and it ends at a breakpoint it steps onto -
 including one in the program that called the class being stepped through, where SAP reports a
 step rather than a breakpoint. A deactivated point and a log point do not stop it.
 
-A Visual, Rec or Flow run reports it too. Those runs step on their own and take no
+A Visual or Rec run reports it too. Those runs step on their own and take no
 events while they step, so a dump used to end them with nothing said; the answer to the
 step that killed the run carries it, and the section opens from there as it does for F5.
 
@@ -974,7 +985,11 @@ debugger the assistant drives - one session, not a second one:
   initial value and **SYST** the system fields `SY`, both hidden by default; **Filter** narrows
   by name. A value that changed since the previous stop is marked. **Right-click** a variable and
   choose **Follow … in the analysis** to make it the value that BSE and **Points** are about; a plain click
-  only selects or unfolds, so a value is never followed by accident. A type SAP names only
+  only selects or unfolds, so a value is never followed by accident. At a stop of a recorded run - the player moved
+  to it, in SAP or in the transpiler - the values recorded there are right-clicked the same way, and the menu adds
+  **Flow of … from stop N** (Analyze flow path forward from that stop's line) and **Backward of … from stop N**
+  (Where used, back from it): the value is followed, Formula is built from the record at that stop, and nothing is
+  run again. Choose another value and ask again as often as needed. A type SAP names only
   `\TYPE=%_T...` is shown as the source declares it - `p LENGTH 8 DECIMALS 2` - or, with no
   declaration, as SAP's technical type.
 - **What is read, and when.** **Globals**, **Locals** and **Params** switch a group's reading
@@ -985,38 +1000,21 @@ debugger the assistant drives - one session, not a second one:
 - **Visual.** With **Visual** on, Continue (F8) runs as a string of F5 steps: the current line
   moves through the source as the program goes, no variable is read on the way, and it stops at a
   stop breakpoint, on **Pause**, or when the programs it began in are no longer on the stack -
-  the program is over and F5 would go on into SAP's own code. SAP's answer to a step does not
-  say where the program now is, so each step asks for the stack - except from one plain statement
-  to the next plain one in a program or include, where the next line is known from ACE's
-  statement map (`/vertex/flow/<program>?mode=statements`, read once per program). A plain
-  `PERFORM` is predicted too - into its FORM's first statement, with a frame added to the stack,
-  and from `ENDFORM` back to the statement after the call. Such a stack is marked predicted: its
-  levels can be chosen once SAP is asked, which happens when the run stops. A standalone call of
-  a local method - `lcl=>m( )`, `me->m( )`, `m( )`, `CALL METHOD m` - is predicted the same way,
-  unless a local class inherits from that class (the method may be redefined) or it has a class
-  constructor. A loop is not stepped through: at `LOOP`, `DO` or `WHILE` the run sets a point on
-  the statement after the loop's end and runs to it with F8, then goes on step by step; a
-  breakpoint of yours inside the loop stops it there, as F8 would. With **Z only** on (the
-  default), a step that goes from Z/Y code into SAP's own is followed by F7 at once: the call runs
-  to its end and the run goes on in your code - as F6 on that call, Z code called from inside it
-  (a BAdI, an exit) passed with it. Where the map can tell beforehand that every call of a
-  statement goes outside Z/Y code - `CALL FUNCTION 'BAPI_...'`, `cl_gui_x=>m( )`, `NEW cl_x( )`, a
-  builtin - the run steps over it with F6 and takes the next statement without asking SAP. The map is used on a source
-  only where it lines up with it - each statement starting on its line with its keyword - so a
-  global class's method include is predicted too; a call into a global class, a branch or a call
-  through another reference still asks SAP. When the stack is asked after a
-  plain statement and the program is not where the map said - an exception raised inside `TRY` -
-  the window says so and counts it as *mispredicted*. The statistics show the steps, how many
-  were predicted, the time per step, and SAP's step and stack requests apart. Beside it: the steps, the time, and the time per
-  step - of the whole step and of SAP's step request alone. The variables are read once, when it
+  the program is over and F5 would go on into SAP's own code. Each step gets the stack after it
+  in the same request to SAP (ADT's debugger batch), and with a value followed, that value too.
+  Loops are stepped through. With **Z only** on (the default), a step that goes from Z/Y code
+  into SAP's own is followed by F7 at once: the call runs to its end and the run goes on in your
+  code - as F6 on that call, Z code called from inside it (a BAdI, an exit) passed with it. The
+  statistics show the steps, the time per step, and
+  SAP's step and stack requests apart. Beside it: the steps, the time, and the time per
+  step - of the whole step and of SAP's step request alone. At its end, *ms per step* splits a
+  step's time: SAP's step (with the stack after it, when the step reads it), the rest of the
+  host's work on the stop, the wait for the debugger's queue, the host's own handling, the page-host round trip, the picture, drawing,
+  values, and the rest. A click on the statistics copies
+  them. The variables are read once, when it
   stops. A log breakpoint met on the way is still recorded.
-- **Flow.** With **Flow** on, Continue (F8) runs from call to call and records which routine
-  calls which - the program's real flow. In a routine it sets points on every call that may
-  enter Z/Y code and on the routine's end and runs to the first reached, whatever branch the
-  program takes; at a call it goes in (F5), a call outside Z/Y is stepped over (F6) and a step
-  that lands outside Z/Y goes back out (F7); a routine with nothing to call is left at once. With
-  **Visual** on as well, the window draws where the program is at each change of the stack only.
-  When the run stops, **Diagram** shows the flow as a Mermaid chart: **Classes** (classes and
+- **Diagram.** A run records which routine calls which - the program's real flow. When the run
+  stops, **Diagram** shows it as a Mermaid chart: **Classes** (classes and
   programs, with the number of calls between them) or **Methods** (every routine, grouped by
   its class) - kept across Continue until the program ends or Detach or Exit program is pressed -
   zoomed with −, +, Fit or Ctrl + wheel, and shown on the whole window with ⤢ (Esc
@@ -1031,7 +1029,7 @@ debugger the assistant drives - one session, not a second one:
   ⏮ ◀ ▶ ⏭ and a slider move through the recorded stops and ⏵ replays them: the source line and the green block
   move together with the Stack as it was at that stop (marked recorded), from the record alone,
   at 1, 2, 3, 5 or 10 stops a second or as fast as the window draws (max), with the
-  milliseconds each stop took on screen (kept after the replay). Flow and Rec read a routine's
+  milliseconds each stop took on screen (kept after the replay). Rec reads a routine's
   Parameters and Locals where it starts and where it ends; the player shows them in Variables,
   and at the stops between, the values last read in that routine.
   A click on a block moves the player to the next time the run entered that routine, its source
@@ -1049,8 +1047,8 @@ debugger the assistant drives - one session, not a second one:
 - **Sections.** The right column holds Stack, Breakpoints, Variables, Diagram and Log. Each is
   shown or hidden by its switch at the top of the column, and the line between two visible
   sections drags to resize them. Diagram opens by itself when a run has recorded something.
-- **Log.** A section of its own; it lists every step of the Visual and Flow runs:
-  what was done (F5, F6, F7, F8 and to which points, predicted or not), from where, to where, and
+- **Log.** A section of its own; it lists every step of the Visual runs:
+  what was done (F5, F6, F7, F8 and to which points), from where, to where, and
   how long it took, SAP's share apart. A filter narrows it, **Copy** takes it as text. It is kept
   like the flow, the last 5000 steps. A line under the buttons says, at each step, what the run
   knew and decided - the map, the statement, the step.

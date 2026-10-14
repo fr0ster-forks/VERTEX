@@ -3,7 +3,10 @@
 const fs = require("fs");
 const path = require("path");
 
-function create(vscode, document, launch, publish) {
+/* scope: the sources of this run ({ files } or { root }), read when the object is opened and again at each run. */
+/* more.entry: the method or function module screen at the panel's line; more.variants: where named sets of its values
+   are kept (VS Code's workspace state), under the method's or module's name. */
+function create(vscode, document, launch, publish, scope, more = {}) {
   const name = path.basename(document.uri.fsPath).replace(/\.(?:prog|clas|intf)\.abap$/i, "").toUpperCase();
   let latest = null, listening = false, ended = 0, error = "", pendingStep = null;
   let trace = [], traceIndex = 0, live = null;
@@ -20,7 +23,16 @@ function create(vscode, document, launch, publish) {
     publish(picture());
   }
   const isAbap = uri => uri?.scheme === "file" && /\.abap$/i.test(uri.fsPath || "");
-  const points = () => (vscode.debug.breakpoints || []).filter(bp => isAbap(bp.location?.uri)).map(bp => ({
+  // Only the points in this object's sources: one in another object's file neither shows here nor turns a plain run
+  // into a debug run.
+  let sources = scope ? scope() : null, everyPoint = false;
+  const key = file => path.resolve(file).toLowerCase();
+  const ours = uri => {
+    if (!sources || everyPoint) return true;
+    const file = key(uri.fsPath);
+    return sources.root ? file.startsWith(key(sources.root) + path.sep) : sources.files.some(f => key(f) === file);
+  };
+  const points = () => (vscode.debug.breakpoints || []).filter(bp => isAbap(bp.location?.uri) && ours(bp.location.uri)).map(bp => ({
     id: bp.id, objectType: "PROG", name: path.basename(bp.location.uri.fsPath).split(".")[0].toUpperCase(),
     url: bp.location.uri.fsPath, line: bp.location.range.start.line + 1,
     condition: bp.condition || "", mode: "stop", active: bp.enabled !== false
@@ -67,11 +79,13 @@ function create(vscode, document, launch, publish) {
   };
   const localGroups = () => [{ id: "vertex-local-variables", name: "Locals",
     children: (latest?.variables || []).map(shown) }];
+  const variantsOf = key => ({ ...((more.variants && more.variants.get("vertex.variants." + key)) || {}) });
   async function command(action, args = {}) {
     switch (action) {
       case "picture": return picture();
       case "run": {
         live?.stop(); live = null;
+        if (scope) sources = scope();
         latest = null; error = ""; listening = true; trace = []; publish(picture());
         const result = await launch(args.selection || {});
         live = result?.live || null;
@@ -136,14 +150,29 @@ function create(vscode, document, launch, publish) {
         vscode.debug.addBreakpoints([bp]); return { id: bp.id };
       }
       case "clear": vscode.debug.removeBreakpoints((vscode.debug.breakpoints || []).filter(bp =>
-        !args.id || bp.id === args.id)); return {};
+        args.id ? bp.id === args.id : isAbap(bp.location?.uri) && ours(bp.location.uri))); return {};
       case "activate": return {};
       case "stop": case "detach": case "terminate":
         live?.stop(); live = null;
         await vscode.debug.stopDebugging(); finish(); return {};
-      case "settle": return { settled: !listening };
       case "frame": return {};
-      case "methods": return { methods: [] };
+      // The selection screen as the document stands now.
+      case "selection": { const run = require("./local-run");
+        return { scenarios: run.scenariosFor(document), parameters: run.parametersFor(document), entry: more.entry ? more.entry() : null }; }
+      // Named sets of values for a method or function module, kept in VS Code.
+      case "variants": return { variants: variantsOf(args.key) };
+      case "saveVariant": {
+        if (!more.variants) throw new Error("Variants cannot be kept here.");
+        const name = String(args.name || "").trim(); if (!name) throw new Error("A variant needs a name.");
+        const all = variantsOf(args.key); all[name] = args.values || {};
+        await more.variants.update("vertex.variants." + args.key, all); return { variants: all };
+      }
+      case "deleteVariant": {
+        const all = variantsOf(args.key); delete all[String(args.name || "")];
+        await more.variants.update("vertex.variants." + args.key, all); return { variants: all };
+      }
+      // All BP: every ABAP breakpoint in VS Code counts, not only this object's.
+      case "allBreakpoints": everyPoint = args.on === true; publish(picture()); return {};
       case "copy": await vscode.env.clipboard.writeText(String(args.text || "")); return {};
       case "checkdumps": return { dumped: [] };
       case "opendump": return {};
