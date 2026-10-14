@@ -4,8 +4,8 @@
 
 Run with ABAP Transpiler now stops at breakpoints and steps on from there with F5-F8; before, the whole program ran and the buttons only replayed it. A `WRITE` without a line break no longer stalls the next step, and a breakpoint on an inline `DATA(x) = ...` stops.
 Methods, Logic and Statements draw every routine of a recorded SAP or transpiler run again; an event block was named two ways and left the rest of the diagram unreachable.
-Right-click on a routine frame offers Show from here, Expand and Collapse again. A breakpoint offers Where used (Backward Usage Analysis) beside Analyze flow path.
-Steps & values reads the values at every stop. With a value chosen in Variables, Formula is built from the record - without values from Rec steps - the statement that changed the value and what it read, with their values - beside the analysis's, followed into the routines that returned it; Expression writes it out as one formula. A With values toggle shows the recorded values in the Formula diagram and beside the names of the analysis's Formula and Expression.
+Right-click on a routine frame offers Show from here, Expand and Collapse again. A breakpoint offers Where used (Backward Usage Analysis) beside Analyze flow path. Opening Visual Debug again starts clean. Every name in the formulas links to its statement.
+Steps & values reads the values at every stop. With a value chosen in Variables, the analysis's Formula and Expression keep only the path the run took and carry the recorded values in brackets, the total included, and Formula details the run below it - without values from Rec steps - the statement that changed the value and what it read, with their values - beside the analysis's, followed into the routines that returned it; Expression writes it out as one formula. A With values toggle shows the recorded values in the Formula diagram and beside the names of the analysis's Formula and Expression.
 
 ## 2026-10-12 — Experimental local ABAP execution in VS Code
 

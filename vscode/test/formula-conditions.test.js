@@ -22,3 +22,22 @@ test("a WHEN branch reads as the CASE value equal to it", () => {
   assert.match(text, /10 when k = 1/);
   assert.match(text, /20 when k = 2/);
 });
+
+test("a recorded run keeps only the definitions it executed: one calculation, no alternatives", () => {
+  const graph = analyze([{ id: "demo", text: ["IF x > 1.", "  a = 1.", "ELSE.", "  a = 2.", "ENDIF.", "WRITE a."].join("\n") }], { source: "demo", line: 6, variable: "a" });
+  const ran = new Set([4]);
+  const text = formula(graph, definition => ran.has(Number(definition.line))).expression.text;
+  assert.doesNotMatch(text, /when|otherwise|\|/);
+  assert.match(text, /\b2\b/);
+});
+
+test("definitions that all ran are steps in the order the run made them, not alternatives", () => {
+  const source = ["a = 10.", "IF x = 1.", "  a = a + 1.", "ENDIF.", "IF y = 1.", "  a = a * 2.", "ENDIF.", "WRITE a."];
+  const graph = analyze([{ id: "demo", text: source.join("\n") }], { source: "demo", line: 8, variable: "a" });
+  const objectOf = location => String(location || "").toUpperCase().split(/->|→|=>/)[0];
+  const object = objectOf((graph.nodes.find(n => n.line === 3) || {}).location);
+  const ran = new Set([1, 3, 6]);
+  const ordered = { ...graph, pipeline: { steps: [{ modifier_class: object, step_no: 1 }], scenario: "", byRun: true } };
+  const text = formula(ordered, definition => ran.has(Number(definition.line))).expression.text;
+  assert.equal(text, "A = (10 + 1) * 2");
+});

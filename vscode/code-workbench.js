@@ -233,7 +233,24 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   const originOpen = request => gate.gated(() => openOrigin(request));
   const originVariables = gate.newest(readVariables);
   // The sources of the last analysis: what a node of its flow opens, as Value origin opens its nodes.
-  let lastOrigin = null;
+  let lastOrigin = null, lastOriginGraph = null;
+  /* The analysis's formula as one recorded run made it: only the definitions whose statement the run executed take
+     part, so the variants the analysis keeps for other paths fall away. executed: [{ object, line }] from the record. */
+  const originPath = request => {
+    if (!lastOriginGraph) throw new Error("No path was analysed: use Analyze flow path first.");
+    const up = text => String(text || '').toUpperCase();
+    const objectOf = location => up(String(location || '').split(/->|→|=>/)[0]);
+    const ran = new Set((request && request.executed || []).map(item => up(item.object) + ':' + Number(item.line)));
+    // Definitions of one value that all ran - every modifier of a pipeline - are not alternatives but steps: each read
+    // what the one before left. The record says their order, given as the pipeline the formula orders steps by.
+    const order = [];
+    (request && request.executed || []).forEach(item => { const object = up(item.object); if (object && !order.includes(object)) order.push(object); });
+    const graph = { ...lastOriginGraph, pipeline: { steps: order.map((object, index) => ({ modifier_class: object, step_no: index + 1 })), scenario: '', byRun: true } };
+    const formula = require('./value-origin-formula').formula(graph, definition => ran.has(objectOf(definition.location) + ':' + Number(definition.line)));
+    const paneHtml = require('./value-origin-formula-html'), sourceOf = node => 'origin:' + node.source + '|' + (node.location || '');
+    return { formula: { nodes: formula.nodes, edges: formula.edges, maxLevel: formula.maxLevel },
+      panes: { formula: paneHtml.formulaPane(graph, formula, sourceOf), expression: paneHtml.expressionPane(formula, sourceOf) } };
+  };
   // A link from a diagram goes to the source where the reader already has it: an editor showing that document is
   // scrolled, not joined by a second copy in another column. Only a document not on screen is opened, in the column the
   // ABAP sources already live in.
@@ -336,6 +353,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const rows = graph.flow || [];
     // The derivation of the value as formulas, by the algorithm Value origin draws its Formula view with.
     const formula = require('./value-origin-formula').formula(graph);
+    lastOriginGraph = graph;
     const paneHtml = require('./value-origin-formula-html');
     // The two panes that are HTML, drawn as Value origin draws them; a button opens by the marker the debugger's links use.
     const panes = { formula: paneHtml.formulaPane(graph, formula, node => 'origin:' + node.source + '|' + (node.location || '')), expression: paneHtml.expressionPane(formula, node => 'origin:' + node.source + '|' + (node.location || '')) };
@@ -2392,7 +2410,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     // A reviewer's action or the save of a review built from ADT, answered on this side; null for any other write.
     tableWrite: async (resource, body) => { const api = (await repository()).api;
       return require('./review-front').write(api, resource, body, await reviewIo(api)); },
-    schemas, onEvent: events.on, runUnitTests: unitTestsOf, runAtc: atcOf, attachDebugger, revealFrame, openToolSource, originPoints, originOpen, originVariables, documentObject,
+    schemas, onEvent: events.on, runUnitTests: unitTestsOf, runAtc: atcOf, attachDebugger, revealFrame, originPath, forgetOrigin: () => { lastOriginGraph = null; }, openToolSource, originPoints, originOpen, originVariables, documentObject,
     editorContext() {
       const editor = vscode.window.activeTextEditor;
       if (!editor || !editor.document) { return null; }

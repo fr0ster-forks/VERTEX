@@ -99,7 +99,8 @@ button.x{background:transparent;border:0}
 #dumppagebody table{border-collapse:collapse}
 #dumppagebody td,#dumppagebody th{border:1px solid var(--vscode-panel-border,GrayText);padding:2px 6px;vertical-align:top}
 #dumppagebody h1,#dumppagebody h2,#dumppagebody h3{font-size:13px;margin:10px 0 4px}
-.vx-value{color:var(--vscode-debugTokenExpression-number,var(--vscode-descriptionForeground));font-family:var(--vscode-editor-font-family,monospace)}
+body:not(.vx-with-values) .rf-value{display:none}
+.rf-value,.vx-value{color:var(--vscode-debugTokenExpression-number,var(--vscode-descriptionForeground));font-family:var(--vscode-editor-font-family,monospace)}
 .empty{padding:4px 8px;color:var(--vscode-descriptionForeground,GrayText);font-family:system-ui,sans-serif}
 .empty.loading{display:flex;align-items:center;gap:8px}
 .empty.loading:before{content:"";width:12px;height:12px;border:2px solid var(--vscode-panel-border,GrayText);border-top-color:var(--vscode-focusBorder,#0a66c2);border-radius:50%;animation:vertex-spin .8s linear infinite}
@@ -2173,7 +2174,7 @@ function showFlow(){
     flowBusy=false;return stepSources().then(showFlow).catch(failed);}
   flowBusy=false;
   return loadMermaid().then(function(){
-    mermaid.initialize({startOnLoad:false,securityLevel:"strict",theme:darkPane()?"dark":"default",flowchart:{htmlLabels:false,useMaxWidth:false},maxEdges:100000});
+    mermaid.initialize({startOnLoad:false,securityLevel:"strict",theme:darkPane()?"dark":"default",flowchart:{htmlLabels:false,useMaxWidth:false},maxEdges:100000,maxTextSize:5000000});
     // The shown reading of the one record (or of the analysis) is built now; the shared view asks for another one
     // through vertexFlowReading when it is switched to, and keeps it until the record is drawn anew.
     var labels={classes:"Classes",methods:"Methods",logic:"Logic",steps:"Statements"};
@@ -2212,27 +2213,32 @@ function recordSteps(){
 function withRecordFormula(data){
   // The toggle is there whenever a value is chosen: the values themselves come from a recorded run.
   $("fvalues").hidden=!chosenValue;
-  // Formula is the record's tree; Expression stays the analysis's compact one when a path was analysed, With values
-  // putting the recorded values in brackets after its names.
+  // The analysis's formula stays as it was before the run; With values puts the final recorded values in brackets after
+  // its names. The formula built from the record is for a run with no analysed path.
   var analysed=data.panes;
   if(!chosenValue||!(flow.timeline||[]).length||typeof sdeOrigin!=="function")return Promise.resolve(data);
   var steps=recordSteps(),sources={};
   steps.forEach(function(s){var lines=texts[norm(s.url)];if(s.url&&lines&&!(s.url in sources))sources[s.url]=lines.join("\n");});
   var at=replayAt!=null?replayAt:steps.length-1;
-  return askOrigin({recordFormula:{variable:chosenValue.name,at:at,steps:steps,sources:sources}}).then(function(rf){
+  // The analysed path as this run took it: only the definitions whose line the run executed.
+  var executed=[],seen={};
+  steps.forEach(function(s){var object=String(s.location||"").split("=>")[0].toUpperCase(),key=object+":"+s.line;if(s.line&&!seen[key]){seen[key]=true;executed.push({object:object,line:s.line});}});
+  var path=analysed?askOrigin({pathFormula:{executed:executed}}).catch(function(error){notice("The analysed path as run: "+(error&&error.message||error));return null;}):Promise.resolve(null);
+  return path.then(function(run){if(run&&run.panes)analysed=run.panes;return askOrigin({recordFormula:{variable:chosenValue.name,at:at,steps:steps,sources:sources}}).then(function(rf){
     if(!rf||!rf.formula||!rf.formula.nodes.length)return data;
     // A record of steps alone gives the formula without values: there is nothing for the toggle to show.
     var on=rf.hasValues&&$("fvalues").classList.contains("on");
     data.formula={nodes:rf.formula.nodes.map(function(n){return Object.assign({},n,{label:on?n.label:n.text,dataText:on?n.label:n.text});}),edges:rf.formula.edges};
     data.maxLevel=rf.formula.maxLevel;
-    // The compact formula leads Formula too: the one line of Expression, then the tree that explains it.
+    // The formula leads Formula too: the one line of Expression, then the tree that explains it.
     var expression=analysed?analysed.expression:rf.panes.expression,holder=document.createElement("div");holder.innerHTML=expression;
     var line=holder.querySelector("p > code");
     data.panes={formula:(line?'<p>'+line.outerHTML+'</p>':"")+rf.panes.formula,expression:expression};
     return data;
-  }).catch(function(error){notice("Formula from the run: "+(error&&error.message||error));return data;});
+  });}).catch(function(error){notice("Formula from the run: "+(error&&error.message||error));return data;});
 }
-$("fvalues").onclick=function(){$("fvalues").classList.toggle("on");showFlow();};
+$("fvalues").onclick=function(){$("fvalues").classList.toggle("on");document.body.classList.toggle("vx-with-values",$("fvalues").classList.contains("on"));showFlow();};
+document.body.classList.add("vx-with-values");
 /* With values, the names the analysis's Formula and Expression read are given the value the record holds for them: in
    the routine the analysis places them in, at its last stop there up to the stop shown. A name the record has no value
    for is left as it is. */
@@ -2255,7 +2261,14 @@ function annotateValues(){
   var box=$("bse-workspace");if(!box)return;
   annotating=true;
   box.querySelectorAll(".vx-value").forEach(function(e){e.remove();});
+  box.querySelectorAll("p > code").forEach(function(code){code.normalize();});
   var steps=(flow.timeline||[]).length?recordSteps():[],upto=replayAt!=null?replayAt:steps.length-1;
+  // The value the formula comes to, after its name on the left.
+  if($("fvalues").classList.contains("on")&&steps.length&&chosenValue){var total=recordedValue(chosenValue.name,"",steps,upto);
+    if(total!==undefined)box.querySelectorAll("p > code").forEach(function(code){var first=code.firstChild;
+      if(!first||first.nodeType!==3||String(first.nodeValue).toUpperCase().indexOf(chosenValue.name+" =")!==0)return;
+      var s=document.createElement("span");s.className="vx-value";s.textContent=" ("+(total!==null&&typeof total==="object"?JSON.stringify(total):String(total))+")";s.title="Recorded value";
+      first.splitText(chosenValue.name.length);code.insertBefore(s,first.nextSibling);});}
   if($("fvalues").classList.contains("on")&&steps.length)box.querySelectorAll("[data-full]").forEach(function(e){
     var v=recordedValue(e.dataset.full,e.dataset.location,steps,upto);if(v===undefined)return;
     var s=document.createElement("span");s.className="vx-value";s.textContent=" ("+(v!==null&&typeof v==="object"?JSON.stringify(v):String(v))+")";s.title="Recorded value";e.after(s);});

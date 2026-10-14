@@ -9,8 +9,16 @@ const { escape } = require("./value-origin-formula-html");
 
 const upper = value => String(value || "").toUpperCase();
 const signature = value => value === undefined ? undefined : JSON.stringify(value);
-const shown = value => value === undefined ? "" : value !== null && typeof value === "object"
-  ? (Array.isArray(value) ? value.length + " rows" : JSON.stringify(value)) : String(value);
+// A value as the formula writes it: a table by its rows, an object reference as an object, a structure briefly - the
+// formula is about the numbers, and a whole instance would not fit a diagram.
+const shown = value => {
+  if (value === undefined) return "";
+  if (value === null || typeof value !== "object") return String(value);
+  if (Array.isArray(value)) return value.length + " rows";
+  if ("INTERNAL_ID" in value || "me" in value) return "object";
+  const text = JSON.stringify(value);
+  return text.length > 80 ? Object.keys(value).length + " fields" : text;
+};
 
 // The statements of one source, by abaplint; a source that cannot be parsed has none, and says so.
 function parsedSource(text, url) {
@@ -35,22 +43,38 @@ function statementAt(statements, line) {
     const field = inline && inline.findFirstExpression(lint.Expressions.TargetField);
     return upper((field || item).concatTokens());
   });
-  const written = new Set(targets);
+  // What is read is told from what is written by place, not by name: in x = x + y the x on the right is read.
+  const at = token => token.getRow() + ":" + token.getCol();
+  const inTargets = new Set(node.findAllExpressionsRecursive(lint.Expressions.Target).flatMap(item => item.getTokens().map(at)));
   const reads = [];
   for (const chain of node.findAllExpressionsRecursive(lint.Expressions.FieldChain)) {
     const name = upper(chain.concatTokens());
-    if (!written.has(name) && !reads.includes(name)) reads.push(name);
+    if (!inTargets.has(at(chain.getFirstToken())) && !reads.includes(name)) reads.push(name);
   }
   // The right-hand side as pieces: text, and the field chains in it, so the expression can put each one's own
   // derivation in its place. A statement with no source - LOOP, WRITE - has none.
   const source = node.findDirectExpression(lint.Expressions.Source);
   const rhs = source ? pieces(source, lint) : null;
-  return { text: node.concatTokens(), targets, reads, rhs, line: node.getStart().getRow() };
+  // A call's parameters and what it passes them: CHANGING cs_context = ls_context binds CS_CONTEXT to LS_CONTEXT.
+  const bindings = {};
+  for (const kind of [lint.Expressions.ParameterS, lint.Expressions.ParameterT]) {
+    for (const parameter of node.findAllExpressionsRecursive(kind)) {
+      const formal = parameter.findDirectExpression(lint.Expressions.ParameterName);
+      const actual = parameter.findDirectExpression(lint.Expressions.Source) || parameter.findDirectExpression(lint.Expressions.Target);
+      if (formal && actual) bindings[upper(formal.concatTokens())] = upper(actual.concatTokens());
+    }
+  }
+  return { text: node.concatTokens(), targets, reads, rhs, bindings, line: node.getStart().getRow() };
 }
 function pieces(expression, lint) {
   const out = [];
   const visit = item => {
     if (item instanceof lint.Nodes.ExpressionNode && item.get() instanceof lint.Expressions.FieldChain) { out.push({ chain: upper(item.concatTokens()) }); return; }
+    // CONV changes a type, not what the value is computed from: as in the analysis's formula, only what it converts.
+    if (item instanceof lint.Nodes.ExpressionNode && item.get() instanceof lint.Expressions.Source && upper(item.getFirstToken().getStr()) === "CONV") {
+      const inner = item.findDirectExpression(lint.Expressions.ConvBody)?.findDirectExpression(lint.Expressions.Source);
+      if (inner) { visit(inner); return; }
+    }
     if (item instanceof lint.Nodes.TokenNode || item instanceof lint.Nodes.TokenNodeRegex) { out.push({ text: item.getFirstToken().getStr() }); return; }
     item.getChildren().forEach(visit);
   };
@@ -103,12 +127,21 @@ function build(request) {
   // A change seen on coming back from a call was made by the call: the statement is the last stop at the depth the
   // change is seen at, not the deeper stop just before it.
   const depthOf = index => Number(steps[index]?.depth) || 0;
+  // A name the call at the stop before passes in: one of its parameters.
+  const entered = (name, index) => { const statement = statementOfStep(index - 1); return !!statement && !!statement.bindings[upper(name).split("-")[0]]; };
   const changeOf = (name, upto) => {
     if (!hasValues) {
       for (let index = upto - 1; index >= 0; index--) if (writes(index, name)) return { made: index, seen: index + 1 };
       return null;
     }
+    const own = depthOf(upto);
     for (let index = upto; index >= 1; index--) {
+      // Back to where this routine was entered with no change on the way: the value is what the call passed in. Said
+      // even when it equals the value before - a transpiler record keeps every routine's names in one set.
+      if (depthOf(index) === own && depthOf(index - 1) < own && name.split("-")[0] !== "" ) {
+        if (signature(valueAt(name, index)) === signature(valueAt(name, index - 1)) && !entered(name, index)) continue;
+        return { made: index - 1, seen: index };
+      }
       if (signature(valueAt(name, index)) === signature(valueAt(name, index - 1))) continue;
       let made = index - 1;
       if (depthOf(made) > depthOf(index)) while (made > 0 && depthOf(made) > depthOf(index)) made--;
@@ -127,8 +160,10 @@ function build(request) {
       while (end < steps.length && depthOf(end) > depthOf(made)) end++;
       for (let index = end - 1; index > made; index--) {
         if (depthOf(index) !== depthOf(made) + 1) continue;
-        const target = (statementOfStep(index)?.targets || []).find(item => item.endsWith("-" + component));
-        if (target) return { name: target, made: index };
+        // The component itself, or the whole structure that holds it (rs_result = ls_context, CHANGING cs_context = ...).
+        const targets = statementOfStep(index)?.targets || [];
+        const target = targets.find(item => item.endsWith("-" + component)) || targets.find(item => !item.includes("-") && !item.includes("("));
+        if (target) return { name: target.endsWith("-" + component) ? target : target + "-" + component, made: index };
       }
     }
     if (!hasValues) return null;
@@ -167,29 +202,56 @@ function build(request) {
     const called = hasValues ? change.seen - 1 > made : depthOf(made + 1) > depthOf(made) && !node.parameter;
     const returned = called ? returnedBy(name, change.seen, made) : null;
     if (returned) { const child = derive(returned.name, returned.made, level + 1, path, { made: returned.made, value: node.value }); child.returned = true; node.children.push(child); }
+    // A parameter set on entering the call came from the argument the call passed it, in the caller.
+    const component = upper(name).split("-").slice(1).join("-"), base = upper(name).split("-")[0];
+    if (node.parameter && statement && statement.bindings[base]) {
+      const actual = statement.bindings[base], carried = component && !actual.includes("-") ? actual + "-" + component : actual;
+      const child = derive(carried, made, level + 1, path); child.passed = true; node.children.push(child);
+      return node;
+    }
+    // A whole structure copied (rs_result = ls_context) carries the component the value is: LS_CONTEXT-AMOUNT is read.
+    const whole = component && statement && statement.targets.includes(base);
     for (const read of statement ? statement.reads : []) {
-      if (!known(read)) continue;
-      node.children.push(derive(read, made, level + 1, path));
+      const carried = whole && !read.includes("-") && !read.includes("(") ? read + "-" + component : read;
+      if (!known(carried)) continue;
+      node.children.push(derive(carried, made, level + 1, path));
     }
     return node;
   };
   const tree = derive(variable, at, 0, new Set());
+  // What the tree shows: a node that leads to the same code as its only child says nothing the child does not - the
+  // parameter a call passed, over that call - and gives way to it. Expression is written from the whole tree.
+  const sameCode = (a, b) => !!a.source && a.source === b.source && a.line === b.line;
+  // So does a parameter whose code - the call that passed it - is already shown above it.
+  const shownTree = (node, level = 0, above = []) => {
+    let kept = node;
+    while (kept.children.length === 1 && (sameCode(kept, kept.children[0]) || kept.parameter && above.some(item => sameCode(item, kept)))) kept = kept.children[0];
+    const path = above.concat(kept);
+    return { ...kept, level, children: kept.children.map(child => shownTree(child, level + 1, path)) };
+  };
+  const display = shownTree(tree);
+  maxLevel = 0;
   const walk = node => {
-    nodes.push({ id: node.id, level: node.level, text: node.text, label: hasValues ? node.of + " = " + (node.value === "" ? "(empty)" : node.value) + (node.outside ? "" : "  ·  " + node.text) : node.text,
-      dataText: node.text, location: node.location || node.source, source: node.source, line: node.line, stack: 0, variables: [] });
+    maxLevel = Math.max(maxLevel, node.level);
+    // A diagram node says it briefly; the whole statement is in the tree and behind the link.
+    const brief = text => String(text).length > 100 ? String(text).slice(0, 97) + "…" : String(text);
+    nodes.push({ id: node.id, level: node.level, text: brief(node.text), label: hasValues ? node.of + " = " + (node.value === "" ? "(empty)" : node.value) + (node.outside ? "" : "  ·  " + brief(node.text)) : brief(node.text),
+      dataText: brief(node.text), location: node.location || node.source, source: node.source, line: node.line, stack: 0, variables: [] });
     node.children.forEach(child => { edges.push({ from: node.id, to: child.id, label: child.of }); walk(child); });
   };
-  walk(tree);
-  return { formula: { nodes, edges, maxLevel }, tree, hasValues, panes: { formula: formulaPane(tree, said, hasValues), expression: expressionPane(tree, hasValues) } };
+  walk(display);
+  return { formula: { nodes, edges, maxLevel }, tree, hasValues, panes: { formula: formulaPane(display, said, hasValues), expression: expressionPane(tree, hasValues) } };
 }
 
 const where = node => node.outside ? "not changed in the record" : (String(node.location || "").split("->")[0] || node.source) + ":" + node.line + " · stop " + (node.stop + 1);
-const button = node => node.source ? `<button class="location code-location" title="Open this statement in source; Ctrl+Click opens beside" data-node="${escape(node.id)}" data-source="${escape(node.source)}" data-line="${node.line}">&lt;/&gt;</button>` : "";
+// Every name of the formula and of the tree is the link to the statement that set its value; with no statement in
+// the record it is plain text.
+const link = (node, label) => node && node.source ? `<button class="data-composed" title="Open the statement that set it: ${escape(where(node))}" data-node="${escape(node.id)}" data-source="${escape(node.source)}" data-line="${node.line}">${label}</button>` : label;
 
 function formulaPane(tree, said, hasValues = true) {
   const html = (node, root) => {
-    const caption = `<span class="formula-expression"><b>${escape(node.of)}</b>${hasValues ? " = " + escape(node.value) : ""}</span>`
-      + (node.outside ? ` <span class="edge">${escape(hasValues ? where(node) : "not written in the record")}</span>` : ` <code>${escape(node.text)}</code> <span class="edge">${escape(where(node))}${hasValues && node.before !== undefined ? " · was " + (node.before === "" ? "empty" : escape(node.before)) : ""}</span>`) + button(node);
+    const caption = `<span class="formula-expression">${link(node, "<b>" + escape(node.of) + "</b>")}${hasValues ? " = " + escape(node.value) : ""}</span>`
+      + (node.outside ? ` <span class="edge">${escape(hasValues ? where(node) : "not written in the record")}</span>` : ` <code>${escape(node.text)}</code> <span class="edge">${escape(where(node))}${hasValues && node.before !== undefined ? " · was " + (node.before === "" ? "empty" : escape(node.before)) : ""}</span>`);
     const children = node.children.map(child => html(child, false)).join("");
     return children ? `<details class="formula-node" data-formula-node="${escape(node.id)}" data-level="${node.level}"${root ? " open" : ""}><summary>${caption}</summary><div class="formula-children">${children}</div></details>`
       : `<div class="formula-leaf" data-formula-node="${escape(node.id)}" data-level="${node.level}">${caption}</div>`;
@@ -203,26 +265,27 @@ function formulaPane(tree, said, hasValues = true) {
 // statements in the order they ran, and the values it started from.
 // A name of the formula with the value the record holds for it, in brackets; the view hides the values with
 // With values off.
-const named = (name, value, hasValues) => escape(name.toLowerCase()) + (hasValues && value !== undefined ? `<span class="rf-value"> (${escape(value === "" ? "empty" : value)})</span>` : "");
+const named = (name, value, hasValues, node) => link(node, escape(name.toLowerCase())) + (hasValues && value !== undefined ? `<span class="rf-value"> (${escape(value === "" ? "empty" : value)})</span>` : "");
 const tail = name => upper(name).split("-").slice(1).join("-");
 /* The derivation written out as one expression, the one way the run went: the right-hand side of the statement that
    made the value, each value it read replaced by its own right-hand side, as far as the record goes. A value a call
    changed is written as the routine computed it - the child that carries the same component (LS_RESULT-AMOUNT,
    then the routine's CS_CONTEXT-AMOUNT), or the value it returned. HTML, with the values of the names left in it. */
 function expressionText(node, hasValues, seen = new Set()) {
-  if (node.outside || seen.has(node.id)) return named(node.of, node.value, hasValues);
+  if (node.outside || seen.has(node.id)) return named(node.of, node.value, hasValues, node);
   const path = new Set(seen).add(node.id);
   const reads = new Set((node.rhs || []).filter(piece => piece.chain).map(piece => piece.chain));
-  const carrier = node.children.find(item => item.returned && !item.outside)
+  const carrier = node.children.find(item => (item.returned || item.passed) && !item.outside)
     || (tail(node.of) && node.children.find(item => !item.outside && !reads.has(item.of) && tail(item.of) === tail(node.of)));
   if (carrier) return expressionText(carrier, hasValues, path);
-  if (!node.rhs) return named(node.of, node.value, hasValues);
+  if (!node.rhs) return named(node.of, node.value, hasValues, node);
   return node.rhs.map(piece => {
     if (!piece.chain) return escape(piece.text);
     const child = node.children.find(item => item.of === piece.chain);
-    if (!child || child.outside || !child.rhs) return named(piece.chain, child && child.value, hasValues);
+    // A read value is written out as far as the record goes - through a parameter to the argument the call passed.
+    if (!child || child.outside || !child.rhs && !child.children.some(item => (item.returned || item.passed) && !item.outside)) return named(piece.chain, child && child.value, hasValues, child);
     const inner = expressionText(child, hasValues, path);
-    return child.rhs.length === 1 ? inner : "( " + inner + " )";
+    return inner.includes(" ") ? "( " + inner + " )" : inner;
   }).join(" ");
 }
 // The formula first, then what its names stand for, then the statements in the order they ran.
@@ -235,10 +298,10 @@ function expressionPane(tree, hasValues = true) {
   const leaves = node => { if (node.outside && !inputs.some(item => item.of === node.of)) inputs.push(node); node.children.forEach(leaves); };
   leaves(tree);
   if (tree.outside) return `<p class="edge">${escape(tree.of)} was not ${hasValues ? "changed" : "written"} in the record.</p>`;
-  const steps = changes.map(node => `<li><code>${escape(node.of.toLowerCase())} = ${node.rhs ? expressionText({ ...node, children: [] }, false) : escape(node.text)}</code> <span class="edge">${hasValues ? "= " + escape(node.value) + " · " : ""}${escape(where(node))}</span>${button(node)}</li>`).join("");
+  const steps = changes.map(node => `<li><code>${link(node, escape(node.of.toLowerCase()))} = ${node.rhs ? expressionText({ ...node, children: [] }, false) : escape(node.text)}</code> <span class="edge">${hasValues ? "= " + escape(node.value) + " · " : ""}${escape(where(node))}</span></li>`).join("");
   const given = inputs.map(node => hasValues ? `<li><code>${escape(node.of.toLowerCase())} = ${escape(node.value === "" ? "(empty)" : node.value)}</code> <span class="edge">${escape(where(node))}</span></li>`
     : `<li><code>${escape(node.of.toLowerCase())}</code> <span class="edge">not written in the record</span></li>`).join("");
-  return `<p><code>${escape(tree.of.toLowerCase())} = ${expressionText(tree, hasValues)}</code></p>${hasValues ? `<p class="edge">= ${escape(tree.value)}</p>` : ""}`
+  return `<p><code>${link(tree, escape(tree.of.toLowerCase()))} = ${expressionText(tree, hasValues)}</code></p>${hasValues ? `<p class="edge">= ${escape(tree.value)}</p>` : ""}`
     + (given ? `<p class="edge">Where the values come from</p><ul class="expression-where">${given}</ul>` : "")
     + (steps ? `<p class="edge">The statements, in the order they ran</p><ol class="expression-steps">${steps}</ol>` : "");
 }

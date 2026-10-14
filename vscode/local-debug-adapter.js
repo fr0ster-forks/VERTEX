@@ -142,7 +142,9 @@ function create(vscode, document, launch, publish) {
     }
     throw new Error("Local Visual Debug does not support " + action + " yet.");
   }
-  return { picture, update, finish, command, hasTrace: () => trace.length > 0 };
+  // A new Visual Debug window starts clean: the paused transpiler process of this one ends with it.
+  const dispose = () => { live?.stop(); live = null; trace = []; latest = null; };
+  return { picture, update, finish, command, dispose, hasTrace: () => trace.length > 0 };
 }
 
 module.exports = { create };

@@ -57,14 +57,14 @@ function formulaPane(graph, derivation, sourceOf = node => node.source) {
   const { dataFormula } = symbolic(graph);
   const formulaHtml = (node, root = false) => {
     const children = node.children.map(child => formulaHtml(child)).join('');
-    const caption = root
-      ? `<span class="formula-expression">${escape(node.text)}</span><button class="location code-location" title="Open the selected value in source; Ctrl+Click opens beside" data-node="${escape(node.id)}" data-source="${escape(sourceOf(node))}" data-line="${node.line}">&lt;/&gt;</button>`
-      : `<span class="formula-expression">${dataFormula({ text: node.text, calculated: [], composed: [] })}</span><button class="location code-location" title="Open this formula in source; Ctrl+Click opens beside" data-node="${escape(node.id)}" data-source="${escape(sourceOf(node))}" data-line="${node.line}">&lt;/&gt;</button>`;
+    // The formula itself is the link to its statement; no separate </> beside it.
+    const text = root ? escape(node.text) : dataFormula({ text: node.text, calculated: [], composed: [] });
+    const caption = `<button class="data-composed" title="${root ? 'Open the selected value in source' : 'Open this formula in source'}; Ctrl+Click opens beside" data-node="${escape(node.id)}" data-source="${escape(sourceOf(node))}" data-line="${node.line}"><span class="formula-expression">${text}</span></button>`;
     return children ? `<details class="formula-node" data-formula-node="${escape(node.id)}" data-level="${node.level}"${root ? ' open' : ''}><summary>${caption}</summary><div class="formula-children">${children}</div></details>` : `<div class="formula-leaf" data-formula-node="${escape(node.id)}" data-level="${node.level}">${caption}</div>`;
   };
   // What the loaded pipeline took out is said above the tree, never left out without a word.
-  const pipelineNote = derivation.pipeline !== '' || derivation.skipped.length
-    ? `<p class="edge">Ordered by the loaded pipeline${derivation.pipeline ? ' of scenario ' + escape(derivation.pipeline) : ''}${derivation.skipped.length ? '; not in it, so not run: ' + escape([...new Set(derivation.skipped)].join(', ')) : ''}.</p>` : '';
+  const pipelineNote = derivation.byRun || derivation.pipeline !== '' || derivation.skipped.length
+    ? `<p class="edge">${derivation.byRun ? 'In the order the run executed them' : 'Ordered by the loaded pipeline'}${derivation.pipeline ? ' of scenario ' + escape(derivation.pipeline) : ''}${derivation.skipped.length ? '; not in it, so not run: ' + escape([...new Set(derivation.skipped)].join(', ')) : ''}.</p>` : '';
   const formulaView = derivation.tree ? pipelineNote + formulaHtml(derivation.tree, true) : '<p class="edge">No symbolic formula was resolved for this value.</p>';
   return '<p class="edge">Formula derivation — click a branch to expand its input formulas</p>' + formulaView;
 }
@@ -74,8 +74,8 @@ function formulaPane(graph, derivation, sourceOf = node => node.source) {
 function expressionPane(derivation, sourceOf = node => node.source) {
   const expression = derivation.expression;
   if (!expression) { return '<p class="edge">No symbolic formula was resolved for this value.</p>'; }
-  const note = derivation.pipeline !== '' || derivation.skipped.length
-    ? `<p class="edge">Ordered by the loaded pipeline${derivation.pipeline ? ' of scenario ' + escape(derivation.pipeline) : ''}${derivation.skipped.length ? '; not in it, so not run: ' + escape([...new Set(derivation.skipped)].join(', ')) : ''}.</p>` : '';
+  const note = derivation.byRun || derivation.pipeline !== '' || derivation.skipped.length
+    ? `<p class="edge">${derivation.byRun ? 'In the order the run executed them' : 'Ordered by the loaded pipeline'}${derivation.pipeline ? ' of scenario ' + escape(derivation.pipeline) : ''}${derivation.skipped.length ? '; not in it, so not run: ' + escape([...new Set(derivation.skipped)].join(', ')) : ''}.</p>` : '';
   // A value that comes from a table is a link to the statement that reads it; its class shows when the pointer rests on it.
   const known = new Map(expression.where.map(item => [item.name, item]));
   const names = [...known.keys()].sort((a, b) => b.length - a.length);

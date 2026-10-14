@@ -885,23 +885,25 @@ and runs **VERTEX: Backward Usage Analysis** there for the value chosen in Varia
 routine - or, with none chosen, for the routine at the point, so where its values go in the callers is shown from the
 debugger.
 
-**Formula and Expression from the run.** With a run recorded and a value chosen in Variables, Formula is built
-from the record under the compact formula, and so is Expression when no path was analysed. With values (Steps & values; a transpiler run always has them) they show them;
-from Rec steps alone they are built from the statements that ran - the last one that wrote each value - without values. Formula
-shows the value, the statement that last changed it - its stop, line, and the value before and after - and the
-variables that statement read, with their values at that moment, each derived the same way back through the
-record; a value the record never saw change is a leaf, *not changed in the record*. A value a call returned is
-followed into the routine: under the call stands the routine's own variable that held it at its last stop - the same
-component of its returning structure - and its derivation there; a parameter is set by the call's arguments.
-Expression writes the derivation out as one formula, each value read replaced by its own right-hand side and a
-returned value by the routine's computation, then lists the statements in the order they ran and where the values
-came from. abaplint reads each
-statement, so a statement over several lines is read whole. When Analyze flow path has run, Expression is its compact
-formula, with the recorded values in brackets after the names. **With values** - shown whenever a value is chosen, on by default - writes the recorded values into the
-Formula diagram, and after each name of the analysis's Formula and Expression puts in brackets the value the record holds for it -
-in the routine the analysis places it in, at its last stop there up to the stop shown, so it follows the player; off,
-the formulas show names and statements alone. In a SAP record a structure's components are read one level down for
-this.
+**Formula and Expression with the run's values.** With a value chosen in Variables and a path analysed, after a run
+Formula and Expression are the analysis's formula as the run took it: only the definitions whose line the run
+executed take part, so the alternatives for other paths (`otherwise`, `when sy-subrc = 0 ...`) fall away, and
+definitions that all ran - every modifier of a pipeline - stand as steps in the order the run executed them, each
+reading what the one before left. One calculation is left. **With values** - shown whenever a value is chosen, on by default - puts
+after each of their names, in brackets, the value the record holds for it: in the routine the analysis places it in,
+at its last stop there up to the stop shown, so at the end of the record the final values, and it follows the player;
+the value on the left, the one the formula comes to, is given the same way.
+Formula shows that formula above the tree of the run: each value, the statement that last changed it with its stop,
+line and the value before, and what that statement read, back through the record - a node that would open the
+same code as the node under it or above it, such as the parameter a call passed, is left out. Every name of the
+formula and of the tree, and each formula of the analysis's tree, is itself the link to the statement that set it; a value the record never saw
+change is a leaf, *not changed in the record*. With no path analysed, Expression is written out from the record
+instead, the same way. Values come from Steps & values (a transpiler run always has them); from Rec steps alone the
+tree comes from the statements that ran - the last one that wrote each value - without values. In a SAP record a
+structure's components are read one level down for this.
+
+**A new window starts clean.** Opening Visual Debug again drops the record, a paused transpiler run, the analysed
+path and the values of an earlier local debug session; a live SAP debug session and the breakpoints stay.
 
 **Show from here.** Right-click a node or a routine frame of the diagram for *Show from here*, *Expand this
 branch* and *Collapse this branch*. Show from here draws the diagram from that node down; the path bar above

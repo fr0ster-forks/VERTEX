@@ -61,7 +61,9 @@ function withoutConversions(text) {
   return (out + text.slice(at)).split(/\s+/).join(' ').trim();
 }
 
-function formula(graph) {
+/* keep: which definitions take part - all of them for the analysis; for a recorded run only those whose statement the
+   run executed, so the formula is the one calculation the run made, with no alternatives. */
+function formula(graph, keep = () => true) {
   const { stackOfScope } = scopeStacks(graph);
   const bseById = new Map((graph.nodes || []).map(node => [node.id, node]));
   const canonical = value => String(value || '').toUpperCase().replace(/\s+/g, '');
@@ -88,7 +90,8 @@ function formula(graph) {
   const withinBounds = node => !graph.flowBounds || !node || node.source !== graph.selectedSource
     || (node.line >= graph.flowBounds.from && node.line <= graph.flowBounds.to);
   const formulaInputs = nodeId => (graph.edges || []).filter(edge => edge.to === nodeId).map(edge => bseById.get(edge.from)).filter(node => node?.kind === 'value' && !isTechnicalValue(node) && withinBounds(node));
-  const formulaDefinitions = (valueId, visited = new Set(), component = '') => {
+  const formulaDefinitions = (valueId, visited = new Set(), component = '') => everyDefinition(valueId, visited, component).filter(definition => keep(definition));
+  const everyDefinition = (valueId, visited = new Set(), component = '') => {
     if (!valueId || visited.has(valueId)) return [];
     const value = bseById.get(valueId);
     component = value?.kind === 'value' && value.text.includes('-')
@@ -176,7 +179,7 @@ function formula(graph) {
     formulaGraph.nodes = formulaGraph.nodes.filter(node => depths.has(node.id)).map(node => ({ ...node, level: depths.get(node.id) }));
     formulaGraph.edges = edges;
     maxLevel = Math.max(0, ...depths.values());
-    return { nodes: formulaGraph.nodes, edges: formulaGraph.edges, maxLevel, tree, expression, skipped, pipeline: graph.pipeline.scenario || '' };
+    return { nodes: formulaGraph.nodes, edges: formulaGraph.edges, maxLevel, tree, expression, skipped, pipeline: graph.pipeline.scenario || '', byRun: !!graph.pipeline.byRun };
   }
   return { nodes: formulaGraph.nodes, edges: formulaGraph.edges, maxLevel, tree, expression, skipped: [], pipeline: '' };
 }

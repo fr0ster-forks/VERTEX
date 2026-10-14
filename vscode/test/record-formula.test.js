@@ -43,7 +43,7 @@ test("a value is derived from the statement that changed it and what that statem
   assert.equal(rate.value, "3");
   assert.equal(rate.line, 5);
   assert.match(result.panes.formula, /From the run/);
-  assert.match(result.panes.expression, /lv_rate = 3/);
+  assert.match(result.panes.expression.replace(/<[^>]+>/g, ""), /lv_rate = 3/);
   assert.equal(result.formula.edges.length, result.formula.nodes.length - 1);
 });
 
@@ -127,4 +127,55 @@ test("one calculation, the way the run went: an accumulation and a component car
   const formula = result.panes.expression.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").split(" Where the values")[0];
   assert.match(formula, /ls_result-amount = 100 \+ \( 100 \* lv_rate \(0\.19\) \) = 119/);
   assert.doesNotMatch(formula, /otherwise|\|/);
+});
+
+test("the tree shows no node that leads to the same code as its only child", () => {
+  const report = ["REPORT zx.", "DATA ls_r TYPE i.", "ls_r = zcl_calc=>run( 7 ).", "WRITE ls_r."].join("\n");
+  const method = ["CLASS zcl_calc IMPLEMENTATION.", "METHOD run.", "rv = iv * 2.", "WRITE rv.", "ENDMETHOD.", "ENDCLASS."].join("\n");
+  const steps = [
+    { url: "zx.prog.abap", line: 3, depth: 1, location: "ZX", values: { LS_R: 0 } },
+    { url: "zcl_calc.clas.abap", line: 3, depth: 2, location: "ZCL_CALC=>RUN", values: { LS_R: 0, IV: 7 } },
+    { url: "zcl_calc.clas.abap", line: 4, depth: 2, location: "ZCL_CALC=>RUN", values: { LS_R: 0, IV: 7, RV: 14 } },
+    { url: "zx.prog.abap", line: 4, depth: 1, location: "ZX", values: { LS_R: 14 } }];
+  const result = build({ variable: "LS_R", steps, sources: { "zx.prog.abap": report, "zcl_calc.clas.abap": method } });
+  const lines = result.formula.nodes.map(node => node.source + ":" + node.line);
+  const parent = new Map(result.formula.edges.map(edge => [edge.to, edge.from]));
+  for (const node of result.formula.nodes) {
+    const up = result.formula.nodes.find(item => item.id === parent.get(node.id));
+    const only = up && result.formula.edges.filter(edge => edge.from === up.id).length === 1;
+    assert.ok(!(only && up.source && up.source === node.source && up.line === node.line), "a node repeats its parent's code: " + lines.join(", "));
+  }
+  assert.match(result.panes.expression.replace(/<[^>]+>/g, " ").replace(/\s+/g, " "), /ls_r = iv \(7\) \* 2 = 14/);
+});
+
+test("a call made again in a loop shows once per pass, without the parameter over it", () => {
+  const report = ["REPORT zx.", "DATA(ls_result) = zcl_run=>run( ).", "WRITE ls_result-amount."].join("\n");
+  const run = ["CLASS zcl_run IMPLEMENTATION.", "METHOD run.", "ls_context-amount = 100.", "zcl_mod=>apply( CHANGING cs_context = ls_context ).",
+    "rs_result = ls_context.", "ENDMETHOD.", "ENDCLASS."].join("\n");
+  const mod = ["CLASS zcl_mod IMPLEMENTATION.", "METHOD apply.", "cs_context-amount = cs_context-amount * 2.", "ENDMETHOD.", "ENDCLASS."].join("\n");
+  const s = (url, line, depth, values) => ({ url, line, depth, location: url, values });
+  const R = "run.clas.abap", M = "mod.clas.abap";
+  const steps = [s("zx.prog.abap", 2, 1, {}), s(R, 3, 2, { LS_CONTEXT: { amount: 0 } }), s(R, 4, 2, { LS_CONTEXT: { amount: 100 } }),
+    s(M, 3, 3, { LS_CONTEXT: { amount: 100 }, CS_CONTEXT: { amount: 100 } }), s(R, 4, 2, { LS_CONTEXT: { amount: 200 }, CS_CONTEXT: { amount: 200 } }),
+    s(M, 3, 3, { LS_CONTEXT: { amount: 200 }, CS_CONTEXT: { amount: 200 } }), s(R, 5, 2, { LS_CONTEXT: { amount: 400 }, CS_CONTEXT: { amount: 400 } }),
+    s("zx.prog.abap", 3, 1, { LS_RESULT: { amount: 400 } })];
+  const result = build({ variable: "LS_RESULT-AMOUNT", steps, sources: { "zx.prog.abap": report, [R]: run, [M]: mod } });
+  assert.ok(!result.formula.nodes.some(node => /^parameter of/.test(node.text)), result.formula.nodes.map(node => node.text).join(" | "));
+  assert.equal(result.formula.nodes.filter(node => /apply/.test(node.text)).length, 2, "one node per pass of the loop");
+});
+
+test("Expression goes on through the parameter a call passed, modifier after modifier", () => {
+  const report = ["REPORT zx.", "DATA(ls_result) = zcl_run=>run( ).", "WRITE ls_result-amount."].join("\n");
+  const run = ["CLASS zcl_run IMPLEMENTATION.", "METHOD run.", "ls_context-amount = 100.", "zcl_mod=>apply( CHANGING cs_context = ls_context ).",
+    "rs_result = ls_context.", "ENDMETHOD.", "ENDCLASS."].join("\n");
+  const mod = ["CLASS zcl_mod IMPLEMENTATION.", "METHOD apply.", "cs_context-amount = cs_context-amount * 2.", "ENDMETHOD.", "ENDCLASS."].join("\n");
+  const s = (url, line, depth, values) => ({ url, line, depth, location: url, values });
+  const R = "run.clas.abap", M = "mod.clas.abap";
+  const steps = [s("zx.prog.abap", 2, 1, {}), s(R, 3, 2, { LS_CONTEXT: { amount: 0 } }), s(R, 4, 2, { LS_CONTEXT: { amount: 100 } }),
+    s(M, 3, 3, { LS_CONTEXT: { amount: 100 }, CS_CONTEXT: { amount: 100 } }), s(R, 4, 2, { LS_CONTEXT: { amount: 200 }, CS_CONTEXT: { amount: 200 } }),
+    s(M, 3, 3, { LS_CONTEXT: { amount: 200 }, CS_CONTEXT: { amount: 200 } }), s(R, 5, 2, { LS_CONTEXT: { amount: 400 }, CS_CONTEXT: { amount: 400 } }),
+    s("zx.prog.abap", 3, 1, { LS_RESULT: { amount: 400 } })];
+  const result = build({ variable: "LS_RESULT-AMOUNT", steps, sources: { "zx.prog.abap": report, [R]: run, [M]: mod } });
+  const formula = result.panes.expression.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").split(" = 400")[0];
+  assert.match(formula, /ls_result-amount = \( 100 \* 2 \) \* 2$/);
 });

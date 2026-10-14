@@ -995,7 +995,8 @@ function activate(context) {
             // error included: it is the analysis's, not the next debugger answer's.
             const request = JSON.parse(String((message.args || [])[0] || "{}"));
             let reply;
-            try { reply = { id: request.id, answer: request.recordFormula ? require("./record-formula").build(request.recordFormula)
+            try { reply = { id: request.id, answer: request.pathFormula ? sapCode.originPath(request.pathFormula)
+              : request.recordFormula ? require("./record-formula").build(request.recordFormula)
               : dockedDebugSource?.local && request.variables
               ? await require("./local-analysis").declaredVariables(dockedDebugSource.document, request.variables, vscode)
               : request.open ? await sapCode.originOpen(request.open) : request.variables ? await sapCode.originVariables(request.variables) : await sapCode.originPoints(request,progress=>view.webview.postMessage({type:"originProgress",payload:{id:request.id,...progress}}),dockedDebugSource?.local?dockedDebugSource.document:null) }; }
@@ -1123,6 +1124,12 @@ function activate(context) {
       vscode.window.showWarningMessage("VERTEX: open a local or SAP ABAP source tab first.");
       return;
     }
+    // A new window starts clean: no record, no paused transpiler run, no analysed path, no values of an earlier
+    // Node debug session, no history mark. A live SAP debug session and the breakpoints are the debugger's, and stay.
+    localDebugAdapter?.dispose();
+    latestLocalVariables = null;
+    clearLocalHistoryMark();
+    sapCode.forgetOrigin?.();
     dockedDebugSource = source;
     localDebugAdapter = source.local ? require("./local-debug-adapter").create(vscode, source.document,
       selection => require("./local-run").launch(vscode, false, { document: source.document, selection, live: true }),
