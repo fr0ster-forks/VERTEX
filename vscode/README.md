@@ -344,7 +344,8 @@ Changes made there are still sent to SAP only through **Review & Activate** or *
 ## Value Origin
 
 In VS Code the analysis is reached through **VERTEX: Visual Analysis / Debug**: a breakpoint's *Analyze flow path* is
-Forward Usage Analysis between two points, for the value chosen in Variables, and its *Where used* is Backward Usage
+Forward Usage Analysis from that point - to the next checked point the flow meets, else to the end - for the value
+chosen in Variables, and its *Where used* is Backward Usage
 Analysis. Neither has an editor menu or palette entry of its own. What follows describes the analysis itself.
 
 Without a value chosen in Variables, Analyze flow path offers FLOW with Full scope; Formula, Expression and BSE are disabled until a value is chosen.

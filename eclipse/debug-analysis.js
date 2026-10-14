@@ -6,10 +6,13 @@ const points = require('../vscode/value-origin-points');
 const {collect} = require('../vscode/value-origin-pipeline');
 const {formula} = require('../vscode/value-origin-formula');
 const panes = require('../vscode/value-origin-formula-html');
-let lastSources = [];
+let lastSources = [], lastGraph = null;
 const upper = value => String(value || '').toUpperCase();
 
 async function request(api, request, progress = () => {}) {
+  // Formula and Expression of a recorded run, and the analysed path as that run took it: the same readings VS Code uses.
+  if (request.recordFormula) return require('../vscode/record-formula').build(request.recordFormula);
+  if (request.pathFormula) return require('../vscode/value-origin-path').pathFormula(lastGraph, request.pathFormula.executed);
   if (request.open) {
     const source = lastSources.find(s => s.id === request.open.source);
     if (!source) throw new Error('Run the analysis again: this source is no longer in its result.');
@@ -56,7 +59,7 @@ async function request(api, request, progress = () => {}) {
     return {object_name:name,object_type:type,line:args.line || null,scope:focus ? upper(focus.owner) + '->' + upper(focus.name) : '',name:focus?.name || '',
       params:focus?.params || [],locals:focus?.locals || [],globals:!focus || args.globals ? global?.locals || [] : null,warnings};
   }
-  lastSources = closure.sources;
+  lastSources = closure.sources; lastGraph = graph;
   const found = points.pointsOf(graph,closure.sources), flow = points.pathRows(graph,closure.sources), sites = points.siteRows(graph,closure.sources);
   const derived = formula(graph), link = node => 'origin:' + node.source + '|' + (node.location || '');
   return {variable,points:found,flow,sites,formula:{nodes:derived.nodes,edges:derived.edges,maxLevel:derived.maxLevel},

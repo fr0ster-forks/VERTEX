@@ -104,7 +104,7 @@ If a CLI is missing, configure its executable here and log in externally first.
 Build: run `node eclipse/prepare.js` before PDE export. The generated
 `org.vertex.abap.ui/assistant/` files are committed so an ordinary Eclipse export
 also includes the runtime. Edit their originals in `vscode/` and `eclipse/`,
-then regenerate. The feature and bundle sources are at `0.8.8.qualifier`, the same number as the VS Code extension; the checked-in update site carries build `0.8.8.202610092043`.
+then regenerate. The feature and bundle sources are at `0.8.15.qualifier`, the same number as the VS Code extension; the checked-in update site carries build `0.8.15.202610141238`.
 
 For a local installable archive without replacing the published `docs/` site:
 
@@ -151,8 +151,14 @@ shortcuts open it.
 - With several ADT debug threads, a thread selector appears in the page header.
 - Right-click a node or a routine frame of the diagram for *Show from here*, *Expand this branch*
   and *Collapse this branch*.
-- Formula and Expression come from Analyze flow path; building them from a recorded run is
-  VS Code only.
+- Steps & values reads the values at every stop, a structure's components one level down. With a
+  value chosen in Variables, Formula and Expression after a run keep only the path the run took, with
+  the recorded values in brackets (With values switches them); with no path analysed they are written
+  out from the record. Every name in them links to its statement.
+- Several values can be followed - a structure as its components - and a list on the chip and at the
+  left of the diagram toolbar switches between them. Analyze flow path works from a single point, to
+  the end of the flow when no other checked point is met. Variable trees start closed.
+- Where used on a breakpoint and the Clear button are VS Code only for now.
 
 Differences from VS Code: no step prediction (Eclipse reads the stack at every suspend, so a step
 is not shortened). **Run** needs an active breakpoint: it switches on ADT debugging, sends the

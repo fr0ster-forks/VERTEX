@@ -29,7 +29,7 @@ GitHub Copilot model or API keys for Anthropic, OpenAI, Mistral, Gemini, Groq,
 Cerebras, OpenRouter and NVIDIA. Provider model lists can be collapsed independently.
 Each list has a Clear all / Select all control for its model checkboxes.
 The VS Code chat can explain an active local `.abap` file using its current editor text, even without a SAP connection.
-Local ABAP programs and classes support VERTEX Outline, definition navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis. VERTEX bundles the abaplint transpiler and runtime. **Visual Analysis / Debug** on a local file shows **Run with ABAP Transpiler**, with radio-button selection before launch; the run stops at breakpoints and steps on from there, and project configuration is generated automatically when absent. In Visual Debug, Formula and Expression of a chosen value are also built from a recorded run, with its values when recorded: the statement that changed it, followed into the routines that returned it, and the values it read. See [local execution setup](vscode/README.md#local-abap-execution). SAP execution and version history still require a system.
+Local ABAP programs and classes support VERTEX Outline, definition navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis. VERTEX bundles the abaplint transpiler and runtime. **VERTEX: Run with ABAP Transpiler** on a local file asks the selection screen in a popup and shows what the program wrote (Output); with a breakpoint set the same panel is the debugger, which stops there and steps on. **Visual Analysis / Debug** opens that panel whole, for analysis with or without a run. Project configuration is generated automatically when absent. After a run, Formula and Expression of a chosen value keep only the path the run took and carry the recorded values in brackets; with no path analysed they are written out from the record. See [local execution setup](vscode/README.md#local-abap-execution). SAP execution and version history still require a system.
 
 
 | Tool | Grew out of | What it does | VS Code | Eclipse | ABAP backend |
@@ -48,7 +48,7 @@ ADT is the editor: there is no VERTEX tab for it to write into, and the debugger
 See [eclipse/README.md](eclipse/README.md).
 
 ² The explorer pages are shared between both hosts. The Eclipse update site carries build
-**0.8.8.202610092043**; the VS Code extension is **0.8.8**.
+**0.8.15.202610141238**; the VS Code extension is **0.8.15**.
 
 ³ In Eclipse, Visual Debug drives ADT's own debug session instead of a second debugger, and Run
 opens the object in Eclipse's embedded SAP GUI. It is in the plugin source and a local test build,
