@@ -6,8 +6,13 @@ on your machine - a report, a method of a local class or a function module, with
 asked in a panel and kept as named variants. Only SELECTs go to the SAP system, read through ADT;
 the logic runs locally. Every step and every value change is recorded: step and set breakpoints,
 replay the run to any step, and follow a value back to a clickable formula of how it was
-calculated, each part of it opening the line that produced it. Against SAP: an AI assistant and MCP, an enhanced ABAP
-editor, a visual debugger with recording and replay, and explorers for code, versions and data.
+calculated, each part of it opening the line that produced it. Against SAP:
+an AI assistant over any SAP system, and an MCP server for Claude Code, Codex and Copilot; an enhanced ABAP
+editor with ABAP Unit, ATC and block-by-block review before activation; an AI-driven ADT debugger with
+conditions SAP evaluates and a verdict naming the line; a visual debugger with recording and replay;
+forward and backward usage analysis down to the formula of a value (BSE); version history, diff and
+transport review; a code explorer with metrics, UML, Logic and Calls diagrams; and a data explorer
+(SelecTor) with joins and pivots.
 Several of them grew out of earlier SAP GUI tools.
 
 ![VERTEX architecture: VS Code and Eclipse ADT connect to shared VERTEX Web UI tools, with an MCP server for AI assistants and an optional SAP backend](https://raw.githubusercontent.com/ysichov/VERTEX/main/docs/architecture2.png)

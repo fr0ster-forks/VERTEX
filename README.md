@@ -14,7 +14,11 @@ For VS Code, the recommended companion is
 
 
 VERTEX is a set of plugins for VS Code and Eclipse ADT: an AI assistant with MCP, an enhanced ABAP
-editor, an AI-driven ADT debugger, and explorers for code, versions and data. Each window reads over
+editor, an AI-driven ADT debugger, a visual debugger with recording and replay, forward and backward
+usage analysis down to the formula of a value (BSE), a code explorer with metrics,
+UML, Logic and Calls diagrams, and explorers for versions, transports and data.
+In VS Code it also runs ABAP serverless with the ABAP transpiler - a report, a method or a function
+module - with only SELECTs read from SAP, and records the run for stepping, replay and the formula. Each window reads over
 the developer's existing ADT connection and renders as HTML.
 
 
@@ -48,7 +52,7 @@ ADT is the editor: there is no VERTEX tab for it to write into, and the debugger
 See [eclipse/README.md](eclipse/README.md).
 
 ² The explorer pages are shared between both hosts. The Eclipse update site carries build
-**0.8.15.202610141238**; the VS Code extension is **0.8.17**.
+**0.8.15.202610141238**; the VS Code extension is **0.9.0**.
 
 ³ In Eclipse, Visual Debug drives ADT's own debug session instead of a second debugger, and Run
 opens the object in Eclipse's embedded SAP GUI. It is in the plugin source and a local test build,
