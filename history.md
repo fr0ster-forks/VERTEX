@@ -1,5 +1,12 @@
 # Release history
 
+## 2026-10-14 — Visual Debug: transpiler stepping, diagrams, Formula from the run
+
+Run with ABAP Transpiler now stops at breakpoints and steps on from there with F5-F8; before, the whole program ran and the buttons only replayed it. A `WRITE` without a line break no longer stalls the next step, and a breakpoint on an inline `DATA(x) = ...` stops.
+Methods, Logic and Statements draw every routine of a recorded SAP or transpiler run again; an event block was named two ways and left the rest of the diagram unreachable.
+Right-click on a routine frame offers Show from here, Expand and Collapse again. A breakpoint offers Where used (Backward Usage Analysis) beside Analyze flow path.
+Steps & values reads the values at every stop. With a value chosen in Variables, Formula is built from the record - without values from Rec steps - the statement that changed the value and what it read, with their values - beside the analysis's, followed into the routines that returned it; Expression writes it out as one formula. A With values toggle shows the recorded values in the Formula diagram and beside the names of the analysis's Formula and Expression.
+
 ## 2026-10-12 — Experimental local ABAP execution in VS Code
 
 Added Run Local ABAP and Debug Local ABAP commands and a local mode in Open Visual Debug. The local panel offers Run with ABAP Transpiler and a radio-button choice before starting VS Code debugging. The extension bundles the CLI and runtime, creates a temporary transpiler configuration when the project has none, and uses source maps for ABAP breakpoints. SAP-dependent code still needs a local substitute or SAP.

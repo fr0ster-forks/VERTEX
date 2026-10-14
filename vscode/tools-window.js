@@ -25,6 +25,7 @@ function debugHtml(initial) {
     window.sdeSource=(name,type)=>host.postMessage({call:"source",args:[name,type]});
     window.sdeAsset=name=>host.postMessage({call:"asset",args:[name]});
     window.sdeReveal=frame=>host.postMessage({call:"reveal",args:[JSON.stringify(frame||{})]});
+    window.sdeBackward=point=>host.postMessage({call:"backward",args:[JSON.stringify(point||{})]});
     window.sdeOrigin=request=>host.postMessage({call:"origin",args:[JSON.stringify(request||{})]});
     window.sdeDebugContext=payload=>host.postMessage({call:"debugContext",args:[String(payload||"null")]});
     window.addEventListener("message",event=>{

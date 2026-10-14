@@ -1007,6 +1007,27 @@ function activate(context) {
             try { latestDebugContext = JSON.parse(String((message.args || [])[0] || "null")); } catch (error) { latestDebugContext = null; }
             return;
           }
+          if (message.call === "backward") {
+            // Where used from a breakpoint: Backward Usage Analysis from the point's line, of the value chosen in Variables
+            // wherever it is named, else of the routine there.
+            const point = JSON.parse(String((message.args || [])[0] || "{}"));
+            let editor = null;
+            if (dockedDebugSource?.local) {
+              editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(String(point.url || ""))), { preview: false });
+            } else {
+              await sapCode.revealFrame(point);
+              const name = String(point.program || "").toLowerCase();
+              editor = (vscode.window.visibleTextEditors || []).find(item => name && item.document.uri.toString().toLowerCase().includes(name)) || vscode.window.activeTextEditor;
+              if (editor) editor = await vscode.window.showTextDocument(editor.document, { viewColumn: editor.viewColumn, preview: false });
+            }
+            if (!editor) throw new Error("The source of " + point.program + " is not open.");
+            const line = Math.max(0, Math.min(editor.document.lineCount - 1, Number(point.line || 1) - 1));
+            const position = new vscode.Position(line, 0);
+            editor.selection = new vscode.Selection(position, position);
+            editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+            await vscode.commands.executeCommand("vertex.backwardUsage", { variable: point.variable || "" });
+            return;
+          }
           if (message.call === "reveal") {
             // The player walked to a recorded stop. In this panel the source is
             // the editor's, so that is what has to move.

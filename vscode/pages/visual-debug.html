@@ -99,6 +99,7 @@ button.x{background:transparent;border:0}
 #dumppagebody table{border-collapse:collapse}
 #dumppagebody td,#dumppagebody th{border:1px solid var(--vscode-panel-border,GrayText);padding:2px 6px;vertical-align:top}
 #dumppagebody h1,#dumppagebody h2,#dumppagebody h3{font-size:13px;margin:10px 0 4px}
+.vx-value{color:var(--vscode-debugTokenExpression-number,var(--vscode-descriptionForeground));font-family:var(--vscode-editor-font-family,monospace)}
 .empty{padding:4px 8px;color:var(--vscode-descriptionForeground,GrayText);font-family:system-ui,sans-serif}
 .empty.loading{display:flex;align-items:center;gap:8px}
 .empty.loading:before{content:"";width:12px;height:12px;border:2px solid var(--vscode-panel-border,GrayText);border-top-color:var(--vscode-focusBorder,#0a66c2);border-radius:50%;animation:vertex-spin .8s linear infinite}
@@ -243,7 +244,7 @@ body.vertex-docked-debug #right{width:100%}
       <button id="dumpfull" hidden title="Show the whole dump as SAP wrote it">Whole dump</button>
       <button id="dumpopen" title="Open ST22 in SAP, where this dump is the first entry">Open ST22</button></h3>
       <div class="list" id="dumpbox"></div></section>
-    <div id="flowpane" hidden><div id="flowbar"><button id="fvalues" class="vertex-toggle on" hidden title="Formula from the run: show the recorded value at each node of the diagram">With values</button><button id="fclasses" class="active">Classes</button><button id="fmethods">Methods</button><button id="flogic" title="Branches, loops, calls and control transfers">Logic</button><button id="fsteps" hidden title="The recorded run as statements: one node per statement, however many times it ran">Statements</button><span id="fdepthbox" hidden><span class="vertex-segment-toggle" id="fexpand" role="group" aria-label="Branches"><button class="active" data-open="collapse">Collapse all</button><button data-open="expand">Expand all</button></span><label class="fdepth" title="How deep the statements are shown - the program is 0, a class 1, a routine 2">Depth <input type="range" id="fdepth" min="1" max="1" value="1" step="1" aria-label="Depth"><output id="fdepthvalue" class="dim">all</output></label></span><span class="grow"></span><button id="ffull" title="The whole window (Esc to leave)">&#10530;</button><button id="fclose" class="x" title="Hide the diagram">&#215;</button></div><div id="bse-workspace" class="bse-workspace"></div></div>
+    <div id="flowpane" hidden><div id="flowbar"><button id="fvalues" class="vertex-toggle on" hidden title="Show the value a recorded run holds for each name of Formula and Expression, in brackets after it. The values come from a run recorded with Steps &amp; values (a transpiler run always has them); before a run there are none to show">With values</button><button id="fclasses" class="active">Classes</button><button id="fmethods">Methods</button><button id="flogic" title="Branches, loops, calls and control transfers">Logic</button><button id="fsteps" hidden title="The recorded run as statements: one node per statement, however many times it ran">Statements</button><span id="fdepthbox" hidden><span class="vertex-segment-toggle" id="fexpand" role="group" aria-label="Branches"><button class="active" data-open="collapse">Collapse all</button><button data-open="expand">Expand all</button></span><label class="fdepth" title="How deep the statements are shown - the program is 0, a class 1, a routine 2">Depth <input type="range" id="fdepth" min="1" max="1" value="1" step="1" aria-label="Depth"><output id="fdepthvalue" class="dim">all</output></label></span><span class="grow"></span><button id="ffull" title="The whole window (Esc to leave)">&#10530;</button><button id="fclose" class="x" title="Hide the diagram">&#215;</button></div><div id="bse-workspace" class="bse-workspace"></div></div>
     <section id="logsec" hidden><h3><span>Log</span><span id="logtime" class="dim"></span></h3><div id="logbox" class="list"></div></section>
   </div>
 </main>
@@ -625,6 +626,10 @@ function drawBreakpoints(){
       var a=document.createElement("button");a.className="link";a.textContent="Analyze flow path";
       a.title="The path of the chosen value from this point to the next checked one - what Value origin shows between two breakpoints";
       a.onclick=function(e){e.stopPropagation();analyzePath(b).catch(function(err){notice(err&&err.message||String(err));});};r.appendChild(a);
+      // Backward beside forward: where the values of the routine at this point go in its callers.
+      if(typeof sdeBackward==="function"){var w=document.createElement("button");w.className="link";w.textContent="Where used";
+        w.title="Backward Usage Analysis from this point: where "+(chosenValue?chosenValue.name:"the routine's values")+" go in the callers";
+        w.onclick=function(e){e.stopPropagation();sdeBackward({url:b.url,line:b.line,program:b.name,variable:chosenValue?chosenValue.name:""});};r.appendChild(w);}
       var x=document.createElement("button");x.className="x";x.textContent="×";x.title="Remove";
       x.onclick=function(e){e.stopPropagation();delete bpPaths[b.id];debug("clear",{id:b.id}).then(refresh).catch(failed);};r.appendChild(x);
       r.onclick=navigate;
@@ -1386,6 +1391,10 @@ function snapshot(captured){
     var top=picture.stopped&&picture.stopped.frames[0],inEvent=top&&!/^(?:METHOD|FORM|FUNCTION)$/i.test(String(top.unitType||""));
     var groups=d.groups.filter(function(g){var k=groupKind(g.name);return INITIAL.local||k==="params"||k==="locals"||inEvent&&k==="globals";});
     return groups.reduce(function(p,g){return p.then(function(){return INITIAL.local&&g.children?undefined:debug("children",{id:g.id}).then(function(c){g.children=c.children;});});},Promise.resolve())
+      // SAP gives a structure as one row: its components are read one level down and kept as an object, so Formula
+      // and Expression can name LS_RESULT-AMOUNT. Tables keep their row count.
+      .then(function(){if(INITIAL.local)return;var all=[];groups.forEach(function(g){(g.children||[]).forEach(function(v){if(v.meta==="structure"&&v.id)all.push(v);});});
+        return all.reduce(function(p,v){return p.then(function(){return debug("children",{id:v.id}).then(function(c){var o={};(c.children||[]).forEach(function(x){o[x.name]=x.value;});v.value=o;}).catch(function(){});});},Promise.resolve());})
       .then(function(){
         var values=groups.map(function(g){return {name:g.name,children:(g.children||[]).map(function(v){return {name:v.name,type:v.type,value:v.value,meta:v.meta};})};});
         if(!INITIAL.local){at.vars=values;return;}
@@ -2196,29 +2205,64 @@ function recordSteps(){
       t.vars.forEach(function(g){(g.children||[]).forEach(function(v){var key=String(v.name).toUpperCase();if(v.deleted)delete values[key];else values[key]=v.value;});});
     }
     var f=t.stack&&t.stack[0];
-    steps.push({url:t.at&&t.at.url||"",line:t.at&&t.at.line||0,location:t.cur?String(t.cur.name).indexOf("=>")>0?t.cur.name:t.cur.owner+"=>"+t.cur.name:String(f&&f.program||""),values:values});
+    steps.push({url:t.at&&t.at.url||"",line:t.at&&t.at.line||0,depth:(t.stack||[]).length,location:t.cur?String(t.cur.name).indexOf("=>")>0?t.cur.name:t.cur.owner+"=>"+t.cur.name:String(f&&f.program||""),values:values});
   });
   return steps;
 }
 function withRecordFormula(data){
-  $("fvalues").hidden=true;
+  // The toggle is there whenever a value is chosen: the values themselves come from a recorded run.
+  $("fvalues").hidden=!chosenValue;
+  // Formula is the record's tree; Expression stays the analysis's compact one when a path was analysed, With values
+  // putting the recorded values in brackets after its names.
+  var analysed=data.panes;
   if(!chosenValue||!(flow.timeline||[]).length||typeof sdeOrigin!=="function")return Promise.resolve(data);
-  if(!(flow.timeline||[]).some(function(t){return Array.isArray(t.vars)&&t.vars.length;}))return Promise.resolve(data);
   var steps=recordSteps(),sources={};
   steps.forEach(function(s){var lines=texts[norm(s.url)];if(s.url&&lines&&!(s.url in sources))sources[s.url]=lines.join("\n");});
   var at=replayAt!=null?replayAt:steps.length-1;
   return askOrigin({recordFormula:{variable:chosenValue.name,at:at,steps:steps,sources:sources}}).then(function(rf){
     if(!rf||!rf.formula||!rf.formula.nodes.length)return data;
-    var on=$("fvalues").classList.contains("on");$("fvalues").hidden=false;
-    var analysed=data.panes,heading=function(text){return '<h3 class="edge">'+text+'</h3>';};
+    // A record of steps alone gives the formula without values: there is nothing for the toggle to show.
+    var on=rf.hasValues&&$("fvalues").classList.contains("on");
     data.formula={nodes:rf.formula.nodes.map(function(n){return Object.assign({},n,{label:on?n.label:n.text,dataText:on?n.label:n.text});}),edges:rf.formula.edges};
     data.maxLevel=rf.formula.maxLevel;
-    data.panes=analysed?{formula:heading("From the run")+rf.panes.formula+heading("From the analysis")+analysed.formula,
-      expression:heading("From the run")+rf.panes.expression+heading("From the analysis")+analysed.expression}:rf.panes;
+    // The compact formula leads Formula too: the one line of Expression, then the tree that explains it.
+    var expression=analysed?analysed.expression:rf.panes.expression,holder=document.createElement("div");holder.innerHTML=expression;
+    var line=holder.querySelector("p > code");
+    data.panes={formula:(line?'<p>'+line.outerHTML+'</p>':"")+rf.panes.formula,expression:expression};
     return data;
   }).catch(function(error){notice("Formula from the run: "+(error&&error.message||error));return data;});
 }
 $("fvalues").onclick=function(){$("fvalues").classList.toggle("on");showFlow();};
+/* With values, the names the analysis's Formula and Expression read are given the value the record holds for them: in
+   the routine the analysis places them in, at its last stop there up to the stop shown. A name the record has no value
+   for is left as it is. */
+function recordedValue(full,location,steps,upto){
+  var where=String(location||"").toUpperCase().replace(/->|→/g,"=>"),parts=String(full||"").toUpperCase().split("-");
+  var resolve=function(values){
+    var value=values[parts[0]];
+    for(var i=1;i<parts.length&&value!==undefined;i++){if(value===null||typeof value!=="object")return undefined;var k=Object.keys(value).filter(function(x){return x.toUpperCase()===parts[i];})[0];value=k===undefined?undefined:value[k];}
+    if(value===undefined&&parts.length>1)return undefined;
+    if(value===undefined){var last=parts[parts.length-1];Object.keys(values).some(function(key){var s=values[key];if(!s||typeof s!=="object"||Array.isArray(s))return false;var k=Object.keys(s).filter(function(x){return x.toUpperCase()===last;})[0];if(k===undefined)return false;value=s[k];return true;});}
+    return value;};
+  for(var pass=0;pass<2;pass++)for(var i=upto;i>=0;i--){
+    var step=steps[i],at=String(step.location||"").toUpperCase();
+    if(pass===0&&where&&at!==where&&at.slice(-where.length)!==where&&where.slice(-at.length)!==at)continue;
+    var v=resolve(step.values||{});if(v!==undefined)return v;
+  }
+  return undefined;
+}
+function annotateValues(){
+  var box=$("bse-workspace");if(!box)return;
+  annotating=true;
+  box.querySelectorAll(".vx-value").forEach(function(e){e.remove();});
+  var steps=(flow.timeline||[]).length?recordSteps():[],upto=replayAt!=null?replayAt:steps.length-1;
+  if($("fvalues").classList.contains("on")&&steps.length)box.querySelectorAll("[data-full]").forEach(function(e){
+    var v=recordedValue(e.dataset.full,e.dataset.location,steps,upto);if(v===undefined)return;
+    var s=document.createElement("span");s.className="vx-value";s.textContent=" ("+(v!==null&&typeof v==="object"?JSON.stringify(v):String(v))+")";s.title="Recorded value";e.after(s);});
+  annotating=false;
+}
+var annotating=false,annotateTimer=null;
+new MutationObserver(function(){if(annotating)return;clearTimeout(annotateTimer);annotateTimer=setTimeout(annotateValues,50);}).observe($("bse-workspace"),{childList:true,subtree:true});
 /* The zoom, the fit and the magnifier belong to the view now; the window
    keeps only the pane around it. */
 $("ffull").onclick=function(){$("flowpane").classList.toggle("full");};
@@ -2324,7 +2368,7 @@ function showStop(i){
     document.querySelectorAll("#code .line.here").forEach(function(r){r.classList.remove("here");});
     var h=$("l"+t.at.line);if(h)h.classList.add("here");});
 }
-function replay(i){var n=stops();if(!n)return;replayAt=INITIAL.local?Math.min(n-1,Math.max(0,i)):(i>=n-1?null:Math.max(0,i));drawPos();
+function replay(i){var n=stops();if(!n)return;if(typeof annotateValues==="function")setTimeout(annotateValues,0);replayAt=INITIAL.local?Math.min(n-1,Math.max(0,i)):(i>=n-1?null:Math.max(0,i));drawPos();
   if(replayAt==null){markNow(liveCur());drawStack();drawVars();var f=currentFrame();if(f)show(f.url,null,f.line).catch(failed);}else showStop(replayAt).catch(failed);}
 $("fprev").onclick=function(){if(playing)return;replay((replayAt==null?stops()-1:replayAt)-1);};
 $("fnext").onclick=function(){if(playing||replayAt==null)return;replay(replayAt+1);};

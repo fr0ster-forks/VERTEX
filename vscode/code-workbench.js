@@ -1856,8 +1856,8 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   }
   function command(id, callback) {
     // Most commands remain internal; Save & Activate is also exposed in the editor.
-    context.subscriptions.push(vscode.commands.registerCommand(id, async () => {
-      try { return await callback(); }
+    context.subscriptions.push(vscode.commands.registerCommand(id, async (...args) => {
+      try { return await callback(...args); }
       catch (error) { vscode.window.showErrorMessage("VERTEX: " + String(error.message || error).slice(0, 3000)); }
     }));
   }
@@ -2180,7 +2180,8 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   }
   // Backward Usage Analysis: where the values of the routine at the cursor go in its callers, up through theirs. SAP's
   // where-used finds the calls in the saved sources; each customer object found is read as a tab, standard code is not.
-  command("vertex.backwardUsage", async () => {
+  // Visual Debug's Where used names the value chosen in its Variables; from the editor it is the one under the cursor.
+  command("vertex.backwardUsage", async (options = {}) => {
     const editor = vscode.window.activeTextEditor, document = editor && editor.document;
     const local = document && require("./local-analysis").isLocalAbap(document);
     const own = document && (local ? { entry: { data: require("./local-analysis").sourceObject(document) } } : tabSource(document));
@@ -2188,7 +2189,8 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     if (!local && document.isDirty) { throw new Error("The tab has changes that are not in SAP. Save & Activate first: where-used searches the saved source."); }
     const { variableAt, literalAt, customerObject } = require("./value-origin");
     const text = document.getText(), offset = document.offsetAt(editor.selection.active);
-    const variable = literalAt(text, offset) ? "" : (variableAt(text, offset) || "");
+    const variable = options && options.variable ? String(options.variable).toUpperCase()
+      : literalAt(text, offset) ? "" : (variableAt(text, offset) || "");
     // Every source is parsed by abaplint, as Forward Usage Analysis parses it: statements and tokens come from the parser.
     const parser = require("./value-origin-linter").createParser(), sources = new Map();
     const sourceOf = async (doc, data) => {

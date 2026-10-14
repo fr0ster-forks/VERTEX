@@ -149,6 +149,10 @@ shortcuts open it.
 - Eclipse handles source-editor navigation on each live stop; Visual Debug does not open another
   class tab on every step. Explicit source links still open their requested object.
 - With several ADT debug threads, a thread selector appears in the page header.
+- Right-click a node or a routine frame of the diagram for *Show from here*, *Expand this branch*
+  and *Collapse this branch*.
+- Formula and Expression come from Analyze flow path; building them from a recorded run is
+  VS Code only.
 
 Differences from VS Code: no step prediction (Eclipse reads the stack at every suspend, so a step
 is not shortened). **Run** needs an active breakpoint: it switches on ADT debugging, sends the

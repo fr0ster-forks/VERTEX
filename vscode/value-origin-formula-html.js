@@ -80,7 +80,7 @@ function expressionPane(derivation, sourceOf = node => node.source) {
   const known = new Map(expression.where.map(item => [item.name, item]));
   const names = [...known.keys()].sort((a, b) => b.length - a.length);
   const isName = character => /[A-Za-z0-9_\-\[\]\/]/.test(character || '');
-  const link = item => `<button class="data-composed" title="${escape(item.full)} · ${escape(String(item.location).split('->')[0])} · ${escape(item.text)}" data-node="${escape(item.id)}" data-source="${escape(sourceOf(item))}" data-line="${item.line}">${escape(item.name)}</button>`;
+  const link = item => `<button class="data-composed" title="${escape(item.full)} · ${escape(String(item.location).split('->')[0])} · ${escape(item.text)}" data-node="${escape(item.id)}" data-source="${escape(sourceOf(item))}" data-line="${item.line}" data-full="${escape(item.full)}" data-location="${escape(item.location)}">${escape(item.name)}</button>`;
   const write = text => {
     let out = '', at = 0;
     while (at < text.length) {

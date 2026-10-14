@@ -48,12 +48,14 @@ runtime bundled with VERTEX. Open a saved local `.abap` file and choose
 **VERTEX: Open Visual Debug**. The Visual Debug panel is shared with SAP runs;
 for local files its title is **Visual Transpiler Debug** and its Run button is
 **Run with ABAP Transpiler**. Choose a radio-button value, then run. VERTEX
-instruments generated program and class modules and records line positions and
-changed variables during execution. The history slider and step buttons replay
-those records without pausing the Node debugger on every instruction. This fast
-trace follows mapped statements; some ABAP constructs still need broader
-instrumentation. Breakpoints on standalone ABAP declarations
-such as `DATA` are removed because they are not calculation steps.
+instruments generated program and class modules: the program pauses before each
+mapped statement, and its line and changed variables are recorded. Run stops at the
+first breakpoint; Single Step, Execute, Return and Continue (F5-F8, in the panel or
+the editor) run the program on to the next stop, and the history slider replays what
+was recorded so far. Some ABAP constructs still need broader instrumentation.
+Breakpoints on standalone declarations such as `DATA x TYPE i` are removed because
+they are not calculation steps; an inline declaration such as `DATA(x) = ...` is a
+statement and stops.
 
 VERTEX creates a temporary transpiler config for the selected ABAP file, its
 statically referenced global classes and interfaces, classes reached by VERTEX's
@@ -827,9 +829,10 @@ whether the levels that are shown are open (the start: all of them; collapsed: t
 keeps the switch.
 
 The record is one control with three positions: **No record**, **Rec steps**, or **Steps &
-values**. The third also reads the parameters and locals where each routine starts and ends and
-keeps them with the stop, for the player - that is the expensive half of a stop, and a run is
-often recorded for its shape alone.
+values**. The third also reads the parameters and locals at every stop - in an event of a report,
+outside every routine, the program's globals - and keeps them with the stop, for the player and for
+Formula and Expression. That is the expensive half of a stop, and a run is often recorded for its
+shape alone.
 
 Recording is also what makes Continue a run of F5 steps rather than SAP's own: with it off,
 Continue is Continue. A run always draws where the program is as it goes. **Predict** says
@@ -874,8 +877,35 @@ program, its classes and routines, the statements of ACE's stream under them wit
 parent of its body, a called routine's statements under the statement that calls it, in the order of execution.
 The start may be in a program, an include or a class; the end statement is the last one drawn. Classes,
 Methods and Statements, Full or BSE, as the record is drawn. With a value chosen in Variables the statements its
-slice reaches are marked; without one the flow is drawn alone. A recorded run replaces it. It needs a second
+slice reaches are marked; without one the flow is drawn alone. A recorded run replaces the flow. It needs a second
 checked point the flow meets, and says so when there is none.
+
+**Where used.** Beside *Analyze flow path* (forward), a point carries *Where used* (backward): it opens the point's line
+and runs **VERTEX: Backward Usage Analysis** there for the value chosen in Variables - wherever it is named in the
+routine - or, with none chosen, for the routine at the point, so where its values go in the callers is shown from the
+debugger.
+
+**Formula and Expression from the run.** With a run recorded and a value chosen in Variables, Formula is built
+from the record under the compact formula, and so is Expression when no path was analysed. With values (Steps & values; a transpiler run always has them) they show them;
+from Rec steps alone they are built from the statements that ran - the last one that wrote each value - without values. Formula
+shows the value, the statement that last changed it - its stop, line, and the value before and after - and the
+variables that statement read, with their values at that moment, each derived the same way back through the
+record; a value the record never saw change is a leaf, *not changed in the record*. A value a call returned is
+followed into the routine: under the call stands the routine's own variable that held it at its last stop - the same
+component of its returning structure - and its derivation there; a parameter is set by the call's arguments.
+Expression writes the derivation out as one formula, each value read replaced by its own right-hand side and a
+returned value by the routine's computation, then lists the statements in the order they ran and where the values
+came from. abaplint reads each
+statement, so a statement over several lines is read whole. When Analyze flow path has run, Expression is its compact
+formula, with the recorded values in brackets after the names. **With values** - shown whenever a value is chosen, on by default - writes the recorded values into the
+Formula diagram, and after each name of the analysis's Formula and Expression puts in brackets the value the record holds for it -
+in the routine the analysis places it in, at its last stop there up to the stop shown, so it follows the player; off,
+the formulas show names and statements alone. In a SAP record a structure's components are read one level down for
+this.
+
+**Show from here.** Right-click a node or a routine frame of the diagram for *Show from here*, *Expand this
+branch* and *Collapse this branch*. Show from here draws the diagram from that node down; the path bar above
+it returns to a wider view, and Escape steps back.
 
 A Visual, Rec or Flow run is F8 made of F5 steps, and it ends at a breakpoint it steps onto -
 including one in the program that called the class being stepped through, where SAP reports a
