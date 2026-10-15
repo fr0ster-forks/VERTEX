@@ -2397,6 +2397,24 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     // A reviewer's action or the save of a review built from ADT, answered on this side; null for any other write.
     tableWrite: async (resource, body) => { const api = (await repository()).api;
       return require('./review-front').write(api, resource, body, await reviewIo(api)); },
+    // The sources of a transpiler run of an SAP program: its active version and what it names. An open tab that is not
+    // the active version stops it, as the run would not be of the code the reader sees.
+    transpileSources: async ({ object_name, object_type }, progress) => {
+      const repo = await repository(), read = repo.api.analysisReader();
+      const first = await read({ object_name, object_type });
+      const open = [...opened.values()].find(e => e.repo === repo && e.data.object_url === first.object_url
+        && (e.data.include || 'main') === 'main' && e.document && !e.document.isClosed);
+      if (open && (open.document.isDirty || revision(open.document.getText()) !== revision(first.source))) {
+        throw new Error(first.object_name + ': save and activate the source first - the transpiler runs the active version.');
+      }
+      const sources = await require('./sap-transpile').collect(read, { name: first.object_name, type: first.object_type }, { progress });
+      // The dictionary objects the sources use, beside open-abap-core's and the classes read.
+      const ddic = require('./sap-ddic'), named = new Set();
+      for (const source of sources) for (const name of ddic.dictionaryNames(source.text)) named.add(name);
+      progress('dictionary');
+      const known = new Set([...ddic.coreNames(), ...sources.map(source => source.name)]);
+      return { system: repo.label, sources, dictionary: await ddic.readDictionary((sql, rows) => repo.api.query(sql, rows), named, known) };
+    },
     schemas, onEvent: events.on, runUnitTests: unitTestsOf, runAtc: atcOf, attachDebugger, revealFrame, originPath, forgetOrigin: () => { lastOriginGraph = null; }, openToolSource, originPoints, originOpen, originVariables, documentObject,
     editorContext() {
       const editor = vscode.window.activeTextEditor;

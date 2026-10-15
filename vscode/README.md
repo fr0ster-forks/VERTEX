@@ -65,7 +65,8 @@ For calculation code that can run without SAP services, use the transpiler and
 runtime bundled with VERTEX. Open a saved local `.abap` file and choose
 **VERTEX: Run with ABAP Transpiler**, which runs it at once - the selection screen first, then to the first
 breakpoint, or to the end with the output when there is none - or **VERTEX: Visual Analysis / Debug**, which opens the
-panel without running. The panel is shared with SAP runs;
+panel without running. An SAP program runs the same way from **VERTEX: Run with ABAP Transpiler** in the editor's context menu of its tab, or
+from **Run with ABAP Transpiler** beside Run in SAP in its Visual Debug panel, which reads it, its includes and the classes and interfaces it uses from SAP first. The panel is shared with SAP runs;
 for local files its title is **Visual Transpiler Debug** and its Run button is **Run with ABAP Transpiler**. Run
 asks the selection screen in a window of its own - the radio buttons, the other PARAMETERS (a value field with its
 DEFAULT, AS CHECKBOX as a checkbox; a value is upper-cased as SAP does unless LOWER CASE), Execute (F8) - so it takes
@@ -1075,6 +1076,17 @@ debugger the assistant drives - one session, not a second one:
 - **Run in SAP** (first in the header, with the SAP execute clock) starts the program in WebGUI, as `debug_run` does. A program runs itself. For a class
   or a function module, name the program that calls it in the field - or leave it empty for the
   object's test screen, SE24 or SE37 with the name filled in, and start the test there with F8.
+- **Run with ABAP Transpiler** (beside Run in SAP, for a program) runs the SAP program on your machine instead. It reads
+  the program's active version, its includes and every customer class and interface it names - their local definitions
+  and implementations too, not their test classes - into a temporary folder, and the panel turns to Visual Transpiler
+  Debug on it (see [Local ABAP execution](#local-abap-execution)); SELECTs still read SAP. The dictionary types the code
+  uses - tables and structures, data elements, domains and table types, and what they are built of - are read from
+  SAP's DD tables too. A step into an include stands in the include, as in SAP, and a breakpoint can be set there. An
+  open tab of the program with changes not activated stops it. So does anything that cannot be read, a dictionary type
+  whose definition names one the dictionary does not have, an `INCLUDE` sharing its line with another statement, and,
+  for now, a call of a customer function module: the reason names the object. A name the dictionary does not have
+  either is left to the transpiler, which names what it cannot resolve.
+  Breakpoints and steps then belong to the copies in the temporary folder, not to the SAP source.
 - **Detach** lets the program go and stops listening, but keeps the breakpoints in the list:
   **Run in SAP** sets them in SAP again and listens before it starts the next run.
 - **Exit program** ends the stopped program where it stands, as the debugger's Exit does; the

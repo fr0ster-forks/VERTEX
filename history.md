@@ -1,5 +1,9 @@
 # Release history
 
+## 2026-10-15 — VS Code 0.9.1: an SAP program with the ABAP transpiler
+
+An SAP program runs with the ABAP transpiler: **VERTEX: Run with ABAP Transpiler** in the context menu of its tab, or **Run with ABAP Transpiler** beside Run in SAP in Visual Debug. It reads the program's active version, its includes, the customer classes and interfaces it names - with their local definitions and implementations, not their test classes - and the dictionary types they use (tables and structures, data elements, domains, table types and what they are built of) from SAP into a temporary folder and runs it as a local program: selection screen, breakpoints, steps and the record, with SELECTs still reading SAP and data elements such as CHAR12 made as for a local file. A step into an include stands in the include. A tab of the program with changes not activated, an object that cannot be read, a dictionary type built of one the dictionary does not have, and a call of a customer function module stop it with the object named; function modules are not read yet. Breakpoints then belong to the copies in the temporary folder. The Eclipse update site was not rebuilt.
+
 ## 2026-10-14 — VS Code 0.9.0
 
 Formula of a recorded run shows its tree again; it had started with the whole Expression line and looked the same as Expression. In Expression the result carries its recorded value too. Moving the slider of a recorded run with Expression open no longer keeps the page busy without end - it could hang the machine. The line naming the flow from a breakpoint is no longer printed. The architecture picture on the Marketplace page, the Eclipse README and the update site shows again. The Eclipse update site was not rebuilt.

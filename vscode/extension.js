@@ -1021,7 +1021,7 @@ function activate(context) {
           }
           if (message.call === "clear") {
             // Clear: the panel starts again for its object, as a new open does; breakpoints and a SAP session stay.
-            if (dockedDebugSource) openVisualDebug(dockedDebugSource.runOnly === true, dockedDebugSource);
+            if (dockedDebugSource) openVisualDebug(dockedDebugSource.runOnly === true, { ...dockedDebugSource, autoRun: false });
             return;
           }
           if (message.call === "backward") {
@@ -1089,6 +1089,13 @@ function activate(context) {
             await view.webview.postMessage({ type: "result", payload: JSON.stringify(answer) });
             return;
           }
+          // The SAP program run with the ABAP transpiler: its sources are read into a folder of their own, and the panel
+          // turns to the transpiler's, on the program written there.
+          if (command === "sapTranspile") {
+            await view.webview.postMessage({ type: "result", payload: "{}" });
+            await runSapTranspiler(dockedDebugSource);
+            return;
+          }
           if(command==="logicTools"){
             logicDisposers.splice(0).forEach(dispose=>dispose());logicReceive=null;
             const embedded={title:"Logic",webview:{
@@ -1154,7 +1161,7 @@ function activate(context) {
     latestLocalVariables = null;
     clearLocalHistoryMark();
     sapCode.forgetOrigin?.();
-    dockedDebugSource = { ...source, runOnly: runOnly === true, autoRun: runOnly === true && !again };
+    dockedDebugSource = { ...source, runOnly: runOnly === true, autoRun: runOnly === true && (!again || again.autoRun === true) };
     localDebugAdapter = source.local ? require("./local-debug-adapter").create(vscode, source.document,
       selection => require("./local-run").launch(vscode, false, { document: source.document, selection, live: true, entryLine: source.entryLine }),
       postDockedPicture, () => require("./local-run").runScope(vscode, source.document),
@@ -1171,6 +1178,16 @@ function activate(context) {
       vscode.commands.executeCommand("workbench.view.extension.vertex-debug").catch(error =>
         vscode.window.showErrorMessage("VERTEX: could not open Debug panel: " + error.message));
     }
+  };
+  // An SAP program run with the ABAP transpiler: its sources are read into a folder of their own, and Visual Debug turns
+  // to the transpiler's panel on the program written there, running at once.
+  const runSapTranspiler = async shown => {
+    if (!shown || String(shown.object_type).toUpperCase() !== "PROG") throw new Error("The transpiler runs an SAP program; open one first.");
+    const read = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "VERTEX: reading " + shown.object_name + " for the transpiler" },
+      report => pinTo(shown.system_name, () => sapCode.transpileSources(shown, name => report.report({ message: name }))));
+    const file = require("./sap-transpile").writeProject(shown.system_name, read.sources, read.dictionary);
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+    openVisualDebug(true, { ...require("./local-analysis").sourceObject(document), local: true, document, entryLine: 1, autoRun: true });
   };
   // F5-F8 are deliberately scoped in package.json to a VERTEX ABAP editor.
   // A stopped program is shared with Visual Debug, so stepping here redraws
@@ -1207,7 +1224,11 @@ function activate(context) {
     vscode.commands.registerCommand("vertex.openVisualDebug", () => openVisualDebug(false)),
     // A local program run with the transpiler: the same panel, which shows the selection screen and the output until a
     // breakpoint is set, and the debugger then.
-    vscode.commands.registerCommand("vertex.runTranspiler", () => openVisualDebug(true)),
+    vscode.commands.registerCommand("vertex.runTranspiler", async () => {
+      if (require("./local-analysis").isLocalAbap(vscode.window.activeTextEditor?.document)) return openVisualDebug(true);
+      try { await runSapTranspiler(sapCode.editorContext()); }
+      catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
+    }),
     vscode.commands.registerCommand("vertex.debugInto", () => stepFromSource("into")),
     vscode.commands.registerCommand("vertex.debugOver", () => stepFromSource("over")),
     vscode.commands.registerCommand("vertex.debugOut", () => stepFromSource("out")),

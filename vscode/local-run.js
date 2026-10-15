@@ -538,6 +538,9 @@ async function launch(vscode, debug, options = {}) {
     if (project.automatic) output.appendLine("Included classes/interfaces: " +
       (project.includedClasses.length ? project.includedClasses.join(", ") : "none"));
     await transpile(project, output);
+    // An SAP program's run: its includes were written into it, and its map is pointed back at them.
+    if (fs.existsSync(path.join(path.dirname(project.configFile), "vertex-includes.json")))
+      require("./sap-transpile").remapIncludes(path.dirname(project.configFile), path.dirname(project.entry));
     output.appendLine("Transpilation complete; staging runtime.");
     stageRuntime(project);
     output.appendLine("Runtime staged; preparing local execution.");
@@ -742,6 +745,6 @@ function register(vscode, context) {
   }
 }
 
-module.exports = { projectFor, runScope, scenariosFor, parametersFor, entryScreen, transpile, stageRuntime, initializeSelectorDatabase, startSelectorBridge,
+module.exports = { localDdicAliases, coreDdicNames, projectFor, runScope, scenariosFor, parametersFor, entryScreen, transpile, stageRuntime, initializeSelectorDatabase, startSelectorBridge,
   selectorSql, setSelectorQuery, entryFor, debugConfiguration,
   flowClasses, prepareFlow, repairSelectLoops, launch, register };
