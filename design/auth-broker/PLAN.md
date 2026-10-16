@@ -89,7 +89,12 @@ reads the spec section it names.
 **Interfaces:** Produces the gate results later tasks read: gate 1 (pass/fail), gate 3
 (`csrf: "A"` or `"B"`), gate 4 (listener deletion ends the poll: yes/no, seconds).
 
-- [ ] **Step 1 (codex): extend the probe with gate 3 and gate 4.** Add to `probe/snc/probe.js`, after
+- [ ] **Step 1 (codex): extend the probe with gate 3 and gate 4.** Also add a watchdog to
+  `probe.js` so a stuck native call cannot keep the report from printing: at the start of `main`,
+  `const watchdog = setTimeout(() => { report.fatal = { name: 'Watchdog', message: 'the probe did not finish within 6 minutes' }; print(); process.exit(3); }, 360000);`
+  and `clearTimeout(watchdog)` in the final `.finally` before `print()`. When
+  `report.listenerLeftPending` is set, end the process after printing (`process.exit(0)`) instead
+  of waiting on native cleanup. Add to `probe/snc/probe.js`, after
   `read source`, behind flags `--csrf` and `--listener`:
 
 ```js
@@ -107,38 +112,43 @@ reads the spec section it names.
       });
     }
     if (opts.listener) {
-      // Gate 4: a listener long-poll on one connection, deleted from a second one.
+      // Gate 4: the listener long-poll exactly as abap-adt-api sends it (api/debugger.js:135-150:
+      // POST with debuggingMode, requestUser, terminalId, ideId, checkConflict, isNotifiedOnConflict,
+      // no server timeout), deleted from a second connection as abap-adt-api deletes it (:151-160).
       const user = String(opts.user || '').toUpperCase();
       if (!user) throw new Error('--listener needs --user <ABAP user>');
       const ide = 'VERTEXPROBE' + Date.now().toString(16).toUpperCase();
+      const q = `debuggingMode=user&requestUser=${user}&terminalId=${ide}&ideId=${ide}`;
       const second = createConnection({ system: 'onprem', transport: 'rfc', config: {
         url: means.serviceUrl, client: means.sapClient, authType: 'snc', sncPartnerName: means.sncPartnerName,
         sncQop: means.sncQop, sncLib: means.sncLib, sncMyName: means.sncMyName }, credential, logger });
       await second.connect();
-      try {
-        const q = `debuggingMode=user&requestUser=${user}&terminalId=${ide}&ideId=${ide}`;
-        const started = Date.now();
-        let pollEndedAt = null;
-        const poll = connection.makeAdtRequest({ url: `/sap/bc/adt/debugger/listeners?${q}&timeout=240&checkConflict=true&isNotifiedOnConflict=true`,
-          method: 'POST', timeout: 300000, headers: { Accept: 'application/xml' } })
-          .then(r => ({ outcome: 'answered', status: r.status }), e => ({ outcome: 'failed', error: e && e.message, status: e && e.response && e.response.status }))
-          .then(x => { pollEndedAt = Date.now(); return x; });
-        await new Promise(r => setTimeout(r, 5000));
-        const endedBeforeDelete = pollEndedAt !== null;
-        const deletedAt = Date.now();
-        await step('delete listener from second connection', async () => {
-          const r = await second.makeAdtRequest({ url: `/sap/bc/adt/debugger/listeners?${q}&notifyConflict=true`, method: 'DELETE', timeout: 60000 });
-          return { status: r.status };
-        });
-        // RFC ignores request timeouts, so the wait is bounded here: 300 s, past SAP's own 240 s poll timeout.
-        const settled = await Promise.race([poll, new Promise(r => setTimeout(() => r({ outcome: 'still-pending-after-300s' }), 300000))]);
-        const endedByDelete = !endedBeforeDelete && pollEndedAt !== null && settled.outcome !== 'still-pending-after-300s';
-        report.steps.push({ name: 'listener poll after deletion', ok: endedByDelete,
-          endedBeforeDelete, secondsAfterDelete: pollEndedAt ? (pollEndedAt - deletedAt) / 1000 : null,
-          totalSeconds: (Date.now() - started) / 1000, ...settled });
-      } finally {
-        await second.disconnect().catch(() => {});
-      }
+      const started = Date.now();
+      let pollEndedAt = null, deletedAt = null, deleteOk = false;
+      const poll = connection.makeAdtRequest({ url: `/sap/bc/adt/debugger/listeners?${q}&checkConflict=true&isNotifiedOnConflict=true`,
+        method: 'POST', timeout: 360000000 })
+        .then(r => ({ outcome: 'answered', status: r.status }), e => ({ outcome: 'failed', error: e && e.message, status: e && e.response && e.response.status }))
+        .then(x => { pollEndedAt = Date.now(); return x; });
+      await new Promise(r => setTimeout(r, 5000));
+      const endedBeforeDelete = pollEndedAt !== null;
+      await step('delete listener from second connection', async () => {
+        deletedAt = Date.now();
+        const r = await second.makeAdtRequest({ url: `/sap/bc/adt/debugger/listeners?${q}`, method: 'DELETE', timeout: 60000 });
+        deleteOk = r.status >= 200 && r.status < 300;
+        return { status: r.status };
+      });
+      // Bounded wait: RFC ignores request timeouts (RfcTransport.ts:607). 60 s after the deletion.
+      let timer;
+      const settled = await Promise.race([poll, new Promise(r => { timer = setTimeout(() => r({ outcome: 'still-pending-60s-after-delete' }), 60000); })]);
+      clearTimeout(timer);
+      const secondsAfterDelete = pollEndedAt && deletedAt ? (pollEndedAt - deletedAt) / 1000 : null;
+      // Ended by the deletion: the deletion succeeded, the poll had not ended before it, and it ended within 30 s of it.
+      const endedByDelete = deleteOk && !endedBeforeDelete && secondsAfterDelete !== null && secondsAfterDelete >= 0 && secondsAfterDelete <= 30;
+      report.steps.push({ name: 'listener poll after deletion', ok: endedByDelete, deleteOk,
+        endedBeforeDelete, secondsAfterDelete, totalSeconds: (Date.now() - started) / 1000, ...settled });
+      // Do not await native close behind a poll that may still hold the client mutex; the watchdog ends the process.
+      second.disconnect().catch(() => {});
+      if (settled.outcome === 'still-pending-60s-after-delete') report.listenerLeftPending = true;
     }
 ```
 
@@ -158,9 +168,9 @@ node probe.js --dir <dir> --destination <name> --program <PROG> --listener --use
 - [ ] **Step 3 (codex): record the results** in `design/auth-broker/GATES.md`, one section per
   gate: the command, the JSON report with nothing secret, the verdict, and for gate 3 the choice
   `A` (a token-like value present) or `B` (absent, or only `fetch`/`Required` → SPEC §8.5 option B).
-  Gate 4: `ok` only when the poll ended after, and because of, the deletion
-  (`endedBeforeDelete: false`), with `secondsAfterDelete`; that number becomes
-  `LISTENER_STOP_MS` (rounded up, plus 5 s) for Task 9. Commit.
+  Gate 4: `ok` only when the deletion answered 2xx, the poll had not ended before it, and the poll
+  ended within 30 s after it. Run it twice; both runs must agree. `secondsAfterDelete` (the larger
+  of the two, rounded up, plus 5 s) becomes `LISTENER_STOP_MS` for Task 9. Commit.
 
 - [ ] **Step 4 (STOP):** report to the owner. If gate 1 fails, or gate 4 shows the poll does not
   end, the owner decides before Task 7 starts.
@@ -444,6 +454,11 @@ test("session store: save/load/delete, authorization config null, set refused, m
   secrets.m.delete(id + ".session");
   await assert.rejects(sessionStore.saveSession(id, { authorizationToken: "t", unknown: "x" }), /unknown/);
   await assert.rejects(sessionStore.saveSession(id, { authorizationToken: "t", expiresAt: "soon" }), /expiresAt/);
+  await sessionStore.saveSession(id, { authorizationToken: "good" });
+  for (const bad of [{ authorizationToken: 5 }, { refreshToken: {} }, { issuedFor: 7 }]) {
+    await assert.rejects(sessionStore.saveSession(id, bad), /must be a string/);
+    assert.deepEqual(await sessionStore.loadSession(id), { authorizationToken: "good" });
+  }
 });
 test("means: forget removes means and session", async () => {
   const secrets = memorySecrets();
@@ -614,6 +629,7 @@ function createStores({ secrets, currentSystems }) {
       if (unknown.length) throw new Error("The session store holds no " + unknown.join(", ") + " (unknown field).");
       const write = {}; for (const f of FIELDS) if (config && config[f] !== undefined) write[f] = config[f];
       if (write.expiresAt !== undefined && (!Number.isSafeInteger(write.expiresAt) || write.expiresAt < 0)) throw new Error("expiresAt must be a non-negative whole number (epoch milliseconds).");
+      for (const [k, v] of Object.entries(write)) if (k !== "expiresAt" && typeof v !== "string") throw new Error(k + " must be a string.");
       const next = applySecret(current, write);
       if (Object.keys(next).length) await secrets.store(id + ".session", JSON.stringify(next));
       else await secrets.delete(id + ".session");
@@ -688,7 +704,11 @@ module.exports = { migrateOnce, retireLegacy };
 - Consumes: `createStores` (Task 4), `loginIdentity` (Task 3).
 - Produces:
   - `createBroker({ serviceKeyStore, sessionStore, logger }) → { providerFor(system, signal) }`
-  - `createHttpWire(system, { providerFor, onRefusal }) → { request(options), dispose() }` —
+  - `createHttpWire(system, { providerFor, onRefusal, ensureMeans }) → { request(options), dispose() }` —
+    `ensureMeans(system) → Promise<boolean>` runs before every request (default: resolves `true`);
+    a `false` fails the request with "No password was entered for ‹name›, so nothing was sent."
+    without sending. It is how a client recovers after its password was refused and discarded:
+    the next operation asks again; the refused one is not replayed.
     `onRefusal(system, refusal, moment)` is called when a provider's Oops ends a request, with
     `moment` ∈ `"prepare" | "establish" | "authorize" | "rejected"`; the wire keeps no secret and
     sends nothing more because of it.
@@ -762,6 +782,13 @@ test("a new provider instance is prepared and established once", async () => {
   assert.equal(current.calls.filter(c => c === "prepare").length, 1);
   wire.dispose(); s.close();
 });
+test("ensureMeans false sends nothing", async () => {
+  const { s, seen, url } = await server((req, res) => res.end("ok"));
+  const wire = createHttpWire(readSystem({ name: "D", url, user: "u" }).system, { providerFor: async () => provider(), onRefusal() {}, ensureMeans: async () => false });
+  await assert.rejects(wire.request({ url: "/x" }), /No password was entered/);
+  assert.equal(seen.length, 0);
+  wire.dispose(); s.close();
+});
 test("the origin guard refuses another host", async () => {
   const wire = createHttpWire(readSystem({ name: "D", url: "http://127.0.0.1:9", user: "u" }).system, { providerFor: async () => provider(), onRefusal() {} });
   await assert.rejects(wire.request({ url: "http://evil.example/x" }), /outside configured SAP system/);
@@ -822,7 +849,7 @@ const httpLogonTarget = {
   tlsMaterial: () => ({ ok: false, refusal: authError["logon-target"]({ wire: "http", refused: "tls-material" }) }),
 };
 
-function createHttpWire(system, { providerFor, onRefusal }) {
+function createHttpWire(system, { providerFor, onRefusal, ensureMeans = async () => true }) {
   const base = new URL(system.url);
   const secure = base.protocol === "https:";
   if (!secure && base.protocol !== "http:") throw new Error("Unsupported SAP URL protocol");
@@ -861,6 +888,7 @@ function createHttpWire(system, { providerFor, onRefusal }) {
   }
 
   async function attempt(options) {
+    if (!(await ensureMeans(system))) throw new Error("No password was entered for " + system.name + ", so nothing was sent.");
     const p = await provider();
     const headers = { ...options.headers };
     const extraCookies = [];
@@ -1188,6 +1216,13 @@ module.exports = { createRfcWire, sdkSentence };
   - `password(system) → Promise<string|undefined>` — `basic` only; for any other type it
     returns `undefined` without asking.
   - `forget(system)`, `lastRefusal(system) → refusal|undefined`, `disposeAll() → Promise`
+  - `explain(system, error) → string` — `error.message`, followed for a 401 (`error.status === 401`
+    or `/\b401\b/` in the message) by the provider's refusal as ` — ‹reason› ‹hint›` when
+    `lastRefusal(system)` has one. Every place that shows an SAP failure to the user goes through it
+    (Tasks 8, 9, 10).
+  - `password(system)` is coalesced per login identity: concurrent callers share one prompt.
+  - `commandWire(system)` caches the pending construction, so concurrent first callers share one
+    wire and one prompt.
   - Refusal handling (SPEC §7, §12), shared by every wire: when a `basic` provider answers
     `rejected` with Oops, `auth` deletes the stored password (`means.forget`) and keeps the
     refusal for `lastRefusal`. Nothing is sent because of it. `prepare`/`authorize` Oops only
@@ -1255,6 +1290,37 @@ test("a basic refusal through any wire discards the stored password; the next ne
   await auth.password(sys); assert.equal(v.prompts.length, 2);
   await auth.disposeAll(); s.close();
 });
+test("a cached client recovers after a refusal: the next operation asks, the refused one is not replayed", async () => {
+  const http = require("node:http");
+  let accept = false;
+  const s = await new Promise(r => { const srv = http.createServer((q, res) => {
+    if (accept) { res.setHeader("x-csrf-token", "T"); res.end("ok"); } else { res.statusCode = 401; res.end(""); } });
+    srv.listen(0, "127.0.0.1", () => r(srv)); });
+  const entry = { name: "D", url: "http://127.0.0.1:" + s.address().port, user: "u" };
+  const v = fakeVscode([entry]), ctx = fakeContext();
+  const auth = createAuth({ vscode: v, context: ctx, logger: null });
+  const sys = auth.systemOf(entry).system;
+  const client = await auth.makeClient(sys, "repository");
+  await assert.rejects(client.httpClient.request("/sap/bc/adt/discovery", {}));
+  assert.equal(v.prompts.length, 1);
+  accept = true;
+  await client.httpClient.request("/sap/bc/adt/discovery", {});
+  assert.equal(v.prompts.length, 2);
+  await auth.disposeAll(); s.close();
+});
+test("concurrent first command requests share one wire and one prompt", async () => {
+  const v = fakeVscode([{ name: "D", url: "http://127.0.0.1:9", user: "u" }]);
+  const auth = createAuth({ vscode: v, context: fakeContext(), logger: null });
+  const sys = auth.systemOf({ name: "D", url: "http://127.0.0.1:9", user: "u" }).system;
+  const [a, b] = await Promise.all([auth.commandWire(sys), auth.commandWire(sys)]);
+  assert.equal(a, b); assert.equal(v.prompts.length, 1);
+  await auth.disposeAll();
+});
+test("explain adds the provider's reason and hint to a 401", async () => {
+  const auth = createAuth({ vscode: fakeVscode([]), context: fakeContext(), logger: null });
+  const sys = auth.systemOf({ name: "D", url: "http://h", user: "u" }).system;
+  assert.equal(auth.explain(sys, new Error("Error 401:Unauthorized")), "Error 401:Unauthorized");
+});
 test("command wires are shared per system and disposed by disposeAll", async () => {
   const auth = createAuth({ vscode: fakeVscode([{ name: "D", url: "http://127.0.0.1:9", user: "u" }]), context: fakeContext(), logger: null });
   const sys = auth.systemOf({ name: "D", url: "http://127.0.0.1:9", user: "u" }).system;
@@ -1287,10 +1353,16 @@ function createAuth({ vscode, context, logger }) {
   const migrated = migrateOnce({ secrets, globalState: context.globalState, currentSystems });
   const refusals = new Map();
   const wires = new Set();          // every live wire, for disposeAll
-  const commandWires = new Map();   // connectionKey → wire
+  const commandWires = new Map();   // connectionKey → Promise<wire>
+  const asking = new Map();         // login identity → pending password()
 
-  async function password(system) {
-    if (system.authType !== "basic") return undefined;
+  function password(system) {
+    if (system.authType !== "basic") return Promise.resolve(undefined);
+    const id = loginIdentity(system);
+    if (!asking.has(id)) asking.set(id, askPassword(system).finally(() => asking.delete(id)));
+    return asking.get(id);
+  }
+  async function askPassword(system) {
     await migrated;
     const id = loginIdentity(system);
     let pw = await means.password(id);
@@ -1319,7 +1391,8 @@ function createAuth({ vscode, context, logger }) {
     const providerFor = s => broker.providerFor(s);
     const wire = system.authType === "snc"
       ? require("./rfc-wire").createRfcWire(system, { providerFor, logger })
-      : createHttpWire(system, { providerFor, onRefusal });
+      : createHttpWire(system, { providerFor, onRefusal,
+          ensureMeans: async s => s.authType !== "basic" || !!(await password(s)) });
     wires.add(wire);
     const dispose = wire.dispose.bind(wire);
     wire.dispose = () => { wires.delete(wire); return Promise.resolve(dispose()); };
@@ -1334,13 +1407,23 @@ function createAuth({ vscode, context, logger }) {
     client.dispose = () => wire.dispose();
     return client;
   }
-  async function commandWire(system) {
+  function commandWire(system) {
     const key = connectionKey(system);
-    if (!commandWires.has(key)) commandWires.set(key, await newWire(system));
+    if (!commandWires.has(key)) {
+      const pending = newWire(system);
+      commandWires.set(key, pending);
+      pending.catch(() => commandWires.delete(key));
+    }
     return commandWires.get(key);
   }
+  function explain(system, error) {
+    const text = (error && error.message) || String(error);
+    const r = refusals.get(loginIdentity(system));
+    const is401 = (error && error.status === 401) || /\b401\b/.test(text);
+    return is401 && r ? text + " — " + r.reason + (r.hint ? " " + r.hint : "") : text;
+  }
   return {
-    systemOf: readSystem, currentSystems, makeClient, commandWire, password, hostRefusal,
+    systemOf: readSystem, currentSystems, makeClient, commandWire, password, hostRefusal, explain,
     lastRefusal: system => refusals.get(loginIdentity(system)),
     async forget(system) { await means.forget(loginIdentity(system)); },
     async disposeAll() { commandWires.clear(); await Promise.all([...wires].map(w => w.dispose())); },
@@ -1355,7 +1438,10 @@ module.exports = { createAuth };
     where `outputLogger` wraps the existing output channel as `{ debug, info, warn, error }`, each
     `appendLine` with its level. In `deactivate()`, before returning: `if (auth) { await auth.disposeAll(); }`
     (make `deactivate` `async`).
-  - Delete `secretKey` and `password(context, system)`.
+  - Replace `secretKey` and `password(context, system)` by a **temporary adapter** kept until
+    Task 10: `function password(_context, system) { return auth.password(system); }` with a
+    comment "removed in Task 10". `debuggerFor` (until Task 9) and the workbench's `register`
+    call (until Task 10) keep working through it. Delete `secretKey`.
   - `active()` and every `missing(system)` use: validate with `auth.systemOf(entry)`; an
     `{ error }` becomes the existing error text. Delete `missing`.
   - `request(system, requestPath, extra)` (drop the `pw` parameter everywhere): send through
@@ -1379,8 +1465,10 @@ module.exports = { createAuth };
   - `vertex.forgetPassword`: `await auth.forget(chosen.system)`; its title in `package.json`
     becomes "VERTEX: Forget Credentials" (command id unchanged).
 - [ ] **Step 5: run** `npm test`; update `test/extension.test.js` stubs that used `secretKey` or the
-  password prompt so they inject `context.secrets`/`globalState` and assert the new texts. All
-  green. `grep -n "secretKey\|password(context" vscode/extension.js` returns nothing.
+  password prompt so they inject `context.secrets`/`globalState` and assert the new texts, and
+  update `test/discovery-request.test.js` (`:25`) — its extracted-function sandbox must supply an
+  `auth` with `commandWire` returning a fake wire, and call `request(system, path, extra)` with the
+  new arguments. All green. `grep -n "secretKey" vscode/extension.js` returns nothing.
 - [ ] **Step 6: commit** `git commit -m "auth: one client factory; the extension's own requests through the wire; refusals discard a basic password"`.
 
 ### Task 9: Debugger wiring
@@ -1410,6 +1498,10 @@ module.exports = { createAuth };
     is `null`.
   - `open()` whose `login()` fails disposes its client before rethrowing (dispose → 1).
   - A system switch with no live session disposes the old listener and probe (each → 1).
+  - Normal completion (`end`), `release` and `stop` with a stopped program: the debuggee client is
+    logged out **and** disposed (logout → 1, dispose → 1), so its wire leaves the registry.
+  - A debugger failure caused by a refused password shows `auth.explain(system, error)` (the
+    provider's reason and hint) in its problem text.
   - A step that fails because the program is gone keeps today's `end()` path; a step that fails
     with an error whose message matches the RFC wire's session loss or an HTTP 400 "Session timed
     out" reports "The debugging session on ‹program› ended: ‹cause›" and does not retry.
@@ -1426,12 +1518,18 @@ module.exports = { createAuth };
     the problem sentence above. `LISTENER_STOP_MS` is a constant at the top of `debugger.js` with a
     comment citing `GATES.md` gate 4.
   - `loop()`'s attach catch (`:653`): dispose `session.client` if present before `session = null`.
+  - `release` (`:237`), `end` (`:729`) and `stop` (`:991`): after `logout()`, `await
+    session.client.dispose?.()` before `session = null`.
+  - Every `problems.push(... error.message ...)` that reports an SAP failure uses
+    `explain(error)`, a function `debugger.js` receives from `create({ …, explain })`; `extension.js`
+    passes `error => auth.explain(chosenSystem, error)`.
   - `system()` (`:220`): before `sap = null`, dispose `sap.listener` and `sap.probe`.
   - In `step`'s error path, the session-loss sentence above (§12), no retry.
 
   In `vscode/extension.js`:
   - `systemKey(system)` → `require("./auth/systems").connectionKey(system)`.
-  - `debuggerFor(context, auth)`; the call site in `activate` passes `auth`.
+  - `debuggerFor(context, auth)`; the call site in `activate` passes `auth`; `debuggerFor` no
+    longer uses the temporary `password` adapter.
   - `connect`: no password lookup; `const listener = await auth.makeClient(system, "listener");
     const probe = await auth.makeClient(system, "probe");`
   - `open`: `const client = await auth.makeClient(system, "debuggee"); client.stateful = "stateful";
@@ -1483,7 +1581,12 @@ is gone; `auth` is Task 8's object.
   - `sap-code.js` `apply`: when an error occurs between a successful `lock` and the `finally`'s
     `unLock`, and `unLock` also fails, the thrown message starts with "The lock on ‹object› was
     lost: " followed by the cause; nothing is retried.
-  - `extension.js`: `register(vscode, context, { active, auth, pin: pinTo, pinned: …, systems })`.
+  - `extension.js`: `register(vscode, context, { active, auth, pin: pinTo, pinned: …, systems })`;
+    delete the temporary `password` adapter from Task 8 (`grep -n "function password" vscode/extension.js`
+    returns nothing).
+  - Every workbench place that shows an SAP failure (open, save/apply, unit tests, ATC, where-used)
+    formats it with `auth.explain(system, error)`; a test pins one of them with a refused
+    `basic` password.
   - Delete `vscode/sap-http.js`. `grep -rn "sap-http\|new ADTClient" vscode --include=*.js | grep -v "^vscode/test/" | grep -v "auth/clients.js"` returns nothing.
 - [ ] **Step 5: run** `npm test`. **Step 6: commit**
   `git commit -m "workbench: repository via the auth factory; restore by key, then unique name; lost lock said; sap-http.js gone"`.
@@ -1533,6 +1636,9 @@ test("the auth packages are registry dependencies", () => {
     for `SADT_REST_RFC_ENDPOINT`), and which VSIX to install per platform; remote hosts: `snc` not
     supported.
   - The "Forget Credentials" command (renamed from "Forget Password").
+  - `vscode/walkthrough/test.md` (shipped walkthrough): its logon text says user/password for
+    `basic` systems, and SNC systems log on through Secure Login Client with no prompt; the
+    "asks again after a refusal" sentence applies to `basic` only.
   - `history.md`: the user-visible change for the next version (version left to the owner).
   - `dev_history.md`: a stage entry with the gate results from `GATES.md`.
 - [ ] **Step 5: run** `npm test`. **Step 6: commit**
