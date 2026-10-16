@@ -262,17 +262,21 @@ produces.
   clears the library's cookies.
 
 So a request the provider refuses (`basic`: `rejected` answers Oops, so the wire never retries)
-costs:
+costs the following. The library's login calls `_request` directly (`AdtHTTP.js:121`), so it never
+logs in again itself, and a refused login throws before the original request is retried
+(`AdtHTTP.js:162–168`).
 
-| Response body | Stateless client | Stateful client |
-|---|---|---|
-| no `CSRF` in it | 1 send; the caller receives the 401 | 1 send |
-| `CSRF` in it | 1 send, then the library's login (`GET /sap/bc/adt/compatibility/graph`, through the wire, refused the same way) and its retry: 3 sends; the caller receives the last error | 1 send |
+| Client state | Response body | Sends | The caller receives |
+|---|---|---|---|
+| not yet logged in (no CSRF token held) | any | 1: the auto-login itself, refused | the login's error |
+| logged in, stateful | any | 1 | the 401 |
+| logged in, stateless | no `CSRF` in it | 1 | the 401 |
+| logged in, stateless | `CSRF` in it | 2: the request, then the library's login, refused the same way | the login's error |
 
-With the second landing's token providers, the wire's own retry adds one send before either row.
+With the second landing's token providers, the wire's own retry adds one send to each refused send.
 
 VERTEX reports the final 401 and discards the refused password (§12). The test suite pins every
-cell of this table with the real `AdtHTTP` and `AdtException` (§14).
+row of this table with the real `AdtHTTP` and `AdtException` (§14).
 
 `dispose()` destroys the keep-alive agent.
 
@@ -502,8 +506,8 @@ Every client built anywhere goes through `makeClient`. A `grep` for `new ADTClie
   - `options.auth` dropped;
   - a new provider instance after the means change.
 - **The wire under the real `abap-adt-api`:** an `ADTClient` on `http-wire.js` against the local
-  server, pinning every cell of §7's table: bodies with and without `CSRF`, on stateless and on
-  stateful clients.
+  server, pinning every row of §7's table: a client not yet logged in, and logged-in stateful and
+  stateless clients with bodies with and without `CSRF`.
 - **`rfc-wire.js`**, with a fake connector:
   - mapping;
   - stripped headers;
