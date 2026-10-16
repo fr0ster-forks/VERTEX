@@ -97,22 +97,27 @@ function create(vscode, document, launch, publish, scope, more = {}) {
     switch (action) {
       case "picture": return picture();
       case "run": {
+        // One run at a time: a second one would end the first, which another view is waiting on.
+        if (listening) throw new Error("A run is already going: wait for it, or end it with Exit program.");
         live?.stop(); live = null;
         if (scope) sources = scope();
         latest = null; error = ""; listening = true; trace = []; publish(picture());
-        const result = await launch(args.selection || {});
-        live = result?.live || null;
-        trace = result?.records || [];
-        let ended = !live, durationMs = 0;
-        const first = trace[0], breakpoints = points();
-        if (live && first && !breakpoints.some(bp => bp.active && bp.url.toLowerCase() === first.file.toLowerCase() && bp.line === first.line)) {
-          // The time the program ran, not the time it was transpiled or stood at a breakpoint.
-          const started = Date.now();
-          const next = await live.next("continue", breakpoints);
-          durationMs = Date.now() - started;
-          trace.push(...next.records); ended = next.ended;
-        }
-        atTrace(Math.max(0, trace.length - 1)); listening = false; traceEnded = ended; traceMs = durationMs;
+        let result, ended, durationMs = 0;
+        try {
+          result = await launch(args.selection || {});
+          live = result?.live || null;
+          trace = result?.records || [];
+          ended = !live;
+          const first = trace[0], breakpoints = points();
+          if (live && first && !breakpoints.some(bp => bp.active && bp.url.toLowerCase() === first.file.toLowerCase() && bp.line === first.line)) {
+            // The time the program ran, not the time it was transpiled or stood at a breakpoint.
+            const started = Date.now();
+            const next = await live.next("continue", breakpoints);
+            durationMs = Date.now() - started;
+            trace.push(...next.records); ended = next.ended;
+          }
+        } finally { listening = false; }
+        atTrace(Math.max(0, trace.length - 1)); traceEnded = ended; traceMs = durationMs;
         return { url: document.uri.fsPath, trace, ended, durationMs, output: live?.output || result?.output || "" };
       }
       case "trace": return { trace };

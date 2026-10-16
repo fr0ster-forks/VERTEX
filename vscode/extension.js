@@ -906,6 +906,10 @@ function activate(context) {
     runOnly: dockedDebugSource.local === true && dockedDebugSource.runOnly === true,
     // Opened by the Run command, not by Clear: the program runs at once.
     autoRun: dockedDebugSource.local === true && dockedDebugSource.autoRun === true && !localDebugAdapter?.hasTrace(),
+    // A run of the program window: Visual Debug offers the way back to it.
+    programWindow: dockedDebugSource.local === true && require("./program-window").isOpen(),
+    // An SAP object's run: when its build was read, for Recompile.
+    sapBuild: dockedDebugSource.sapCopies ? { name: dockedDebugSource.sapCopies.root?.object_name || "", builtAt: dockedDebugSource.sapCopies.builtAt || "" } : null,
     // Opened again while its run is alive: the page takes the run's record instead of starting one.
     restore: dockedDebugSource.local === true && !!localDebugAdapter?.hasTrace(),
     scenarios: dockedDebugSource.local ? require("./local-run").scenariosFor(dockedDebugSource.document) : [],
@@ -925,6 +929,14 @@ function activate(context) {
     const copy = sapCopy("path", file);
     return copy ? pinTo(dockedDebugSource.sapCopies.system, () => sapCode.sourceOf(copy.object))
       : vscode.workspace.openTextDocument(vscode.Uri.file(file));
+  };
+  // Where a run's source is shown: the column it is already open in, else beside the program window rather than over
+  // it, so the window's list stays in sight while the flow is followed.
+  const runColumn = document => {
+    const open = (vscode.window.visibleTextEditors || []).find(item => item.document.uri.toString() === document.uri.toString());
+    if (open) return open.viewColumn;
+    const program = require("./program-window").column();
+    return program !== undefined && program === vscode.window.tabGroups?.activeTabGroup?.viewColumn ? vscode.ViewColumn.Beside : undefined;
   };
   const postDockedPicture = () => {
     if (dockedDebugSource?.local && localDebugAdapter) {
@@ -1045,7 +1057,8 @@ function activate(context) {
             const point = JSON.parse(String((message.args || [])[0] || "{}"));
             let editor = null;
             if (dockedDebugSource?.local) {
-              editor = await vscode.window.showTextDocument(await runDocument(String(point.url || "")), { preview: false });
+              const shown = await runDocument(String(point.url || ""));
+              editor = await vscode.window.showTextDocument(shown, { preview: false, viewColumn: runColumn(shown) });
             } else {
               await sapCode.revealFrame(point);
               const name = String(point.program || "").toLowerCase();
@@ -1069,7 +1082,7 @@ function activate(context) {
               if (source && /\.abap$/i.test(source)) {
                 const document = await runDocument(source);
                 const line = Math.max(0, Math.min(document.lineCount - 1, Number(frame.line || 1) - 1));
-                const editor = await vscode.window.showTextDocument(document, { preserveFocus: true, preview: false });
+                const editor = await vscode.window.showTextDocument(document, { preserveFocus: true, preview: false, viewColumn: runColumn(document) });
                 const position = new vscode.Position(line, 0);
                 if (localHistoryEditor && localHistoryEditor !== editor) clearLocalHistoryMark();
                 editor.setDecorations(localHistoryMark, [document.lineAt(line).range]);
@@ -1094,6 +1107,13 @@ function activate(context) {
           const args = message.args || [];
           const command = String(args[0] || "");
           const commandArgs = JSON.parse(String(args[1] || "{}"));
+          // Recompile: the SAP object of this run read and transpiled again, and the panel opened on that build.
+          if (command === "sapRecompile") { await recompileSap(); return; }
+          if (command === "toProgram") {
+            if (!require("./program-window").reveal()) throw new Error("The program window is closed: Run with ABAP Transpiler opens it again.");
+            await view.webview.postMessage({ type: "result", payload: "{}" });
+            return;
+          }
           if (dockedDebugSource?.local && localDebugAdapter) {
             if (["run", "step", "stop", "detach", "terminate"].includes(command)) clearLocalHistoryMark();
             const answer = await localDebugAdapter.command(command, commandArgs);
@@ -1184,6 +1204,31 @@ function activate(context) {
     if (source.local && latestLocalVariables && dockedDebugView) {
       setTimeout(() => void dockedDebugView?.webview.postMessage({ type: "localVariables", state: latestLocalVariables }), 150);
     }
+    // A program run to see what it does opens as SAP GUI shows a report: its own window, screen and list (program-window.js).
+    // Visual Debug stays behind it, with the record of each run, until See flow history or a breakpoint brings it up.
+    // A method or a function module shows the screen of its parameters there.
+    if (runOnly === true && source.local) {
+      // The panel only follows the window's runs: no automatic run of its own, no run screen of its own.
+      dockedDebugSource.autoRun = false;
+      dockedDebugSource.runOnly = false;
+      require("./program-window").open(vscode, { name: source.object_name, host: {
+        selection: () => localDebugAdapter.command("selection"),
+        adapter: (command, args) => localDebugAdapter.command(command, args),
+        run: async selection => {
+          clearLocalHistoryMark();
+          const result = await localDebugAdapter.command("run", { selection });
+          // Visual Debug follows every run of the window: the run just made, never an earlier one.
+          if (!result.ended) await showFlow();
+          else refreshFlow();
+          return result;
+        },
+        flow: showFlow,
+        recompile: dockedDebugSource.sapCopies?.root ? recompileSap : null,
+        builtAt: dockedDebugSource.sapCopies?.builtAt || "" } });
+      // Written after the window opens, so the panel knows the window holds the run (its Run brings the window back).
+      if (dockedDebugView) dockedDebugView.webview.html = require("./tools-window").debugHtml(dockedDebugInitial()) + "<!-- " + Date.now() + " -->";
+      return;
+    }
     if (dockedDebugView) {
       // A page the same as the one shown is not loaded again by VS Code: the mark of this opening makes it new.
       dockedDebugView.webview.html = require("./tools-window").debugHtml(dockedDebugInitial()) + "<!-- " + Date.now() + " -->";
@@ -1194,14 +1239,43 @@ function activate(context) {
         vscode.window.showErrorMessage("VERTEX: could not open Debug panel: " + error.message));
     }
   };
+  // Visual Debug on the record of the program window's runs: the whole panel - the debugger, not the plain run - taking the
+  // run as it stands.
+  const refreshFlow = () => {
+    if (!dockedDebugView || !localDebugAdapter?.hasTrace()) return false;
+    if (dockedDebugSource) dockedDebugSource.runOnly = false;
+    dockedDebugView.webview.html = require("./tools-window").debugHtml(dockedDebugInitial()) + "<!-- " + Date.now() + " -->";
+    postDockedPicture();
+    return true;
+  };
+  const showFlow = async () => {
+    if (!localDebugAdapter?.hasTrace()) throw new Error("No run has been recorded yet.");
+    if (refreshFlow()) dockedDebugView.show(true);
+    else {
+      if (dockedDebugSource) dockedDebugSource.runOnly = false;
+      await vscode.commands.executeCommand("workbench.view.extension.vertex-debug");
+    }
+    return {};
+  };
+  // Recompile: the SAP object of this run read and transpiled again, and opened on that build.
+  const recompileSap = async () => {
+    const sap = dockedDebugSource?.sapCopies;
+    if (!sap?.root) throw new Error("This run was not read from SAP.");
+    localDebugAdapter?.dispose();
+    await runSapTranspiler(sap.root, { recompile: true, entryLine: sap.root.object_type === "PROG" ? 0 : sap.entryLine });
+    return {};
+  };
   // An SAP program run with the ABAP transpiler: its sources are read into a folder of their own, and Visual Debug turns
   // to the transpiler's panel on the program written there, running at once.
-  const runSapTranspiler = async shown => {
+  // options.recompile: read the object from SAP again and transpile it, rather than run its last build; options.entryLine:
+  // the method's or module's line, as the last run had it, in place of the cursor's.
+  const runSapTranspiler = async (shown, options = {}) => {
     const kind = String(shown?.object_type || "").toUpperCase();
     if (!["PROG", "CLAS", "FUNC"].includes(kind)) throw new Error("The transpiler runs an SAP program, a method of an SAP class or a function module; open one first.");
     // A class runs one method: the one the cursor stands in, in the tab of the class's own source.
     let entryLine = 1;
-    if (kind === "CLAS") {
+    if (options.entryLine) entryLine = options.entryLine;
+    else if (kind === "CLAS") {
       const object = { object_name: shown.object_name, object_type: "CLAS", include: "main" };
       const tab = await pinTo(shown.system_name, () => sapCode.sourceUri(object)), editor = vscode.window.activeTextEditor;
       if (!editor || editor.document.uri.toString() !== tab)
@@ -1209,16 +1283,26 @@ function activate(context) {
       entryLine = editor.selection.active.line + 1;
     }
     // A function module runs whole: from the cursor in its tab, else from its first line.
-    if (kind === "FUNC") {
+    if (kind === "FUNC" && !options.entryLine) {
       const tab = await pinTo(shown.system_name, () => sapCode.sourceUri({ object_name: shown.object_name, object_type: "FUNC", include: "main" }));
       const editor = vscode.window.activeTextEditor;
       entryLine = editor && editor.document.uri.toString() === tab ? editor.selection.active.line + 1 : 1;
     }
-    const read = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "VERTEX: reading " + shown.object_name + " for the transpiler" },
-      report => pinTo(shown.system_name, () => sapCode.transpileSources(shown, name => report.report({ message: name }))));
-    const transpile = require("./sap-transpile"), file = transpile.writeProject(shown.system_name, read.sources, read.dictionary);
+    const read = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+      title: "VERTEX: " + (options.recompile ? "recompiling " : "reading ") + shown.object_name + " for the transpiler" },
+      report => pinTo(shown.system_name, () => sapCode.transpileSources(shown, name => report.report({ message: name }), { recompile: options.recompile === true })));
+    // The project is written again only when what was read changed; its fingerprint goes with it, for local-run to
+    // take the transpiled code again (sap-cache.js).
+    const transpile = require("./sap-transpile"), project = path.join(read.folder, "project"), stampFile = path.join(project, "vertex-fingerprint.json");
+    let stamp = null; try { stamp = JSON.parse(fs.readFileSync(stampFile, "utf8")); } catch (_) { /* none yet */ }
+    let file;
+    if (read.cached && stamp && stamp.fingerprint === read.fingerprint && fs.existsSync(stamp.shown)) file = stamp.shown;
+    else {
+      file = transpile.writeProject(shown.system_name, read.sources, read.dictionary, project);
+      fs.writeFileSync(stampFile, JSON.stringify({ fingerprint: read.fingerprint, shown: file }));
+    }
     // The programs' texts, for the selection screen the panel draws (local-run screenFor).
-    fs.writeFileSync(path.join(path.dirname(path.dirname(file)), "vertex-texts.json"), JSON.stringify(read.texts || {}));
+    fs.writeFileSync(path.join(project, "vertex-texts.json"), JSON.stringify(read.texts || {}));
     // Each copy and the SAP tab it was read from: the run steps, marks and stops in the tab, not in the copy.
     const folder = path.dirname(path.dirname(file)), copies = [];
     for (const source of read.sources) {
@@ -1236,7 +1320,8 @@ function activate(context) {
     if (kind !== "PROG" && !require("./local-run").entryScreen(document, entryLine))
       throw new Error("Line " + entryLine + " of " + shown.object_name + " is in no method: put the cursor in the method to run.");
     openVisualDebug(true, { ...require("./local-analysis").sourceObject(document), local: true, document, entryLine, autoRun: true,
-      sapCopies: { system: shown.system_name, copies } });
+      sapCopies: { system: shown.system_name, copies, builtAt: read.builtAt || "",
+        root: { object_name: shown.object_name, object_type: kind, system_name: shown.system_name }, entryLine } });
   };
   // F5-F8 are deliberately scoped in package.json to a VERTEX ABAP editor.
   // A stopped program is shared with Visual Debug, so stepping here redraws

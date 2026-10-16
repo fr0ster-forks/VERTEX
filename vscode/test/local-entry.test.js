@@ -92,7 +92,7 @@ test("the call program sets the values, passes an optional parameter only when g
   assert.match(source, /zvx_object = NEW zcl_calc\( iv_rate = c_IV_RATE \)\./);
   assert.doesNotMatch(source, /iv_flag =/, "IV_FLAG was not given");
   assert.match(source, /RECEIVING rv_sum = RV_SUM/);
-  assert.match(source, /WRITE: \/ 'RV_SUM =', RV_SUM\./);
+  assert.match(source, /WRITE \/ \|VERTEX:S\\tRV_SUM\\t\{ RV_SUM \}\|\./, "a result in VERTEX's form, for the window to draw");
 });
 
 test("a function module is called with CALL FUNCTION, its DEFAULT set where nothing was given", () => {

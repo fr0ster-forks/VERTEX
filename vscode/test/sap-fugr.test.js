@@ -88,6 +88,6 @@ test("a module runs by itself from its copy, its parameters asked", async () => 
     const out = silent();
     const result = await launch(out.vscode, false, { document, entryLine: 6, trace: true, selection: { $entry: { parameters: { IV_N: "21" } } } })
       .catch(error => { throw new Error(error.message + "\n" + out.log()); });
-    assert.match(result.output, /EV_N =\s*42/);
+    assert.match(result.output, /VERTEX:S	EV_N	42/);
   } finally { fs.rmSync(folder, { recursive: true, force: true }); }
 });

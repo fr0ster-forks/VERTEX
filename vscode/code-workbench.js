@@ -2399,8 +2399,23 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       return require('./review-front').write(api, resource, body, await reviewIo(api)); },
     // The sources of a transpiler run of an SAP program: its active version and what it names. An open tab that is not
     // the active version stops it, as the run would not be of the code the reader sees.
-    transpileSources: async ({ object_name, object_type }, progress) => {
-      const repo = await repository(), read = repo.api.analysisReader();
+    // As SAP runs a program's load, not its text, a run takes what the last build of this object read (sap-cache.js);
+    // only Recompile (options.recompile), or no build yet, reads it from SAP again.
+    transpileSources: async ({ object_name, object_type }, progress, options = {}) => {
+      const repo = await repository(), read = repo.api.analysisReader(), query = (sql, rows) => repo.api.query(sql, rows);
+      const cache = require('./sap-cache'), folder = cache.cacheFolder(repo.key, { object_name, object_type });
+      const textsOf = async sources => {
+        const texts = {};
+        for (const source of sources.filter(source => source.type === 'PROG')) {
+          const base = '/sap/bc/adt/textelements/programs/' + encodeURIComponent(source.name.toLowerCase()) + '/source/';
+          try { texts[source.name] = require('./selection-screen').adtTexts(await repo.api.sourceAt(base + 'selections'), await repo.api.sourceAt(base + 'symbols')); }
+          catch (error) { texts[source.name] = { selections: {}, symbols: {}, error: error.message }; }
+        }
+        return texts;
+      };
+      const kept = options.recompile ? null : cache.readKept(folder);
+      if (kept) return { system: repo.label, sources: kept.sources, dictionary: kept.dictionary, texts: await textsOf(kept.sources),
+        folder, fingerprint: kept.fingerprint, builtAt: kept.builtAt, cached: true };
       const first = await read({ object_name, object_type });
       const open = [...opened.values()].find(e => e.repo === repo && e.data.object_url === first.object_url
         && (e.data.include || 'main') === 'main' && e.document && !e.document.isClosed);
@@ -2408,7 +2423,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
         throw new Error(first.object_name + ': save and activate the source first - the transpiler runs the active version.');
       }
       // A function module called brings its function group, read through ADT and TFDIR.
-      const fugr = require('./sap-fugr'), query = (sql, rows) => repo.api.query(sql, rows);
+      const fugr = require('./sap-fugr');
       const groups = { of: module => fugr.groupOf(query, module),
         read: group => fugr.readFunctionGroup({ sourceAt: repo.api.sourceAt, query }, group, progress) };
       const sources = await require('./sap-transpile').collect(read, { name: first.object_name, type: first.object_type }, { progress, groups });
@@ -2417,14 +2432,13 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       for (const source of sources) for (const name of ddic.dictionaryNames(source.text)) named.add(name);
       progress('dictionary');
       const known = new Set([...ddic.coreNames(), ...sources.map(source => source.name)]);
-      // The selection texts and text symbols of each program, for its selection screen; why they could not be read, if so.
-      const texts = {};
-      for (const source of sources.filter(source => source.type === 'PROG')) {
-        const base = '/sap/bc/adt/textelements/programs/' + encodeURIComponent(source.name.toLowerCase()) + '/source/';
-        try { texts[source.name] = require('./selection-screen').adtTexts(await repo.api.sourceAt(base + 'selections'), await repo.api.sourceAt(base + 'symbols')); }
-        catch (error) { texts[source.name] = { selections: {}, symbols: {}, error: error.message }; }
-      }
-      return { system: repo.label, sources, texts, dictionary: await ddic.readDictionary((sql, rows) => repo.api.query(sql, rows), named, known) };
+      // The selection texts and text symbols of each program, for its selection screen - read at every run, as a text pool
+      // changes without its source; why they could not be read, if so.
+      const dictionary = await ddic.readDictionary(query, named, known);
+      // The build is named by when it was read: a project written from another build is written again.
+      const builtAt = new Date().toISOString();
+      cache.keep(folder, { sources, dictionary, fingerprint: builtAt, builtAt });
+      return { system: repo.label, sources, texts: await textsOf(sources), dictionary, folder, fingerprint: builtAt, builtAt, cached: false };
     },
     // The address of an object's VERTEX tab, open or not, as sourceDocument makes it; and that tab's document.
     sourceUri: async ({ object_name, object_type, include = 'main' }) => {

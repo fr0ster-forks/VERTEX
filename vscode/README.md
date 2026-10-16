@@ -76,7 +76,20 @@ option, low and high, with + row unless NO-EXTENSION and without high under NO I
 its selection text - from the abapGit text pool beside a local file, from SAP for an SAP program; if SAP's texts cannot
 be read the window says so and shows the technical names. A field marked OBLIGATORY must be filled before Execute (F8)
 runs. A pushbutton, a tabbed block or a function key is named in the window as not drawn, and another screen
-(BEGIN OF SCREEN) is not asked. The window takes no room in the panel. The panel counts the breakpoints of its own object and the sources it uses - a point in another object's file
+(BEGIN OF SCREEN) is not asked.
+
+**A program runs in a window of its own, as SAP GUI shows a report.** VERTEX: Run with ABAP Transpiler on a program
+opens it in an editor tab, in the colours of the VS Code theme: a title bar, a toolbar, the selection screen, and a
+status bar. **Execute (F8)** runs it and shows the list it wrote; **Back (F3)** returns to the screen with the values
+given, to run again. A program without a selection screen runs at once. A local file is transpiled again only when a
+source of its folder changed - an edit, a new file, a removed one; otherwise the last build runs at once. Each run is recorded, and Visual Debug always shows the latest one -
+without an Output of its own, as the list is in the window: **See flow history**
+brings it to the front - its steps, values and flow - and a run that reaches a breakpoint opens it there by
+itself, to step on - the source it follows opens beside the window, which stays in sight; Run in that Visual Debug
+brings the window to the front again. A transpiler run has no session
+to leave, so its panel has no Detach: Exit program ends a stopped run. For an SAP program the toolbar has **Recompile** too. A method or a function module opens the same window on the
+screen of its parameters, with its variants; its results follow the list - a value as a line, a structure as a tree
+and a table as a grid, both opening and closing (in Visual Debug's Output, as indented text). The panel counts the breakpoints of its own object and the sources it uses - a point in another object's file
 neither shows nor stops it, and Clear all leaves it; **All BP** in the Breakpoints header counts every ABAP breakpoint
 in VS Code instead. Opened by Run with ABAP Transpiler and with none of those set, the panel is a run: the Run button and the
 Output, nothing else; set a breakpoint and it is the debugger, and back when the last one is removed. A transpiler run
@@ -1106,6 +1119,10 @@ debugger the assistant drives - one session, not a second one:
   either is left to the transpiler, which names what it cannot resolve.
   SAP's own classes the code uses - `CX_SY_*`, `CL_ABAP_CHAR_UTILITIES`, RTTI and the rest of open-abap-core,
   bundled with VERTEX - run with it; they are not recorded and a step does not go into them.
+  As SAP runs a program's load and not its text, a run takes the last build of the object - what was read and
+  transpiled - without asking SAP again; **Recompile** beside the Run button reads the object and what it uses again
+  and transpiles it, and its tooltip says when the current build was read. A method or a function module is
+  transpiled again at each run, as the program that calls it carries the values given, but is not read again.
   The run works on those copies, but you stay in the SAP tabs: a step opens and marks the program, include or class
   in its VERTEX tab, F5-F8 there step the run, and a breakpoint set in a tab stops the run - the same breakpoint is
   set in SAP for Run in SAP too.

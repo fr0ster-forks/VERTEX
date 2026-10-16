@@ -12,9 +12,14 @@ button{--accent:var(--vscode-focusBorder,#0a66c2);cursor:pointer;padding:1px 8px
 button:hover:not(:disabled){color:var(--vscode-editor-foreground,CanvasText)}
 button.on{color:var(--vscode-editor-foreground,CanvasText);border-bottom-color:var(--accent);box-shadow:0 3px 8px -3px var(--accent)}
 button:disabled{opacity:.45;cursor:default}
-/* The two that end something - the program or the whole session - stand out. */
-#terminate,#stop{color:var(--vscode-errorForeground,#c72e0f);--accent:var(--vscode-errorForeground,#c72e0f)}
-#terminate:hover:not(:disabled),#stop:hover:not(:disabled){color:var(--vscode-errorForeground,#c72e0f);border-bottom-color:var(--accent)}
+/* The actions of the header - Exit program, Detach, Recompile, the SAP program's transpiler run and
+   Clear - are one kind of button: VS Code's secondary button. Run alone keeps its fill, as the panel's first action. */
+#terminate,#stop,#recompile,#sapTranspile,#clearpanel{padding:2px 10px;border:1px solid var(--vscode-button-border,var(--vscode-panel-border));
+  border-radius:5px;background:var(--vscode-button-secondaryBackground,var(--vscode-editorWidget-background));
+  color:var(--vscode-button-secondaryForeground,var(--vscode-editor-foreground))}
+#terminate:hover:not(:disabled),#stop:hover:not(:disabled),#recompile:hover:not(:disabled),
+#sapTranspile:hover:not(:disabled),#clearpanel:hover:not(:disabled){background:var(--vscode-button-secondaryHoverBackground,var(--vscode-list-hoverBackground));
+  color:var(--vscode-button-secondaryForeground,var(--vscode-editor-foreground))}
 #analysis-copy{position:absolute;right:44px;top:6px;width:28px;height:28px;padding:2px;border:1px solid var(--vscode-panel-border);background:var(--vscode-button-secondaryBackground,var(--vscode-editorWidget-background));color:var(--vscode-button-secondaryForeground,var(--vscode-editor-foreground))}header{position:relative;flex:none;padding:6px 80px 6px 8px;border-bottom:1px solid var(--vscode-panel-border,GrayText);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .grp{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}
 .grp+.grp{padding-left:8px;border-left:1px solid var(--vscode-panel-border,GrayText)}
@@ -62,6 +67,10 @@ section h3 label{font-weight:400;display:flex;gap:3px;align-items:center}
 .list{overflow:auto;font-family:var(--vscode-editor-font-family,monospace)}
 #stack,#bps,#vars,#logbox{flex:1;min-height:0}
 #run,#into,#over,#out,#cont{display:inline-flex;align-items:center;gap:5px}
+/* Clear, the debugger icon and ? stand in the header's top right corner: the first row leaves them room, and the title
+   is cut with an ellipsis rather than run under them. */
+header .grp:has(#run){padding-right:170px;box-sizing:border-box;max-width:100%;min-width:0}
+#title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #run{background:color-mix(in srgb,var(--vscode-terminal-ansiBrightBlue,#75bfff) 22%,var(--vscode-editor-background,Canvas));transition:background .12s,color .12s,box-shadow .12s}
 #run:hover:not(:disabled){background:color-mix(in srgb,var(--vscode-terminal-ansiBrightBlue,#75bfff) 34%,var(--vscode-editor-background,Canvas));box-shadow:0 3px 8px -3px var(--accent)}
 svg.dbg{width:16px;height:16px;flex:none}
@@ -190,6 +199,7 @@ body.vdrag{cursor:row-resize;user-select:none}
 #selscreen .screen-note{color:var(--vscode-descriptionForeground);font-style:italic;margin:3px 0}
 #selscreen .screen-range{margin:4px 0}
 #selscreen .range-row{display:flex;gap:4px;align-items:center;margin:2px 0 2px 140px}
+#selscreen .range-row input[type="text"]{width:11em}
 #selscreen select{color:var(--vscode-dropdown-foreground);background:var(--vscode-dropdown-background);border:1px solid var(--vscode-dropdown-border,var(--vscode-widget-border,GrayText))}
 #selscreen hr{border:none;border-top:1px solid var(--vscode-widget-border,var(--vscode-panel-border,GrayText))}
 #selscreen .entry-variants{display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
@@ -202,6 +212,24 @@ body.vx-run-only header .grp:has(#into),body.vx-run-only header .grp:has(#zonly)
 body.vx-run-only #recbar,body.vx-run-only #runline,body.vx-run-only #panes button:not([data-pane="outsec"]),
 body.vx-run-only #stacksec,body.vx-run-only #bpsec,body.vx-run-only #varsec,body.vx-run-only #dumpsec,body.vx-run-only #flowpane,body.vx-run-only #logsec{display:none!important}
 body.vx-run-only #outsec{display:flex!important;flex:1 1 auto;height:auto!important;max-height:none!important}
+/* A run with no breakpoint is one program: its selection screen, then its list, and back. */
+body.vx-run-only.vx-screen #outsec{display:none!important}
+body.vx-run-only.vx-screen #runscreen{display:flex!important;flex-direction:column;flex:1 1 auto;overflow:auto}
+#runscreen #runscreenbody{padding:6px 10px;overflow:auto}
+#runscreen .screen-block{margin:6px 0;padding:4px 8px;border:1px solid var(--vscode-widget-border,var(--vscode-panel-border,GrayText));border-radius:4px}
+#runscreen div.screen-block{border:none;padding:0}
+#runscreen .screen-block legend{color:var(--vscode-foreground);font-weight:600;padding:0 4px}
+#runscreen .screen-line{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+#runscreen .screen-item{display:flex;gap:6px;align-items:center;margin:3px 0}
+#runscreen .screen-label{min-width:140px;color:var(--vscode-foreground)}
+#runscreen .screen-comment,#runscreen .screen-note{color:var(--vscode-descriptionForeground);margin:3px 0}
+#runscreen .screen-note{font-style:italic}
+#runscreen .range-row{display:flex;gap:4px;align-items:center;margin:2px 0 2px 140px}
+#runscreen .range-row input[type="text"]{width:11em}
+#runscreen input[type="text"]{color:var(--vscode-input-foreground);background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,var(--vscode-widget-border,GrayText))}
+#runscreen select{color:var(--vscode-dropdown-foreground);background:var(--vscode-dropdown-background);border:1px solid var(--vscode-dropdown-border,var(--vscode-widget-border,GrayText))}
+#runscreen button.primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
+
 #outbox{margin:0;padding:4px 8px;font-family:var(--vscode-editor-font-family,monospace);white-space:pre;overflow:auto;color:var(--vscode-editor-foreground);background:var(--vscode-editor-background)}
 #flowvalue{margin-right:6px}
 #flowvalue,#chosenvalue select{font:inherit;font-weight:bold;max-width:260px;background:var(--vscode-dropdown-background,var(--vscode-editor-background));color:var(--vscode-dropdown-foreground,var(--vscode-foreground));border:1px solid var(--vscode-dropdown-border,var(--vscode-panel-border,transparent));border-radius:3px}
@@ -241,10 +269,10 @@ body.vertex-docked-debug #right{width:100%}
 ::-webkit-scrollbar-thumb:hover{background:var(--vscode-scrollbarSlider-hoverBackground,rgba(128,128,128,.6))}
 .debug-help{position:absolute;right:8px;top:6px;z-index:60}.debug-help>summary{cursor:pointer;list-style:none;padding:3px 9px;border:1px solid var(--vscode-panel-border);border-radius:5px;background:var(--vscode-button-secondaryBackground,var(--vscode-editorWidget-background))}.debug-help>div{position:absolute;right:0;width:min(440px,85vw);max-height:65vh;overflow:auto;padding:14px;border:1px solid var(--vscode-panel-border);background:var(--vscode-editorWidget-background,var(--vscode-editor-background));color:var(--vscode-editor-foreground);box-shadow:0 4px 18px var(--vscode-widget-shadow)}
 </style></head><body>
-<header><button id="clearpanel" title="Start this panel again: the record, the analysed path, the values followed and the output are dropped; the breakpoints and a SAP debug session stay">Clear</button><details class="debug-help"><summary aria-label="Visual Debug help" title="Visual Debug help">?</summary><div><strong>Visual Debug</strong><p>Classes / Methods changes the call graph. Depth counts entered routines; expansion, zoom and position are retained.</p><p>Logic embeds the standard Tools Logic diagram for the active source editor. Turn it off to return to the call graph. Logic only keeps branches, loops, calls and exits; turn that filter off to see all operations.</p><p>Click linked labels or breakpoint locations to open source. Alt+Left returns. Source selections highlight diagram nodes; the focused view drives scrolling.</p><p>Detach continues a stopped program and disconnects, or cancels listening. It is disabled without a connection. Exit program ends a stopped program.</p><p>Analysis progress updates every three seconds. The bug button copies the full diagnostic log. Parsed statement counts are analysis work, not executed steps.</p><p>The zoom slider is 10–100%. The lens works below 70%, magnifying up to that effective scale. Changing the theme preserves zoom and position.</p></div></details><button id="analysis-copy" aria-label="Copy analysis log" title="Copy the latest path and value analysis, including FLOW, Formula and Expression">🐞</button>
+<header><button id="clearpanel" title="Start this panel again: the record, the analysed path, the values followed and the output are dropped; the breakpoints and a SAP debug session stay">Clear</button><details class="debug-help"><summary aria-label="Visual Debug help" title="Visual Debug help">?</summary><div><strong>Visual Debug</strong><p><b>Run in SAP</b> starts the program in WebGUI and the breakpoints catch it there. <b>Run with ABAP Transpiler</b> runs it on this machine: a program opens in its own window - selection screen, Execute (F8), the list, Back (F3) - and Run here brings that window back; a method or a function module asks its parameters first.</p><p>An SAP object runs its last build, as SAP runs a load. <b>Recompile</b> reads it and what it uses from SAP again; its tooltip says when the build was read.</p><p>Single Step, Execute, Return and Continue (F5-F8, here or in the editor) step from a stop. A transpiler run records every step: the slider replays it, and Variables shows the routine's values, SY and the SELECTs of the statement before.</p><p>Output is what the program wrote; a call's results follow it, structures as trees and tables as columns. A failed run names the ABAP line it stopped on.</p><p>Exit program ends a stopped program; for an SAP run, Detach lets it go on and stops listening. The breakpoints stay for the next run. Clear starts this panel again.</p><p>Click a linked label or a breakpoint's place to open its source; Alt+Left returns. The bug button copies the full diagnostic log.</p><p>The zoom slider is 10-100%. The lens works below 70%, magnifying up to that effective scale. Changing the theme preserves zoom and position.</p></div></details><button id="analysis-copy" aria-label="Copy analysis log" title="Copy the latest path and value analysis, including FLOW, Formula and Expression">🐞</button>
   <!-- Three groups, because they answer three questions: what to do with the
        program, how to step, and how a run behaves. -->
-  <span class="grp"><button id="run" title="Start the program in SAP (WebGUI) - the breakpoints catch it there"><svg class="clock" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="#fff" stroke="#3a3a3a" stroke-width="1.2"/><path d="M8 3.8V8l2.6 1.6" fill="none" stroke="#3a3a3a" stroke-width="1.3" stroke-linecap="round"/><path d="M9.2 12.2l1.8 1.8 3.6-4" fill="none" stroke="#2e9e3e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Run in SAP</button><button id="sapTranspile" hidden title="Read this program, the class of the method the cursor is in or this function module's group, and what it uses from SAP, and run it with the ABAP transpiler">Run with ABAP Transpiler</button><input id="program" placeholder="Program, or empty for a test" title="A class or a function module is not run by itself: name the program that calls it, started in WebGUI" spellcheck="false"><span id="title">Visual Debug</span><button id="terminate" title="End the program here, as the debugger's Exit does; the breakpoints stay for the next run" disabled>Exit program</button><button id="stop" title="Let the program go and stop listening; the breakpoints stay here for the next run" disabled>Detach</button></span>
+  <span class="grp"><button id="run" title="Start the program in SAP (WebGUI) - the breakpoints catch it there"><svg class="clock" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="#fff" stroke="#3a3a3a" stroke-width="1.2"/><path d="M8 3.8V8l2.6 1.6" fill="none" stroke="#3a3a3a" stroke-width="1.3" stroke-linecap="round"/><path d="M9.2 12.2l1.8 1.8 3.6-4" fill="none" stroke="#2e9e3e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Run in SAP</button><button id="recompile" hidden>Recompile</button><button id="sapTranspile" hidden title="Read this program, the class of the method the cursor is in or this function module's group, and what it uses from SAP, and run it with the ABAP transpiler">Run with ABAP Transpiler</button><input id="program" placeholder="Program, or empty for a test" title="A class or a function module is not run by itself: name the program that calls it, started in WebGUI" spellcheck="false"><span id="title">Visual Debug</span><button id="terminate" title="End the program here, as the debugger's Exit does; the breakpoints stay for the next run" disabled>Exit program</button><button id="stop" title="Let the program go and stop listening; the breakpoints stay here for the next run" disabled>Detach</button></span>
   <span class="grp"><button id="into" title="Single Step (F5)" disabled><svg class="dbg" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 3h6M9 6h6M9 9h6M9 12h6" stroke="currentColor" stroke-width="1.2" opacity=".6"/><path d="M2 2v8h5" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 8l2 2-2 2" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lbl">Single Step</span></button><button id="over" title="Execute (F6)" disabled><svg class="dbg" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 3h6M9 6h6M9 9h6M9 12h6" stroke="currentColor" stroke-width="1.2" opacity=".6"/><path d="M2 2v11h5" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 11l2 2-2 2" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lbl">Execute</span></button><button id="out" title="Return (F7)" disabled><svg class="dbg" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 3h6M9 6h6M9 9h6M9 12h6" stroke="currentColor" stroke-width="1.2" opacity=".6"/><path d="M3 14V4h4" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 2l2 2-2 2" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lbl">Return</span></button><button id="cont" title="Continue to the next breakpoint (F8)" disabled><svg class="dbg" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 3h6M9 6h6M9 9h6M9 12h6" stroke="currentColor" stroke-width="1.2" opacity=".6"/><path d="M4 1.5v12" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 11.5l2 2 2-2" fill="none" stroke="#d93025" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="lbl">Continue</span></button></span>
   <span class="grp"><button id="zonly" class="on" title="In a run of F5 steps, a step that lands outside Z/Y code returns at once (F7): SAP's own code is passed in one go">Z only</button><span class="vertex-segment-toggle" id="recmode" role="group" aria-label="Record" title="Continue (F8) as a run of F5 steps, keeping every stop for the player. Values are the expensive half of a stop - with Steps &amp; values the parameters and locals are read at every stop, so Formula and Expression can say which statement changed a value"><button data-rec="off">No record</button><button class="active" data-rec="steps">Rec steps</button><button data-rec="values">Steps &amp; values</button></span></span>
   <span id="state">Click beside a line number to set a breakpoint; right-click for a condition.</span>
@@ -285,7 +313,8 @@ body.vertex-docked-debug #right{width:100%}
       <button id="dumpfull" hidden title="Show the whole dump as SAP wrote it">Whole dump</button>
       <button id="dumpopen" title="Open ST22 in SAP, where this dump is the first entry">Open ST22</button></h3>
       <div class="list" id="dumpbox"></div></section>
-    <section id="outsec" hidden><h3><span>Output</span><span class="grow"></span></h3><pre id="outbox" class="list"></pre></section>
+    <section id="runscreen" hidden><h3><span id="runscreentitle">Selection screen</span><span class="grow"></span><button id="runexecute" class="primary">Execute (F8)</button></h3><div id="runscreenbody"></div></section>
+    <section id="outsec" hidden><h3><span>Output</span><span class="grow"></span><button id="runback" hidden title="Back to the selection screen, to run again (F3)">Back (F3)</button></h3><pre id="outbox" class="list"></pre></section>
     <div id="flowpane" hidden><div id="flowbar"><button id="fvalues" class="vertex-toggle on" hidden title="Show the value a recorded run holds for each name of Formula and Expression, in brackets after it. The values come from a run recorded with Steps &amp; values (a transpiler run always has them); before a run there are none to show">With values</button><button id="fclasses" class="active">Classes</button><button id="fmethods">Methods</button><button id="flogic" title="Branches, loops, calls and control transfers">Logic</button><button id="fsteps" hidden title="The recorded run as statements: one node per statement, however many times it ran">Statements</button><span id="fdepthbox" hidden><span class="vertex-segment-toggle" id="fexpand" role="group" aria-label="Branches"><button class="active" data-open="collapse">Collapse all</button><button data-open="expand">Expand all</button></span><label class="fdepth" title="How deep the statements are shown - the program is 0, a class 1, a routine 2">Depth <input type="range" id="fdepth" min="1" max="1" value="1" step="1" aria-label="Depth"><output id="fdepthvalue" class="dim">all</output></label></span><span class="grow"></span><button id="ffull" title="The whole window (Esc to leave)">&#10530;</button><button id="fclose" class="x" title="Hide the diagram">&#215;</button></div><div id="bse-workspace" class="bse-workspace"></div></div>
     <section id="logsec" hidden><h3><span>Log</span><span id="logtime" class="dim"></span></h3><div id="logbox" class="list"></div></section>
   </div>
@@ -2194,73 +2223,6 @@ var localRunSequence=0,localEnded=false,localFetching=false,selDialog=null,selCo
    parameter or a group of that name is still there; a new one starts at its DEFAULT. */
 /* A method or function module run: an editor per parameter - a field, a structure's fields, a table's rows - and the
    named variants of their values. entryEditors reads them back for the run. */
-var entryEditors=null,entryKey="",entryBlocked="";
-function entryEditor(p){
-  var shape=p.shape||{kind:"simple"};
-  if(shape.kind==="structure"){
-    var box=document.createElement("table");box.className="entry-grid",parts={};
-    shape.fields.forEach(function(f){var tr=document.createElement("tr"),th=document.createElement("th"),td=document.createElement("td");th.textContent=f.name;
-      if(f.shape.kind==="table"){td.textContent="(a table - not entered here)";}else{parts[f.name]=entryEditor({name:f.name,shape:f.shape,optional:true});td.appendChild(parts[f.name].el);}
-      tr.append(th,td);box.appendChild(tr);});
-    return {el:box,read:function(){var o={},any=false;Object.keys(parts).forEach(function(k){var v=parts[k].read();if(v!==undefined){o[k]=v;any=true;}});return any?o:(p.optional?undefined:{});},
-      write:function(v){Object.keys(parts).forEach(function(k){parts[k].write(v&&v[k]);});}};
-  }
-  if(shape.kind==="table"){
-    var wrap=document.createElement("div"),grid=document.createElement("table"),rows=[];grid.className="entry-grid";
-    var cols=shape.row.kind==="structure"?shape.row.fields.filter(function(f){return f.shape.kind==="simple";}).map(function(f){return f.name;}):[""];
-    var head=document.createElement("tr");cols.concat([""]).forEach(function(c){var th=document.createElement("th");th.textContent=c||(c===""&&cols[0]===""?"value":"");head.appendChild(th);});grid.appendChild(head);
-    var add=function(v){var tr=document.createElement("tr"),cells={};
-      cols.forEach(function(c){var td=document.createElement("td"),i=document.createElement("input");i.type="text";i.size=10;i.value=v==null?"":c?(v[c]==null?"":v[c]):v;cells[c]=i;td.appendChild(i);tr.appendChild(td);});
-      var td=document.createElement("td"),x=document.createElement("button");x.textContent="×";x.title="Remove the row";x.onclick=function(e){e.preventDefault();tr.remove();rows=rows.filter(function(r){return r.tr!==tr;});};
-      td.appendChild(x);tr.appendChild(td);grid.appendChild(tr);rows.push({tr:tr,cells:cells});};
-    var more=document.createElement("button");more.textContent="+ row";more.onclick=function(e){e.preventDefault();add(null);};
-    wrap.append(grid,more);
-    return {el:wrap,read:function(){var list=rows.map(function(r){if(cols[0]==="")return r.cells[""].value;var o={},any=false;cols.forEach(function(c){if(r.cells[c].value!==""){o[c]=r.cells[c].value;any=true;}});return any?o:null;})
-        .filter(function(v){return v!==null&&v!=="";});return list.length?list:(p.optional?undefined:[]);},
-      write:function(v){rows.forEach(function(r){r.tr.remove();});rows=[];(Array.isArray(v)?v:[]).forEach(add);}};
-  }
-  var input=document.createElement("input");input.type="text";input.size=24;
-  if(p.default)input.placeholder="DEFAULT "+p.default;
-  return {el:input,read:function(){return input.value===""?(p.optional||p.default?undefined:""):input.value;},write:function(v){input.value=v==null?"":String(v);}};
-}
-function fillEntry(box,entry){
-  entryEditors=null;entryBlocked="";
-  // It cannot be called: the screen says why, and Execute runs nothing else in its place.
-  if(entry.error){entryBlocked=entry.error;var e=document.createElement("p");e.className="entry-error";e.textContent=entry.error;box.appendChild(e);return;}
-  var t=entry.target;entryKey=t.kind==="function"?t.name:t.object+"=>"+t.name;
-  entryEditors={parameters:{},creation:{}};
-  // The variants: a named set of the values, kept in VS Code.
-  var bar=document.createElement("div");bar.className="entry-variants";
-  var pick=document.createElement("select"),name=document.createElement("input"),save=document.createElement("button"),drop=document.createElement("button");
-  name.type="text";name.placeholder="variant name";name.size=14;save.textContent="Save";drop.textContent="Delete";
-  bar.append(document.createTextNode("Variant "),pick,name,save,drop);box.appendChild(bar);
-  var listed={};
-  var showVariants=function(all){listed=all||{};pick.textContent="";var none=document.createElement("option");none.value="";none.textContent="(none)";pick.appendChild(none);
-    Object.keys(listed).sort().forEach(function(k){var o=document.createElement("option");o.value=k;o.textContent=k;pick.appendChild(o);});};
-  debug("variants",{key:entryKey}).then(function(d){showVariants(d.variants);}).catch(failed);
-  pick.onchange=function(){var v=listed[pick.value];if(!v)return;name.value=pick.value;
-    Object.keys(entryEditors.creation).forEach(function(k){entryEditors.creation[k].write((v.creation||{})[k]);});
-    Object.keys(entryEditors.parameters).forEach(function(k){entryEditors.parameters[k].write((v.parameters||{})[k]);});};
-  save.onclick=function(e){e.preventDefault();debug("saveVariant",{key:entryKey,name:name.value,values:readEntry()}).then(function(d){showVariants(d.variants);pick.value=name.value.trim();}).catch(failed);};
-  drop.onclick=function(e){e.preventDefault();if(!pick.value)return;debug("deleteVariant",{key:entryKey,name:pick.value}).then(function(d){showVariants(d.variants);name.value="";}).catch(failed);};
-  var group=function(title,list,into){if(!list.length)return;var field=document.createElement("fieldset"),legend=document.createElement("legend");legend.textContent=title;field.appendChild(legend);
-    list.forEach(function(p){var label=document.createElement("div"),head=document.createElement("div"),editor=entryEditor(p);
-      head.textContent=p.name+(p.optional?" (optional)":"")+(p.shape&&p.shape.kind!=="simple"?" · "+p.shape.kind:p.shape&&p.shape.type?" · "+p.shape.type:"");
-      label.append(head,editor.el);label.style.margin="4px 0";field.appendChild(label);into[p.name]=editor;});box.appendChild(field);};
-  group("Constructor of "+(t.object||""),entry.creation||[],entryEditors.creation);
-  var ins=(entry.parameters||[]).filter(function(p){return ["importing","changing","tables"].indexOf(p.direction)>=0;});
-  group((t.kind==="function"?"CALL FUNCTION '"+t.name+"'":t.object+(t.static?"=>":"->")+t.name)+" · importing, changing, tables",ins,entryEditors.parameters);
-  var outs=(entry.parameters||[]).filter(function(p){return p.direction==="exporting"||p.direction==="returning";});
-  var note=document.createElement("p");note.className="entry-note";
-  note.textContent=(outs.length?"Results ("+outs.map(function(p){return p.name;}).join(", ")+") are written to Output and stand in Variables at the last stop. ":"")
-    +"An optional parameter left empty is not passed; its DEFAULT applies.";
-  box.appendChild(note);
-}
-function readEntry(){
-  var out={parameters:{},creation:{}};if(!entryEditors)return out;
-  ["parameters","creation"].forEach(function(part){Object.keys(entryEditors[part]).forEach(function(k){var v=entryEditors[part][k].read();if(v!==undefined)out[part][k]=v;});});
-  return out;
-}
 function fillSelection(scenarios,parameters,entry,screen){
   var box=$("local-selection"),kept={};
   box.querySelectorAll('input[type="radio"]:checked').forEach(function(input){kept["radio:"+input.name]=input.value;});
@@ -2285,63 +2247,7 @@ function fillSelection(scenarios,parameters,entry,screen){
   box.hidden=!box.childNodes.length;
 }
 
-/* The selection screen as SAP lays it out: blocks with their frame and title, lines of several elements, comments,
-   SKIP and ULINE, parameters, radio buttons, checkboxes and SELECT-OPTIONS, each named by its selection text when the
-   program has one. What cannot be drawn is named, not left out quietly. */
-var RANGE_OPTIONS=["EQ","NE","GT","GE","LT","LE","BT","NB","CP","NP"];
-function screenText(text,texts){if(!text)return "";if(text.symbol)return texts.symbols&&texts.symbols[text.symbol]||"TEXT-"+text.symbol;
-  if(text.literal!=null)return text.literal;return text.name||"";}
-function readRange(range){var rows=[];range.querySelectorAll(".range-row").forEach(function(row){var f=function(n){var el=row.querySelector('[data-f="'+n+'"]');return el?el.value:"";};
-  if(f("low")===""&&f("high")==="")return;rows.push({sign:f("sign"),option:f("option"),low:f("low"),high:f("high")});});return rows;}
-function rangeRow(range,element,row){var line=document.createElement("div");line.className="range-row";
-  var pick=function(name,values,value){var select=document.createElement("select");select.setAttribute("data-f",name);
-    values.forEach(function(v){var o=document.createElement("option");o.value=v;o.textContent=v;select.appendChild(o);});select.value=value;return select;};
-  var field=function(name,value){var input=document.createElement("input");input.type="text";input.setAttribute("data-f",name);input.value=value||"";return input;};
-  line.append(pick("sign",["I","E"],row&&row.sign||"I"),pick("option",element.noIntervals?RANGE_OPTIONS.filter(function(o){return o!=="BT"&&o!=="NB";}):RANGE_OPTIONS,row&&row.option||"EQ"),field("low",row&&row.low));
-  if(!element.noIntervals){var to=document.createElement("span");to.textContent=" to ";line.append(to,field("high",row&&row.high));}
-  if(!element.noExtension){var remove=document.createElement("button");remove.textContent="\u00d7";remove.title="Remove this row";
-    remove.onclick=function(){line.remove();};line.appendChild(remove);}
-  range.insertBefore(line,range.querySelector(".range-add"));}
-function drawScreen(box,screen,kept){var texts=screen.texts||{},parents=[box],label=function(name){return texts.selections&&texts.selections[name]||name;};
-  if(texts.error){var warn=document.createElement("div");warn.className="screen-note";warn.textContent="Selection texts could not be read from SAP: "+texts.error+" - technical names are shown.";box.appendChild(warn);}
-  var radios={};(screen.elements||[]).forEach(function(e){if(e.kind==="parameter"&&e.radio){(radios[e.radio]=radios[e.radio]||[]).push(e);}});
-  var here=function(){return parents[parents.length-1];};
-  (screen.elements||[]).forEach(function(e){
-    if(e.hidden)return;
-    if(e.kind==="block"){var block=document.createElement(e.frame?"fieldset":"div");block.className="screen-block";
-      var title=screenText(e.title,texts);if(e.frame&&title){var legend=document.createElement("legend");legend.textContent=title;block.appendChild(legend);}
-      here().appendChild(block);parents.push(block);return;}
-    if(e.kind==="end-block"||e.kind==="end-line"){if(parents.length>1)parents.pop();return;}
-    if(e.kind==="line"){var row=document.createElement("div");row.className="screen-line";here().appendChild(row);parents.push(row);return;}
-    if(e.kind==="skip"){for(var i=0;i<(e.lines||1);i++)here().appendChild(document.createElement("br"));return;}
-    if(e.kind==="uline"){here().appendChild(document.createElement("hr"));return;}
-    if(e.kind==="comment"){var c=document.createElement("span");c.className="screen-comment";c.textContent=screenText(e.text,texts);here().appendChild(c);return;}
-    if(e.kind==="note"){var n=document.createElement("div");n.className="screen-note";n.textContent="Not drawn here: "+e.text;here().appendChild(n);return;}
-    var item=document.createElement("label");item.className="screen-item";
-    var caption=document.createElement("span");caption.className="screen-label";caption.textContent=label(e.name)+(e.obligatory?" *":"");
-    if(e.kind==="parameter"&&e.radio){var radio=document.createElement("input");radio.type="radio";radio.name=e.radio;radio.value=e.name;
-      var was=kept["radio:"+e.radio],group=radios[e.radio],chosen=group.some(function(g){return g.name===was;})?was:((group.filter(function(g){return String(g.default).toUpperCase()==="X";})[0]||group[0]).name);
-      radio.checked=e.name===chosen;item.append(radio,caption);here().appendChild(item);return;}
-    if(e.kind==="parameter"&&e.checkbox){var check=document.createElement("input");check.type="checkbox";check.setAttribute("data-parameter",e.name);
-      var keptBox=kept["p:"+e.name];check.checked=typeof keptBox==="boolean"?keptBox:String(e.default).toUpperCase()==="X";item.append(check,caption);here().appendChild(item);return;}
-    if(e.kind==="parameter"){var input=document.createElement("input");input.type="text";input.setAttribute("data-parameter",e.name);
-      if(e.obligatory)input.setAttribute("data-obligatory",label(e.name));
-      if(e.length)input.maxLength=e.length+(e.decimals?2:0);
-      var keptValue=kept["p:"+e.name];input.value=typeof keptValue==="string"?keptValue:(e.defaultName?"":e.default||"");
-      // In a line of the screen a parameter has no text of its own: the line's COMMENT names it, as in SAP.
-      if(e.defaultName)input.placeholder=e.default;if(here().className==="screen-line")item.append(input);else item.append(caption,input);here().appendChild(item);return;}
-    if(e.kind==="select-option"){var range=document.createElement("div");range.className="screen-range";range.setAttribute("data-range",e.name);
-      if(e.obligatory)range.setAttribute("data-obligatory",label(e.name));
-      var head=document.createElement("div");head.className="screen-label";head.textContent=label(e.name)+(e.obligatory?" *":"");range.appendChild(head);
-      var add=document.createElement("button");add.className="range-add";add.textContent="+ row";add.hidden=!!e.noExtension;
-      add.onclick=function(){rangeRow(range,e,null);};range.appendChild(add);
-      var rows=kept["r:"+e.name]||(e.default?[e.default]:[]);if(!rows.length)rows=[null];
-      rows.slice(0,e.noExtension?1:rows.length).forEach(function(r){rangeRow(range,e,r);});here().appendChild(range);}
-  });
-}
-/* The obligatory fields left empty, as SAP refuses to run with them. */
-function missingObligatory(){var missing=[];document.querySelectorAll('#local-selection [data-obligatory]').forEach(function(el){
-  var empty=el.hasAttribute("data-range")?!readRange(el).length:!String(el.value||"").trim();if(empty)missing.push(el.getAttribute("data-obligatory"));});return missing;}
+/*SELECTION-SCREEN-UI*/
 /* What the run did: the steps recorded and the time the program ran for them - not the transpiling, not the waits at a
    breakpoint. */
 function localStats(){var n=(flow.timeline||[]).length,sec=localRunMs/1000;
@@ -2349,7 +2255,9 @@ function localStats(){var n=(flow.timeline||[]).length,sec=localRunMs/1000;
 $("clearpanel").onclick=function(){if(typeof sdeClear==="function")sdeClear();};
 $("clearpanel").hidden=typeof sdeClear!=="function";
 /* What a transpiler run wrote with WRITE, as far as it has run: the list SAP would show, in the Output section. */
-function setOutput(text){var box=$("outbox");if(!box)return;box.textContent=String(text||"");
+function setOutput(text){var box=$("outbox");if(!box||$("outsec").hasAttribute("data-off"))return;
+  // A call's results, written in VERTEX's form, read as text: values, structures as trees, tables as columns.
+  var split=splitResults(text);box.textContent=split.text+(split.results.length?(split.text?"\n\n":"")+resultsText(split.results):"");
   if(text&&!paneOn("outsec")&&!readerClosed.outsec)setPane("outsec",true);}
 function localPush(trace){var name=String(INITIAL.name||"").toUpperCase();
   // SY fields stay until set again; the SELECTs belong to one step only and are dropped at the next.
@@ -2373,7 +2281,9 @@ $("run").onclick=function(){
   // The selection screen as the source stands now - saved or not - not as it was when the panel opened.
   if(INITIAL.local&&selDialog&&!selConfirmed){debug("selection").then(function(d){
       fillSelection(d.scenarios,d.parameters,d.entry,d.screen);
-      if($("local-selection").childNodes.length)selDialog.showModal();else{selConfirmed=true;$("run").onclick();}
+      if(!$("local-selection").childNodes.length){selConfirmed=true;$("run").onclick();}
+      else if(document.body.classList.contains("vx-run-only")){placeSelection();showScreen();}
+      else selDialog.showModal();
     }).catch(failed);return;}
   selConfirmed=false;
   if(INITIAL.local){var runId=++localRunSequence,selection={};document.querySelectorAll('#local-selection input[type="radio"]:checked').forEach(function(input){selection[input.name]=input.value;});
@@ -2392,6 +2302,8 @@ $("run").onclick=function(){
 };
 /* A transpiler run's record on the page: from Run, or from a run still alive when the panel was opened again. */
 function localResult(result){
+      // Back to the screen, in a plain run of a program that has one.
+      $("runback").hidden=!(document.body.classList.contains("vx-run-only")&&$("local-selection").childNodes.length);
       var trace=result.trace||[];
       flow={edges:{},nodes:{},order:[],timeline:[],ended:picture.ended};flowPath=[];
       localPush(trace);localEnded=!!result.ended;setOutput(result.output);localRunMs=result.durationMs||0;localStats();
@@ -2926,7 +2838,26 @@ function syncRunOnly(p){
   if(typeof INITIAL==="undefined"||!INITIAL.local||!INITIAL.runOnly)return;
   var run=!((p||picture).breakpoints||[]).some(function(b){return b.active!==false;});
   document.body.classList.toggle("vx-run-only",run);
+  placeSelection();
 }
+/* A run with no breakpoint is one program, as in SAP: its selection screen stands in the panel and Execute (F8) turns it
+   into the list the program wrote; Back (F3) returns to the screen with its values, to run again. A debug run asks the
+   screen in a window of its own, as before. */
+function placeSelection(){var box=$("local-selection");if(!box||!selDialog)return;
+  var inPanel=document.body.classList.contains("vx-run-only"),home=inPanel?$("runscreenbody"):selDialog;
+  if(box.parentNode!==home){if(inPanel)home.appendChild(box);else selDialog.insertBefore(box,selDialog.querySelector(".selbar"));}
+  if(!inPanel)document.body.classList.remove("vx-screen");}
+function showScreen(){document.body.classList.add("vx-screen");var first=$("local-selection").querySelector("input,select");if(first)first.focus();}
+/* Execute: an obligatory field left empty, or a call that cannot be made, keeps the screen; otherwise the program runs. */
+function executeScreen(){if(entryBlocked){notice(entryBlocked);return;}
+  var missing=missingObligatory();if(missing.length){notice("Fill in the required fields: "+missing.join(", ")+".");return;}
+  notice("");selConfirmed=true;if(selDialog&&selDialog.open)selDialog.close();document.body.classList.remove("vx-screen");$("run").onclick();}
+/* Execute, Back and their keys, wired once the transpiler's panel is set up. */
+function wireScreen(){$("runexecute").onclick=executeScreen;$("runback").onclick=function(){showScreen();};
+  document.addEventListener("keydown",function(e){if(!document.body.classList.contains("vx-run-only"))return;
+    var onScreen=document.body.classList.contains("vx-screen");
+    if(e.key==="F8"&&onScreen){e.preventDefault();executeScreen();}
+    else if(e.key==="F3"&&!onScreen&&$("local-selection").childNodes.length){e.preventDefault();showScreen();}});}
 function apply(p){
   syncRunOnly(p);
   picture=p;
@@ -3045,6 +2976,21 @@ $("split").addEventListener("mousedown",function(e){if(e.button!==0)return;e.pre
     $("run").lastChild.textContent="Run with ABAP Transpiler";
     document.querySelectorAll('#panes button[data-pane="outsec"]').forEach(function(b){b.hidden=false;});
     $("run").title="Transpile and debug this local ABAP program";
+    // Run from the program window: Run here brings that window back - its screen and list - rather than a second way of
+    // running; a run there that reaches a breakpoint opens this panel by itself.
+    // The list stands in the program window: no second Output here.
+    if(INITIAL.programWindow){$("outsec").hidden=true;$("outsec").setAttribute("data-off","");document.querySelectorAll('#panes button[data-pane="outsec"]').forEach(function(b){b.hidden=true;});}
+    if(INITIAL.programWindow){$("run").title="Back to the program window: run it there - a breakpoint it reaches opens this panel";
+      $("run").onclick=function(){debug("toProgram").catch(failed);};}
+    // Detach lets a SAP program go on and stops listening; a transpiler run has no session to leave: Exit program ends it.
+    $("stop").hidden=true;
+    // An SAP object's run takes its last build, as SAP runs a program's load; Recompile reads SAP's code again.
+    if(INITIAL.sapBuild){var built=INITIAL.sapBuild.builtAt?new Date(INITIAL.sapBuild.builtAt).toLocaleString():"";
+      $("run").title="Run the last build of "+INITIAL.sapBuild.name+(built?", read from SAP "+built:"")+" - Recompile takes SAP's code as it is now";
+      $("recompile").hidden=false;$("recompile").title="Read "+INITIAL.sapBuild.name+" and what it uses from SAP again and transpile it"+(built?" (this build: "+built+")":"");
+      $("recompile").onclick=function(){notice("");$("state").textContent="Recompiling "+INITIAL.sapBuild.name+" from SAP.";
+        debug("sapRecompile").catch(function(error){$("state").textContent="Recompile failed.";failed(error);});};
+      if(built)$("state").textContent="Build of "+built+".";}
     variablesStarted=true;$("initials").classList.add("on");
     $("recmode").querySelector('[data-rec="values"]').click();$("recmode").hidden=true;
     $("bpscope").hidden=false;
@@ -3057,13 +3003,12 @@ $("split").addEventListener("mousedown",function(e){if(e.button!==0)return;e.pre
       selection.hidden=false;selDialog.appendChild(selection);
       var bar=document.createElement("div");bar.className="selbar";
       var go=document.createElement("button");go.className="primary";go.textContent="Execute (F8)";
-      go.onclick=function(){if(entryBlocked){notice(entryBlocked);return;}
-        var missing=missingObligatory();if(missing.length){notice("Fill in the required fields: "+missing.join(", ")+".");return;}
-        selConfirmed=true;selDialog.close();$("run").onclick();};
+      go.onclick=executeScreen;
       var cancel=document.createElement("button");cancel.textContent="Cancel";cancel.onclick=function(){selDialog.close();};
       bar.appendChild(go);bar.appendChild(cancel);selDialog.appendChild(bar);
       selDialog.addEventListener("keydown",function(e){if(e.key==="F8"||e.key==="Enter"){e.preventDefault();go.onclick();}});
       document.body.appendChild(selDialog);
+      $("runscreentitle").textContent=INITIAL.name+" \u00b7 Selection screen";wireScreen();placeSelection();
     }
   }
   // A program runs itself; only a class or a function module needs the program that calls it.

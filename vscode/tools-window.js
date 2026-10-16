@@ -48,6 +48,7 @@ function debugHtml(initial) {
   return fs.readFileSync(path.join(__dirname, "pages", "visual-debug.html"), "utf8")
     .replace("</head>", "<style>" + controls + "</style></head>")
     .replace("/*INIT*/null/*INIT*/", () => JSON.stringify(initial || null).replace(/</g, "\\u003c"))
+    .replace("/*SELECTION-SCREEN-UI*/", () => fs.readFileSync(path.join(__dirname, "pages", "selection-screen-ui.js"), "utf8"))
     .replace("<body>", "<body class=\"vertex-docked-debug\">")
     .replace("<script>", bridge + "<script>");
 }

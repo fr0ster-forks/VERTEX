@@ -327,8 +327,17 @@ function projectFor(document, workspaceRoot, driver) {
     write_unit_tests: true, write_source_map: true, options: { addFilenames: true } }));
   const cli = path.join(modulePath(__dirname, "@abaplint/transpiler-cli"), "abap_transpile");
   if (!fs.existsSync(cli)) throw new Error("The VERTEX transpiler is missing. Reinstall the VS Code extension.");
+  // A local file's build is taken again while no source of its folder changed: the stamp is every ABAP and XML file
+  // there - its path, size and last change - and the configuration, so an edit, a new file or a removed one transpiles.
+  const stampParts = [JSON.stringify(fs.readFileSync(configFile, "utf8"))];
+  const stampOf = dir => { for (const item of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const at = path.join(dir, item.name);
+    if (item.isDirectory()) { if (!["node_modules", ".git"].includes(item.name)) stampOf(at); }
+    else if (/\.(?:abap|xml)$/i.test(item.name)) { const stat = fs.statSync(at); stampParts.push(at + " " + stat.size + " " + stat.mtimeMs); }
+  } };
+  stampOf(path.join(root, input));
   return { root, configFile, cli, entry: path.join(outputFolder, "index.mjs"), automatic: true,
-    includedClasses: dependencyList.classes };
+    includedClasses: dependencyList.classes, stamp: crypto.createHash("sha256").update(stampParts.join("\n")).digest("hex") };
 }
 
 function stageRuntime(project) {
@@ -643,8 +652,20 @@ async function launch(vscode, debug, options = {}) {
   }
   const project = projectFor(document, workspaceRoot, driver);
   const output = vscode.window.createOutputChannel("VERTEX Local ABAP");
-  output.appendLine("Transpiling " + project.root);
-  try {
+  // A run unchanged since its last transpiling - an SAP object's same build (sap-cache.js), or a local file whose folder
+  // has not changed (projectFor's stamp) - and no call program of its own takes that transpiled code again, from its
+  // untouched copy: the record's instrumentation and the
+  // screen's values change the code in place.
+  const root = path.dirname(project.configFile), outputRoot = path.dirname(project.entry);
+  const stampFile = path.join(root, "vertex-fingerprint.json"), builtFile = path.join(root, "vertex-built.json"), pristine = path.join(root, "output-pristine");
+  const readJson = file => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { return null; } };
+  const stamp = !driver && (project.stamp || readJson(stampFile)?.fingerprint);
+  const reuse = !!stamp && fs.existsSync(pristine) && readJson(builtFile)?.fingerprint === stamp;
+  output.appendLine((reuse ? "Unchanged since the last run, transpiled code taken again: " : "Transpiling ") + project.root);
+  if (reuse) {
+    // Only the modules of the user's code are changed in place: those are put back, the rest of the output stays.
+    for (const relative of readJson(path.join(pristine, "files.json")) || []) fs.copyFileSync(path.join(pristine, relative), path.join(outputRoot, relative));
+  } else try {
     await prepareFlow(project, document, output);
     if (project.automatic) output.appendLine("Included classes/interfaces: " +
       (project.includedClasses.length ? project.includedClasses.join(", ") : "none"));
@@ -659,6 +680,27 @@ async function launch(vscode, debug, options = {}) {
     stageRuntime(project);
     output.appendLine("Runtime staged; preparing local execution.");
     initializeSelectorDatabase(project);
+    if (stamp) {
+      // The untouched copy of what a run changes in place: each module whose map names ABAP of the user's (open-abap-core's
+      // is never instrumented), with _init.mjs.
+      fs.rmSync(pristine, { recursive: true, force: true });
+      const kept = [];
+      const visit = dir => { for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+        const at = path.join(dir, item.name);
+        if (item.isDirectory()) { if (item.name !== "node_modules") visit(at); continue; }
+        if (!item.name.endsWith(".mjs")) continue;
+        let own = item.name === "_init.mjs";
+        if (!own && fs.existsSync(at + ".map")) {
+          const sources = (readJson(at + ".map") || {}).sources || [];
+          own = sources.some(source => /\.abap$/i.test(source) && !String(source).toLowerCase().split(/[\\/]/).includes("open-abap-core"));
+        }
+        if (own) kept.push(path.relative(outputRoot, at));
+      } };
+      visit(outputRoot);
+      for (const relative of kept) { fs.mkdirSync(path.dirname(path.join(pristine, relative)), { recursive: true }); fs.copyFileSync(path.join(outputRoot, relative), path.join(pristine, relative)); }
+      fs.writeFileSync(path.join(pristine, "files.json"), JSON.stringify(kept));
+      fs.writeFileSync(builtFile, JSON.stringify({ fingerprint: stamp }));
+    }
     output.hide?.();
   } catch (error) {
     output.show(true);

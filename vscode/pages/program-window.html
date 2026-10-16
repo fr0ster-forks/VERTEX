@@ -1,0 +1,129 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+/* The program window: a report as SAP GUI shows it - a title bar, an application toolbar, the screen or the list, and a
+   status bar - every colour from the VS Code theme. */
+body{margin:0;height:100vh;display:flex;flex-direction:column;font-family:var(--vscode-font-family);font-size:var(--vscode-font-size,13px);
+  color:var(--vscode-foreground);background:var(--vscode-editor-background)}
+#titlebar{display:flex;align-items:baseline;gap:10px;padding:6px 12px;background:var(--vscode-titleBar-activeBackground,var(--vscode-sideBar-background));
+  color:var(--vscode-titleBar-activeForeground,var(--vscode-foreground));border-bottom:1px solid var(--vscode-widget-border,var(--vscode-panel-border,GrayText))}
+#titlebar b{font-size:14px}
+#titlebar span{color:var(--vscode-descriptionForeground)}
+#toolbar{display:flex;gap:6px;padding:5px 12px;background:var(--vscode-sideBar-background,var(--vscode-editor-background));
+  border-bottom:1px solid var(--vscode-widget-border,var(--vscode-panel-border,GrayText))}
+#toolbar button{padding:3px 10px;border:1px solid var(--vscode-button-border,var(--vscode-widget-border,transparent));border-radius:2px;
+  color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));background:var(--vscode-button-secondaryBackground,var(--vscode-editorWidget-background))}
+#toolbar button.primary{color:var(--vscode-button-foreground);background:var(--vscode-button-background)}
+#toolbar button:hover:not(:disabled){background:var(--vscode-button-secondaryHoverBackground,var(--vscode-list-hoverBackground))}
+#toolbar button.primary:hover:not(:disabled){background:var(--vscode-button-hoverBackground)}
+#toolbar button:disabled{opacity:.5}
+#toolbar .grow{flex:1}
+main{flex:1;overflow:auto;padding:10px 14px}
+#list{margin:0;font-family:var(--vscode-editor-font-family,monospace);font-size:var(--vscode-editor-font-size,13px);white-space:pre;
+  color:var(--vscode-editor-foreground);background:var(--vscode-editor-background)}
+#statusbar{padding:3px 12px;min-height:18px;color:var(--vscode-statusBar-foreground,var(--vscode-foreground));
+  background:var(--vscode-statusBar-background,var(--vscode-sideBar-background));border-top:1px solid var(--vscode-widget-border,transparent)}
+#statusbar.error{color:var(--vscode-errorForeground)}
+.screen-block{margin:6px 0;padding:4px 8px;border:1px solid var(--vscode-widget-border,var(--vscode-panel-border,GrayText));border-radius:4px}
+div.screen-block{border:none;padding:0}
+.screen-block legend{color:var(--vscode-foreground);font-weight:600;padding:0 4px}
+.screen-line{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.screen-item{display:flex;gap:6px;align-items:center;margin:3px 0}
+.screen-label{min-width:160px;color:var(--vscode-foreground)}
+.screen-comment,.screen-note{color:var(--vscode-descriptionForeground);margin:3px 0}
+.screen-note{font-style:italic}
+.screen-range{margin:4px 0}
+.range-row{display:flex;gap:4px;align-items:center;margin:2px 0 2px 160px}
+.range-row input[type="text"]{width:11em}
+input[type="text"]{color:var(--vscode-input-foreground);background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,var(--vscode-widget-border,GrayText));padding:2px 4px}
+select{color:var(--vscode-dropdown-foreground);background:var(--vscode-dropdown-background);border:1px solid var(--vscode-dropdown-border,var(--vscode-widget-border,GrayText))}
+main button{color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));background:var(--vscode-button-secondaryBackground,var(--vscode-editorWidget-background));border:1px solid var(--vscode-widget-border,transparent)}
+.entry-grid{border-collapse:collapse;margin:4px 0}
+.entry-grid th,.entry-grid td{padding:2px 4px;text-align:left;font-weight:normal;border:1px solid var(--vscode-widget-border,var(--vscode-panel-border,GrayText))}
+.entry-grid th{color:var(--vscode-descriptionForeground)}
+.entry-variants{display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.entry-note{color:var(--vscode-descriptionForeground)}
+.entry-error{color:var(--vscode-errorForeground)}
+#results{margin-top:8px}
+.result-name{margin:6px 0 2px;font-weight:600}
+.result-name .result-value,.result-field .result-value{font-weight:normal;font-family:var(--vscode-editor-font-family,monospace)}
+.result-tree summary{cursor:pointer;font-weight:600;margin:4px 0}
+.result-tree details{margin-left:16px}
+.result-field{margin:1px 0 1px 16px}
+.result-value{color:var(--vscode-debugTokenExpression-string,var(--vscode-foreground))}
+.result-grid{border-collapse:collapse;margin:2px 0 8px;font-family:var(--vscode-editor-font-family,monospace)}
+.result-grid th,.result-grid td{padding:2px 8px;text-align:left;border:1px solid var(--vscode-widget-border,var(--vscode-panel-border,GrayText))}
+.result-grid th{color:var(--vscode-descriptionForeground);font-weight:normal;background:var(--vscode-editorWidget-background,transparent)}
+fieldset{border:1px solid var(--vscode-widget-border,var(--vscode-panel-border,GrayText));border-radius:4px;margin:6px 0}
+fieldset legend{color:var(--vscode-foreground);font-weight:600;padding:0 4px}
+hr{border:none;border-top:1px solid var(--vscode-widget-border,var(--vscode-panel-border,GrayText))}
+</style></head>
+<body>
+<div id="titlebar"><b id="name"></b><span id="mode"></span></div>
+<div id="toolbar">
+  <button id="execute" class="primary" title="Run the program with the values of the screen (F8)">Execute (F8)</button>
+  <button id="back" hidden title="Back to the selection screen, to run again (F3)">Back (F3)</button>
+  <span class="grow"></span>
+  <button id="flow" disabled title="Open the recorded run in Visual Debug: its steps, values and flow">See flow history</button>
+  <button id="recompile" hidden>Recompile</button>
+</div>
+<main><div id="screen"><div id="local-selection"></div></div><div id="listview" hidden><pre id="list"></pre><div id="results"></div></div></main>
+<div id="statusbar"></div>
+<script>
+var INITIAL=/*INIT*/null/*INIT*/;
+var vscode=acquireVsCodeApi(),pending={},serial=0,running=false,hasScreen=false;
+function $(id){return document.getElementById(id);}
+function ask(call,extra){return new Promise(function(resolve,reject){var id=++serial;pending[id]={resolve:resolve,reject:reject};
+  vscode.postMessage(Object.assign({call:call,id:id},extra||{}));});}
+window.addEventListener("message",function(event){var m=event.data;if(m&&m.type==="reply"&&pending[m.id]){var p=pending[m.id];delete pending[m.id];
+  if(m.error)p.reject(new Error(m.error));else p.resolve(m.value);}});
+function status(text,error){$("statusbar").textContent=text||"";$("statusbar").className=error?"error":"";}
+// What the shared screen code asks of its page: the variants of a method's or module's values, and a failure said.
+function debug(command,args){return ask("adapter",{command:command,args:args||{}});}
+function failed(error){status(error&&error.message||String(error),true);}
+/*SELECTION-SCREEN-UI*/
+/* The screen, as the source stands now: the values typed so far stay. */
+function loadScreen(){var box=$("local-selection"),kept={};
+  box.querySelectorAll('input[type="radio"]:checked').forEach(function(input){kept["radio:"+input.name]=input.value;});
+  box.querySelectorAll("[data-parameter]").forEach(function(input){kept["p:"+input.getAttribute("data-parameter")]=input.type==="checkbox"?input.checked:input.value;});
+  box.querySelectorAll("[data-range]").forEach(function(range){kept["r:"+range.getAttribute("data-range")]=readRange(range);});
+  return ask("selection").then(function(d){box.textContent="";
+    // A method or a function module: the screen of its parameters, with its variants.
+    if(d&&d.entry){fillEntry(box,d.entry);hasScreen=true;return true;}
+    var screen=d&&d.screen;hasScreen=!!(screen&&(screen.elements||[]).some(function(e){return !e.hidden&&e.kind!=="end-block"&&e.kind!=="end-line";}));
+    if(hasScreen)drawScreen(box,screen,kept);return hasScreen;});}
+function showScreen(){$("screen").hidden=false;$("listview").hidden=true;$("execute").hidden=false;$("back").hidden=true;$("mode").textContent="Selection screen";
+  var first=$("local-selection").querySelector("input,select");if(first)first.focus();}
+function showList(text){var split=splitResults(text);$("screen").hidden=true;$("listview").hidden=false;$("list").textContent=split.text;
+  $("list").hidden=!split.text;drawResults($("results"),split.results);$("execute").hidden=true;$("back").hidden=!hasScreen;
+  $("mode").textContent="List";}
+function selection(){var box=$("local-selection"),out={};
+  box.querySelectorAll('input[type="radio"]:checked').forEach(function(input){out[input.name]=input.value;});
+  var ranges=box.querySelectorAll("[data-range]");if(ranges.length){out.$ranges={};ranges.forEach(function(r){out.$ranges[r.getAttribute("data-range")]=readRange(r);});}
+  var given=box.querySelectorAll("[data-parameter]");if(given.length){out.$parameters={};
+    given.forEach(function(input){out.$parameters[input.getAttribute("data-parameter")]=input.type==="checkbox"?(input.checked?"X":""):input.value;});}
+  if(entryEditors)out.$entry=readEntry();
+  return out;}
+function execute(){if(running)return;if(entryBlocked){status(entryBlocked,true);return;}var missing=missingObligatory();
+  if(missing.length){status("Fill in the required fields: "+missing.join(", ")+".",true);return;}
+  running=true;$("execute").disabled=true;status("Transpiling and running "+INITIAL.name+".");
+  ask("run",{selection:selection()}).then(function(result){
+    showList(result.output);$("flow").disabled=!(result.trace&&result.trace.length);
+    var steps=(result.trace||[]).length,seconds=(result.durationMs||0)/1000;
+    status(result.ended?"Program finished: "+steps+" recorded steps, "+seconds.toFixed(3)+" s.":"Stopped at a breakpoint: Visual Debug shows where.");
+  }).catch(function(error){status(error.message,true);}).then(function(){running=false;$("execute").disabled=false;});}
+$("name").textContent=INITIAL.name;
+$("execute").onclick=execute;
+$("back").onclick=function(){showScreen();status("");};
+$("flow").onclick=function(){ask("flow").catch(function(error){status(error.message,true);});};
+if(INITIAL.recompile){var built=INITIAL.builtAt?new Date(INITIAL.builtAt).toLocaleString():"";$("recompile").hidden=false;
+  $("recompile").title="Read "+INITIAL.name+" and what it uses from SAP again and transpile it"+(built?" (this build: "+built+")":"");
+  $("recompile").onclick=function(){status("Recompiling "+INITIAL.name+" from SAP.");ask("recompile").catch(function(error){status(error.message,true);});};}
+document.addEventListener("keydown",function(e){
+  if(e.key==="F8"&&!$("screen").hidden){e.preventDefault();execute();}
+  else if(e.key==="F3"&&$("screen").hidden&&hasScreen){e.preventDefault();showScreen();status("");}});
+// A program with a selection screen shows it first; one without runs at once, as SAP starts it.
+loadScreen().then(function(screen){if(screen){showScreen();if(INITIAL.builtAt)status("Build of "+new Date(INITIAL.builtAt).toLocaleString()+".");}else execute();})
+  .catch(function(error){status(error.message,true);});
+</script>
+</body></html>
