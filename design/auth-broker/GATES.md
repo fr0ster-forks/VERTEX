@@ -85,10 +85,11 @@ branch): under Node 18.20.8 and Node 20.20.2, `require` of
 `@mcp-abap-adt/auth-stores`, `@mcp-abap-adt/auth-errors` and
 `@mcp-abap-adt/connection` all load.
 
-Still to measure: the `basic` path end to end (broker → provider → HTTP wire)
-under Node 18. Once Task 5 lands, run its unit tests (broker, http-wire, the
-`abap-adt-api` table) under Node 18 and 20. Record the result here; if anything
-fails, take it to the owner.
+Basic path measured (2026-10-16, after Task 5):
+
+- `node --test` of test/auth-systems, auth-stores, auth-migrate and auth-http-wire (54 tests, including the SPEC §7 table against the real abap-adt-api 8.4.3) passes under Node 18.20.8 and 20.20.2, as under 24.19.0.
+- An end-to-end run of the real chain — VertexServiceKeyStore/VertexSessionStore → AuthBroker → the auth-providers Basic provider → the HTTP wire → abap-adt-api ADTClient — against a local HTTP server: login and a request answer 200 with the Basic header; after the stored password is changed to a wrong one, the request fails and the wire reports the provider's `credential-refused`. Identical under Node 18.20.8, 20.20.2 and 24.19.0.
+- Verdict: `basic` works on the Node versions `^1.85.0` admits; no refusal needed for basic. `snc` keeps its own conditions (SPEC §9) and was measured only on Node 24 (gate 2).
 
 ## Gate 3 — CSRF over RFC
 
@@ -131,4 +132,4 @@ Both runs agree. For Task 9, `LISTENER_STOP_MS` = ceil(0.828 s) + 5 s =
 - Gate 4: shutdown deletes through the probe wire and awaits the poll,
   bounded by `LISTENER_STOP_MS = 6000`.
 - Gate 1: SPEC §8 is feasible.
-- Gate 2: PASS in VS Code 1.142.0; engines.vscode stays ^1.85.0 (owner), with Node 18/20 verified for basic after Task 5.
+- Gate 2: PASS in VS Code 1.142.0; engines.vscode stays ^1.85.0 (owner); basic verified on Node 18, 20 and 24.
