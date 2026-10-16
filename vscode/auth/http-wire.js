@@ -1,4 +1,5 @@
 "use strict";
+const { AsyncLocalStorage } = require("node:async_hooks");
 const { authError } = require("@mcp-abap-adt/auth-errors");
 
 function refusedError(refusal) {
@@ -18,8 +19,12 @@ function createHttpWire(system, { providerFor, onRefusal, ensureMeans = async ()
   const rejectUnauthorized = system.allowInsecureCertificate !== true;
   const agent = new http.Agent(secure ? { rejectUnauthorized, keepAlive: true } : { keepAlive: true });
   const ready = new WeakMap();
+  // Standalone wire calls start an operation; nested ADT login calls reuse it.
+  const operations = new AsyncLocalStorage();
+  const runOperation = action => operations.getStore() ? action() : operations.run({ refused: false }, action);
 
   async function reportRefusal(refusal, moment) {
+    operations.getStore().refused = true;
     try { await onRefusal(system, refusal, moment); } catch (_) { /* Preserve the provider's outcome. */ }
   }
 
@@ -60,7 +65,7 @@ function createHttpWire(system, { providerFor, onRefusal, ensureMeans = async ()
   }
 
   async function attempt(options) {
-    if (!(await ensureMeans(system))) throw new Error("No password was entered for " + system.name + ", so nothing was sent.");
+    if (operations.getStore().refused || !(await ensureMeans(system))) throw new Error("No password was entered for " + system.name + ", so nothing was sent.");
     const p = await provider();
     const headers = { ...options.headers };
     const extraCookies = [];
@@ -71,14 +76,15 @@ function createHttpWire(system, { providerFor, onRefusal, ensureMeans = async ()
   }
 
   return {
-    async request(options) {
+    runOperation,
+    request(options) { return runOperation(async () => {
       const first = await attempt(options);
       if (first.response.status !== 401) return first.response;
       const verdict = await first.p.rejected({ at: "request", status: 401, error: first.response });
       if (!verdict.ok) { await reportRefusal(verdict.refusal, "rejected"); return first.response; }
       const second = await attempt(options);
       return second.response;
-    },
+    }); },
     dispose() { agent.destroy(); },
   };
 }

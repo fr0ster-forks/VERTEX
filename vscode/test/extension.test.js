@@ -28,7 +28,7 @@ test("Codex and Claude setup work without the Copilot MCP API", async () => {
       registerCommand: (name, callback) => { commands.set(name, callback); return {}; } },
     env: { clipboard: { writeText: async text => copied.push(text) } },
     window: { createTextEditorDecorationType: () => ({ dispose() {} }), registerWebviewViewProvider: () => ({ dispose() {} }),
-      showQuickPick: async items => { assert.deepEqual(Array.from(items), ["Codex", "Claude Code"]); return client; }, createOutputChannel: () => ({ appendLine() {}, dispose() {} }), showInformationMessage: async () => undefined,
+      showQuickPick: async items => { assert.deepEqual(Array.from(items), ["Codex", "Claude Code"]); return client; }, createOutputChannel: () => ({ debug() {}, info() {}, warn() {}, error() {}, dispose() {} }), showInformationMessage: async () => undefined,
       showErrorMessage: message => assert.fail(message) }
   };
   const server = { token: "test-token", start: async () => {
@@ -92,4 +92,22 @@ test("Versions finds requests by user on a resource of their own", () => {
   // Every window asks the same resource what the system has.
   assert.match(vm.runInContext("SHIM", context), /window\.sdeAbout = send\('about'\);/);
   assert.equal(vm.runInContext("ABOUT", context), "/sap/bc/adt/vertex/about");
+});
+
+test("logger lazily routes LogOutputChannel levels and disposes the channel", async () => {
+  const calls = [];
+  let created = 0, disposed = 0;
+  const channel = { dispose() { disposed++; } };
+  for (const level of ["debug", "info", "warn", "error"]) channel[level] = message => calls.push([level, message]);
+  const context = vm.createContext({ exports: {}, __dirname: path.join(__dirname, ".."), console,
+    require: name => name === "vscode" ? { window: { createOutputChannel(name, options) {
+      created++; assert.equal(name, "VERTEX"); assert.equal(options.log, true); return channel;
+    } } } : name === "./mcp" ? {} : name.startsWith("./") ? require(path.join(__dirname, "..", name)) : require(name) });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../extension.js"), "utf8"), context);
+  assert.equal(created, 0);
+  for (const level of ["debug", "info", "warn", "error"]) vm.runInContext('outputLogger.' + level + '("message")', context);
+  assert.equal(created, 1);
+  assert.deepEqual(calls, ["debug", "info", "warn", "error"].map(level => [level, "message"]));
+  await context.exports.deactivate();
+  assert.equal(disposed, 1);
 });

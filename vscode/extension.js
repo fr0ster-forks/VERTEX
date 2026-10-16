@@ -33,8 +33,8 @@ let output;
 const outputLogger = {};
 ["debug", "info", "warn", "error"].forEach(function (level) {
   outputLogger[level] = function (message) {
-    if (!output) { output = vscode.window.createOutputChannel("VERTEX"); }
-    output.appendLine("[" + level + "] " + message);
+    if (!output) { output = vscode.window.createOutputChannel("VERTEX", { log: true }); }
+    output[level](message);
   };
 });
 

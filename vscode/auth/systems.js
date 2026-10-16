@@ -23,6 +23,12 @@ function readSystem(entry) {
   if (!e.user) gaps.push("user");
   if (gaps.length) return { error: "System " + name + " has no " + gaps.join(" and ") + "." };
   try { canonicalOrigin(e.url); } catch (_) { return { error: "The url of " + name + " is not a valid one: " + e.url }; }
+  for (const field of ["url", "webgui"]) {
+    if (!e[field]) continue;
+    let parsed;
+    try { parsed = new URL(e[field]); } catch (_) { continue; }
+    if (parsed.username || parsed.password) return { error: "System " + name + " has a user or password in its " + field + ". Remove it: VERTEX keeps passwords in the OS credential store and asks for them." };
+  }
   const system = { name, url: e.url, client: e.client || "", user: e.user, authType,
     webgui: e.webgui, allowInsecureCertificate: e.allowInsecureCertificate === true };
   if (authType === "snc") {

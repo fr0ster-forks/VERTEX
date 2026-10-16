@@ -82,6 +82,11 @@ function createAuth({ vscode, context, logger }) {
     const client = new ADTClient(system.url, system.user, "-", system.client || "", "EN",
       { timeout: role === "listener" || role === "probe" || role === "debuggee" ? 300000 : 60000 });
     client.httpClient.httpclient = wire;
+    // Keep automatic ADT login in the same operation as the request it follows.
+    if (wire.runOperation) {
+      const request = client.httpClient.request.bind(client.httpClient);
+      client.httpClient.request = (...args) => wire.runOperation(() => request(...args));
+    }
     client.dispose = () => wire.dispose();
     return client;
   }

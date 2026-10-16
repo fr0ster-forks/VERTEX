@@ -44,3 +44,11 @@ test("connection key changes with snc, rfc and certificate policy", () => {
   assert.notEqual(k, connectionKey(readSystem({ ...snc, snc: { partnerName: "p:CN=Y" } }).system));
   assert.notEqual(connectionKey(readSystem(base).system), connectionKey(readSystem({ ...base, allowInsecureCertificate: true }).system));
 });
+
+test("url and webgui embedded credentials are refused", () => {
+  for (const field of ["url", "webgui"]) for (const credentials of ["privateuser@", ":privatepassword@", "privateuser:privatepassword@"]) {
+    const result = readSystem({ ...base, [field]: "https://" + credentials + "host.example.com/sap" });
+    assert.equal(result.system, undefined);
+    assert.equal(result.error, "System DEV has a user or password in its " + field + ". Remove it: VERTEX keeps passwords in the OS credential store and asks for them.");
+  }
+});

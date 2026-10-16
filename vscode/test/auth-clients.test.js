@@ -164,3 +164,34 @@ test("a disposed client wire used again is tracked by disposeAll", async t => {
   await auth.disposeAll();
   assert.equal(disposed, 1);
 });
+
+for (const stored of [false, true]) test("CSRF refusal suppresses auto-login prompts (stored=" + stored + ")", async t => {
+  let refuse = false, sends = 0;
+  const server = require("node:http").createServer((q, res) => {
+    sends++;
+    if (refuse) { res.statusCode = 401; res.end("CSRF"); }
+    else { res.setHeader("x-csrf-token", "T"); res.end("ok"); }
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const entry = { name: "D", url: "http://127.0.0.1:" + server.address().port, user: "u" };
+  const v = fakeVscode([entry]), ctx = fakeContext();
+  const auth = createAuth({ vscode: v, context: ctx, logger: null });
+  t.after(() => auth.disposeAll());
+  const sys = auth.systemOf(entry).system;
+  const client = await auth.makeClient(sys, "repository");
+  await client.httpClient.request("/sap/bc/adt/discovery", {});
+  assert.equal(client.httpClient.loggedin, true);
+  assert.equal(client.httpClient.isStateful, false);
+  refuse = true;
+  if (!stored) await auth.forget(sys);
+  const prompts = v.prompts.length, before = sends;
+  await assert.rejects(client.httpClient.request("/sap/bc/adt/discovery", {}));
+  assert.equal(v.prompts.length, prompts + (stored ? 0 : 1));
+  assert.equal(sends, before + 1);
+  assert.equal(ctx.m.has(loginIdentity(sys) + ".means"), false);
+  const after = v.prompts.length;
+  await assert.rejects(client.httpClient.request("/sap/bc/adt/discovery", {}));
+  assert.equal(v.prompts.length, after + 1);
+  assert.equal(sends, before + 2);
+});
