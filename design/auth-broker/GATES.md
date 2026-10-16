@@ -99,6 +99,8 @@ Basic path measured (2026-10-16, after Task 5):
 - An end-to-end run of the real chain — VertexServiceKeyStore/VertexSessionStore → AuthBroker → the auth-providers Basic provider → the HTTP wire → abap-adt-api ADTClient — against a local HTTP server: login and a request answer 200 with the Basic header; after the stored password is changed to a wrong one, the request fails and the wire reports the provider's `credential-refused`. Identical under Node 18.20.8, 20.20.2 and 24.19.0.
 - Verdict: `basic` works on the Node versions `^1.85.0` admits; no refusal needed for basic. `snc` keeps its own conditions (SPEC §9) and was measured only on Node 24 (gate 2).
 
+SNC on older Node (2026-10-17): the `snc` path through VERTEX's own factory (`createAuth` → `makeClient` → RFC wire → abap-adt-api `ADTClient`) against the `snc` system ran 13 operations (login, package browse, search, read source, object structure, syntax check, LOCK/UNLOCK, logout then read again on the same client, ABAP Unit, ATC, data preview, dispose) with all steps ok under plain Node 18.20.8 and 20.20.2, as under VS Code 1.142's Electron (Node 24.21.0). Electron hosts of older VS Code releases were not run; they share the memory-cage restriction that sap-rfc-lite 0.2.4 addresses (gate 2 addendum). No refusal is added for `snc` on older hosts.
+
 ## Gate 3 — CSRF over RFC
 
 Verdict: option B (SPEC §8.5).
