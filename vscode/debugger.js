@@ -28,6 +28,7 @@ const WAIT_MOST = 280;         // a tool call must come back before the client g
 const DUMPS_EVERY = 10000;     // how often a waiting caller asks SAP for new dumps
 const DUMPS_AFTER_END = 3;     // tries for the dump of a run that just died; only the first is awaited
 const DUMPS_SETTLE = 1500;     // SAP formats the short dump after the program is gone
+const LISTENER_STOP_MS = 6000; // design/auth-broker/GATES.md gate 4: measured poll shutdown bound
 
 const STEPS = { over: "stepOver", into: "stepInto", out: "stepReturn", continue: "stepContinue" };
 
@@ -91,6 +92,8 @@ function parseStack(body) {
   const raw = fullParse(body, { removeNSPrefix: true });
   return { ...xmlNodeAttr(raw.stack), stack: xmlArray(raw, "stack", "stackEntry").map(xmlNodeAttr).map(x => ({ ...x, uri: parseUri(x.uri) })) };
 }
+function sessionLost(error) { return /SAP session (?:has ended|no longer exists|this connection was using is gone)|session (?:was |is )?(?:lost|replaced)|The session this request was admitted to is gone|Session timed out/i.test(error && error.message || ""); }
+
 /* names: variables read at the new stop in the same request - the value the
    window follows; scopes: every scope's variables too (SCOPES). A part of those
    failing is reported with the answer; the step and the stack stand. */
@@ -109,7 +112,11 @@ async function stepWithStack(client, type, names, scopes) {
   // The step failed: the program is gone, as when a separate step throws.
   if (parts[0].status >= 400) { throw new Error(sapText(parts[0].body)); }
   const step = parseStep(parts[0].body);
-  if (parts[1].status >= 400) { throw Object.assign(new Error("The step ran, but the stack after it could not be read: " + sapText(parts[1].body)), { stepRan: true }); }
+  if (parts[1].status >= 400) {
+    const cause = new Error(sapText(parts[1].body));
+    if (sessionLost(cause)) { throw cause; }
+    throw Object.assign(new Error("The step ran, but the stack after it could not be read: " + cause.message), { stepRan: true });
+  }
   const result = { step, stack: parseStack(parts[1].body) };
   if (reading) {
     result.variables = parts[2].status >= 400 ? { names: reading, error: sapText(parts[2].body) } : { names: reading, found: parseVariables(parts[2].body) };
@@ -160,8 +167,9 @@ function plain(v) {
   return "<" + v.META_TYPE + (v.ACTUAL_TYPE_NAME ? " " + v.ACTUAL_TYPE_NAME : "") + ">";
 }
 
-function create({ connect, current, openUrl, ideId, terminalId }) {
+function create({ connect, current, openUrl, ideId, terminalId, listenerStopMs = LISTENER_STOP_MS, setTimeout: stopSetTimeout = global.setTimeout, clearTimeout: stopClearTimeout = global.clearTimeout, explain = error => error && error.message || String(error) }) {
   let listening = false, stopListening = false;
+  let listenLoop = null, generation = 0, pendingStops = 0;
   let session = null;          // { client, debuggee, busy }
   let stopped = null;          // the stop waiting for the assistant
   let finished = [];           // runs that ended since the last debug_wait
@@ -197,10 +205,10 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   let released = "";           // the program Detach let run on without us
   const watchers = new Set();  // the windows showing this debugger
 
-  /* The stopped program's session takes one request at a time: the assistant
-     and the window share it, and neither may interleave with a step. */
+  /* Connections, listener transitions and the stopped session share one queue.
+     The long poll alone runs outside it, on its own wire. */
   let chain = Promise.resolve();
-  function exclusive(work) {
+  function lifecycle(work) {
     const done = chain.then(work, work);
     chain = done.catch(() => {});
     return done;
@@ -210,16 +218,23 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
      Switch System or named in the chat - not the one of the first call. A
      change while breakpoints or a stopped program still live on the old one
      is refused: they would be left behind there. */
-  async function system() {
+  function system() { return lifecycle(systemNow); }
+  async function systemNow() {
     const wanted = current ? current() : "";
     if (sap && wanted && sap.key !== wanted) {
       if (session || breakpoints.length || listening) {
         throw new Error("Debugging is still going on " + sap.system.name
           + ". Call debug_stop first - it removes the breakpoints there - then start again on the other system.");
       }
+      await sap.listener?.dispose?.();
+      await sap.probe?.dispose?.();
       sap = null;
     }
-    if (!sap) { sap = await connect(); }
+    if (!sap || !sap.listener || !sap.probe) {
+      const old = sap;
+      sap = await connect();
+      if (old && old.probe !== sap.probe) { await old.probe?.dispose?.(); }
+    }
     return sap;
   }
   function wake() { const now = waiters; waiters = []; now.forEach(w => w()); changed(); }
@@ -231,10 +246,11 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
      is let go. A window closed on a stop used to leave exactly that, with
      nothing left on screen to say so. */
   async function release(why) {
-    await exclusive(async () => {
+    await lifecycle(async () => {
       if (!session) { return; }
       await session.client.debuggerStep(STEPS.continue).catch(() => {});
       await session.client.logout().catch(() => {});
+      await session.client.dispose?.();
       session = null; stopped = null; frames = [];
     });
     // Out loud: letting a program go is not something to do quietly.
@@ -265,18 +281,22 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
      the full list. A condition is attached in a second round, as ABAP FS and
      Eclipse do - the line has to exist on the server before it can carry one. */
   async function sync(on) {
-    const { listener, user } = on || await system();
+    const target = on || await systemNow();
+    const { probe, user } = target, launched = generation;
+    const current = () => sap === target && sap.probe === probe && generation === launched;
     const all = breakpoints.filter(b => b.active !== false);
     for (const b of breakpoints) { if (b.active === false) { b.adt = null; } }
     const wanted = all.map(b => b.url + "#start=" + b.line);
-    let answer = await listener.debuggerSetBreakpoints("user", terminalId, ideId, "vertex", wanted, user, "external");
+    let answer = await probe.debuggerSetBreakpoints("user", terminalId, ideId, "vertex", wanted, user, "external");
+    if (!current()) { return []; }
     const placed = answer.filter(a => a.uri);
     for (const b of all) {
       b.adt = placed.find(a => a.uri.uri === b.url && a.uri.range.start.line === b.line) || null;
     }
     if (breakpoints.some(b => b.condition && b.adt)) {
       const withConditions = breakpoints.filter(b => b.adt).map(b => b.condition ? { ...b.adt, condition: b.condition } : b.adt);
-      answer = await listener.debuggerSetBreakpoints("user", terminalId, ideId, "vertex", withConditions, user, "external");
+      answer = await probe.debuggerSetBreakpoints("user", terminalId, ideId, "vertex", withConditions, user, "external");
+      if (!current()) { return []; }
       const again = answer.filter(a => a.uri);
       for (const b of breakpoints) {
         if (b.adt) { b.adt = again.find(a => a.uri.uri === b.url && a.uri.range.start.line === b.line) || null; }
@@ -313,14 +333,16 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   }
   /* A change to the user's breakpoints reaches the program stopped now too. */
   function rescope() {
-    return exclusive(async () => { if (session) { await scoped(breakpoints); } }).catch(() => {});
+    return (async () => { if (session) { await scoped(breakpoints); } })().catch(() => {});
   }
 
-  async function setBreakpoint({ object_type, name, line, condition, mode, take_over, function_group }) {
+  function setBreakpoint(options) { return lifecycle(() => placeBreakpoint(options)); }
+
+  async function placeBreakpoint({ object_type, name, line, condition, mode, take_over, function_group }) {
     if (!name || !(Number(line) > 0)) { throw new Error("A breakpoint needs the object's name and a line number."); }
     if (mode && mode !== "stop" && mode !== "log") { throw new Error('mode is "stop" or "log".'); }
     const url = sourceUrl(object_type, name, function_group);
-    await system();                  // the system is settled before the list changes
+    await systemNow();                  // the system is settled before the list changes
     const existing = breakpoints.find(b => b.url === url && b.line === Number(line));
     const entry = existing || { id: "bp" + (++numbered), objectType: String(object_type || "PROG").toUpperCase(),
       name: String(name).toUpperCase(), url, line: Number(line) };
@@ -338,7 +360,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
       // the active line itself says that better than any guess.
       let active = "";
       try {
-        const text = await source(url);
+        const text = await (await systemNow()).probe.getObjectSource(url, { version: "active" });
         const line = String(text || "").split(/\r?\n/)[entry.line - 1];
         active = line === undefined ? ". The active version has no line " + entry.line + "."
           : ". Line " + entry.line + " of the active version is: " + (line.trim() || "(blank)")
@@ -363,7 +385,8 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
 
   /* On or off without losing it: an inactive breakpoint keeps its line,
      condition and mode here and is not in SAP. No id: every one. */
-  async function activateBreakpoints(id, active) {
+  function activateBreakpoints(id, active) { return lifecycle(() => activateBreakpointsNow(id, active)); }
+  async function activateBreakpointsNow(id, active) {
     const list = id ? breakpoints.filter(b => b.id === id) : breakpoints;
     if (id && !list.length) { throw new Error("There is no breakpoint " + id + "."); }
     for (const b of list) { b.active = active !== false; }
@@ -372,7 +395,8 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
     changed();
   }
 
-  async function clearBreakpoints(id) {
+  function clearBreakpoints(id) { return lifecycle(() => clearBreakpointsNow(id)); }
+  async function clearBreakpointsNow(id) {
     if (id) {
       const at = breakpoints.findIndex(b => b.id === id);
       if (at < 0) { throw new Error("There is no breakpoint " + id + "."); }
@@ -392,7 +416,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
      stateful session. Failing to read it is reported as a problem of its own,
      never as "no dumps": a missing dump is exactly what this exists to catch. */
   async function feed() {
-    const { probe, user } = await system();
+    const { probe, user } = (sap || await system());
     if (!probe || typeof probe.dumps !== "function") {
       throw new Error("This SAP connection has no dump feed (abap-adt-api without dumps()).");
     }
@@ -414,7 +438,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
       if (!dumpsTold) {
         dumpsTold = true;
         problems.push("The dumps of " + (sap ? sap.system.name : "this system")
-          + " could not be read, so a run that dies of one will not be reported: " + (error && error.message || error));
+          + " could not be read, so a run that dies of one will not be reported: " + explain(error));
       }
     }
     dumpsAsked = Date.now();
@@ -502,7 +526,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
      debugger that wants the ABAP backend; without it a dump is still
      reported, and says why it has no place to point at. */
   async function dumpWhere(day) {
-    const { probe, user } = await system();
+    const { probe, user } = (sap || await system());
     const path = "/sap/bc/adt/vertex/table/SNAP?rows=60"
       + "&f1=DATUM&s1=I&o1=EQ&l1=" + encodeURIComponent(day)
       + "&f2=UNAME&s2=I&o2=EQ&l2=" + encodeURIComponent(user)
@@ -536,7 +560,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
     } catch (error) {
       found.forEach(one => {
         one.whyNoPlace = "ST22's own table could not be read, so this dump has no line to open: "
-          + (error && error.message || error);
+          + explain(error);
       });
     }
   }
@@ -554,7 +578,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
       const found = await collectDumps();
       if (found.length) { return found; }
     } catch (error) {
-      problems.push("The dumps could not be read after the run ended: " + (error && error.message || error));
+      problems.push("The dumps could not be read after the run ended: " + explain(error));
       return [];
     }
     (async function later() {
@@ -565,7 +589,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
         if (found.length) { tellDumped(run, found); wake(); return; }
       }
     })().catch(error => {
-      problems.push("The dumps could not be read after the run ended: " + (error && error.message || error));
+      problems.push("The dumps could not be read after the run ended: " + explain(error));
       wake();
     });
     return [];
@@ -606,49 +630,76 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
      before listening, and not taken over unless the assistant was told to by
      the user. */
   async function listen(takeOver) {
+    if (pendingStops) { return; }
     if (listening) { return; }
-    const { listener, user } = await system();
+    stopListening = false;
+    const { listener, probe, user } = await systemNow();
+    if (pendingStops) { return; }
     try {
       await listener.debuggerListeners("user", terminalId, ideId, user);
     } catch (error) {
+      if (pendingStops) { return; }
       const text = error && error.properties && error.properties.conflictText;
       if (!/conflict/i.test(String(error && error.type)) && !text) { throw error; }
       if (!takeOver) {
         throw new Error("Another debugger already listens for " + user + (text ? ": " + text : "")
           + ". It would take the stops. Ask the user to close it (Eclipse, ABAP FS) - or, only if the user agrees, set the breakpoint again with take_over.");
       }
-      await listener.debuggerDeleteListener("user", terminalId, "", user).catch(() => {});
+      await probe.debuggerDeleteListener("user", terminalId, "", user).catch(() => {});
     }
-    listening = true; stopListening = false;
+    if (pendingStops) { return; }
+    listening = true;
     // The long poll goes first and nothing is allowed in front of it. A
     // breakpoint stops nothing while no listener waits, so an HTTP round trip
     // taken before this one is a window in which a run is missed - which is
     // what reading ST22 for the baseline did when it was awaited here.
-    loop().catch(error => { problems.push("The listener stopped: " + (error && error.message || error)); listening = false; wake(); });
+    const launched = ++generation;
+    listenLoop = loop(launched, listener, user).catch(error => {
+      if (launched === generation) { problems.push("The listener stopped: " + explain(error)); wake(); }
+    });
     void markDumps();
   }
 
-  async function loop() {
-    const { listener, user } = await system();
-    while (!stopListening) {
-      if (session) { await new Promise(resolve => waiters.push(resolve)); continue; }
-      const hit = await listener.debuggerListen("user", terminalId, ideId, user);
-      if (stopListening) { break; }
-      if (!hit) { continue; }                      // the long poll ran out; ask again
-      if (!hit.DEBUGGEE_ID) {
-        problems.push("The listener was ended by SAP: " + (hit.conflictText || (hit.message && hit.message.text) || JSON.stringify(hit)));
-        break;
+  async function loop(launched, listener, user) {
+    try {
+      while (launched === generation) {
+        if (session) { await new Promise(resolve => waiters.push(resolve)); continue; }
+        const hit = await listener.debuggerListen("user", terminalId, ideId, user);
+        if (launched !== generation) { break; }
+        if (!hit) { continue; }                      // the long poll ran out; ask again
+        // Let the caller queue its next breakpoint before handling an immediate hit.
+        await new Promise(resolve => setImmediate(resolve));
+        if (launched !== generation || pendingStops) { break; }
+        await lifecycle(async () => {
+          if (launched !== generation || pendingStops) { return; }
+          if (!hit.DEBUGGEE_ID) {
+            problems.push("The listener was ended by SAP: " + (hit.conflictText || (hit.message && hit.message.text) || JSON.stringify(hit)));
+            stopListening = true;
+            listening = false;
+            wake();
+            return;
+          }
+          try { await attach(hit); }
+          catch (error) {
+            if (session) { await session.client.dispose?.(); }
+            session = null; stopped = null; frames = [];
+            problems.push("Could not attach to the stopped program: " + explain(error));
+          }
+          wake();
+        });
+        if (stopListening) { break; }
       }
-      await exclusive(() => attach(hit)).catch(error => { problems.push("Could not attach to the stopped program: " + (error && error.message || error)); session = null; });
-      wake();
+    } finally {
+      if (launched === generation) {
+        void lifecycle(() => { if (launched === generation) { listening = false; changed(); } });
+      }
     }
-    listening = false;
   }
 
   /* ---------- a stopped program ---------- */
 
   async function attach(hit) {
-    const { open, user } = await system();
+    const { open, user } = await systemNow();
     const client = await open();                     // a stateful session of its own
     session = { client, debuggee: hit, program: hit.PRG_CURR };
     unplaced = "";
@@ -671,7 +722,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
       }
     } catch (error) {
       unplaced = "The breakpoints could not be sent to this program, so it may not stop at them: "
-        + (error && error.message || error);
+        + explain(error);
       problems.push(unplaced + ".");
     }
     await arrive(null);
@@ -704,9 +755,26 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
       if (logs) {
         logged.push({ n: logged.length + 1, breakpoint: bp.id, at: where(top), changed: state.changed });
         if (!quick) {
-          try { step = await session.client.debuggerStep(STEPS.continue); }
-          catch (error) { return end(error); }
-          continue;
+          const launched = generation, held = session;
+          // Yield the queue (and the event loop) between log hits so stop wins.
+          setImmediate(() => {
+            void lifecycle(() => {
+              if (launched !== generation || pendingStops || session !== held) { return; }
+              // Wrap the request so the queue does not adopt its pending promise.
+              return { answer: held.client.debuggerStep(STEPS.continue) };
+            }).then(async request => {
+              if (!request) { return; }
+              let next, failure;
+              try { next = await request.answer; }
+              catch (error) { failure = error; }
+              await lifecycle(async () => {
+                if (launched !== generation || pendingStops || session !== held) { return; }
+                if (failure) { await end(failure); }
+                else { await arrive(next); }
+              });
+            }).catch(error => { problems.push(explain(error)); wake(); });
+          });
+          return;
         }
       }
       stopped = { breakpoint: bp && !logs ? bp.id : null, at: where(top), stack: state.stack, source: state.source,
@@ -723,10 +791,13 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   }
 
   async function end(error) {
+    const lost = sessionLost(error);
     const run = { program: session.program, logged: logged.length - loggedRead,
-      note: error && error.message && !/exception was raised/i.test(error.message) ? error.message : "" };
+      note: lost ? "The debugging session on " + session.program + " ended: " + explain(error)
+        : error && error.message && !/exception was raised/i.test(error.message) ? explain(error) : "" };
     finished.push(run); ended++; ending = run;
     await session.client.logout().catch(() => {});
+    await session.client.dispose?.();
     session = null; stopped = null; frames = [];
     wake();
     // The step threw because the program is gone. Whether it finished or died
@@ -815,7 +886,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
       // asked while a caller waits, and only while one waits.
       if (listening && !session && Date.now() - dumpsAsked >= DUMPS_EVERY) {
         try { await collectDumps(); }
-        catch (error) { problems.push("The dumps could not be read: " + (error && error.message || error)); }
+        catch (error) { problems.push("The dumps could not be read: " + explain(error)); }
       }
     }
     const news = { logged: logged.slice(loggedRead) };
@@ -842,7 +913,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
      variables to read at the new stop in the same request. */
   function advance(kind, quick, names, kinds) {
     const asked = Date.now();
-    return exclusive(async () => {
+    return lifecycle(async () => {
       const queued = Date.now() - asked;
       mustBeStopped();
       const type = STEPS[kind || "over"];
@@ -856,7 +927,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
       let scopes = null;
       try { const both = await stepWithStack(session.client, type, names, !!kinds); result = both.step; read = both.stack; values = both.variables; scopes = both.scopes; }
       catch (error) {
-        if (error && error.stepRan) { stopped = before; throw error; }
+        if (error && error.stepRan && !sessionLost(error)) { stopped = before; throw error; }
         // The step killed the run. END already asked ST22 why, so the answer
         // to this very call can say whether it finished or dumped.
         const run = await end(error);
@@ -883,7 +954,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
      it does not run. The breakpoints stay and the listener waits for the
      next run. */
   function terminate() {
-    return exclusive(async () => {
+    return lifecycle(async () => {
       mustBeStopped();
       stopped = null;
       await session.client.debuggerStep("terminateDebuggee").catch(() => {});
@@ -894,7 +965,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   /* Variables by name, as the window lists them - for reading again only
      what a statement named. */
   function variables(names) {
-    return exclusive(async () => {
+    return lifecycle(async () => {
       mustBeStopped();
       const list = (names || []).map(n => String(n).toUpperCase()).filter(Boolean);
       if (!list.length) { return []; }
@@ -908,7 +979,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
     return wait(1);
   }
 
-  function read(name, from, to) { return exclusive(() => readNow(name, from, to)); }
+  function read(name, from, to) { return lifecycle(() => readNow(name, from, to)); }
   async function readNow(name, from, to) {
     mustBeStopped();
     const client = session.client;
@@ -931,8 +1002,9 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   /* A program is started in SE38. A function module or a class has no run
      of its own: its test screen opens - SE37 or SE24 with the name filled in
      - and the user starts the test there (F8) with the data it asks for. */
-  async function run(program, test) {
-    const { system: target } = await system();
+  function run(program, test) { return lifecycle(() => runNow(program, test)); }
+  async function runNow(program, test) {
+    const { system: target } = await systemNow();
     const name = String(program).toUpperCase();
     if (!/^[A-Z0-9_/]+$/.test(name)) { throw new Error("Not an object name: " + program); }
     const kind = String(test || "").toUpperCase();
@@ -944,6 +1016,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
     // After Detach the breakpoints are kept here but not in SAP, and nothing
     // listens: both come back before the run starts.
     if (!listening) { await sync(); await listen(false); }
+    if (pendingStops) { return; }
     // Everything in ST22 up to now is history; from here a dump belongs to
     // this run until something proves otherwise.
     await markDumps();
@@ -983,20 +1056,67 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   }
 
   /* Let the program go, stop listening and take every breakpoint away. */
-  async function stop() {
+  function stop() {
+    // Cancellation intent only; all state changes still wait for the queue.
+    pendingStops++;
+    return lifecycle(stopRun).finally(() => { pendingStops--; });
+  }
+
+  // Each cleanup request and the poll get at most listenerStopMs: at most
+  // six such intervals after entering the queue, even on a blocked RFC wire.
+  function retire(client) {
+    try { Promise.resolve(client?.dispose?.()).catch(() => {}); } catch (error) { /* abandoned wire */ }
+  }
+
+  async function bounded(label, work, abandon) {
+    let timer;
+    const timeout = {};
+    try {
+      const result = await Promise.race([Promise.resolve().then(work),
+        new Promise(resolve => { timer = stopSetTimeout(() => resolve(timeout), listenerStopMs); })]);
+      if (result !== timeout) { return true; }
+      problems.push(label + " did not answer within " + listenerStopMs / 1000 + " s; its client was retired.");
+      abandon();
+      return false;
+    } catch (error) { return true; }
+    finally { stopClearTimeout(timer); }
+  }
+
+  async function stopRun() {
+    ++generation;
     stopListening = true;
-    await exclusive(async () => {
-      if (!session) { return; }
-      await session.client.debuggerStep(STEPS.continue).catch(() => {});
-      await session.client.logout().catch(() => {});
+    if (session) {
+      const client = session.client;
+      let alive = true;
+      const abandon = () => { alive = false; retire(client); };
+      if (stopped) { await bounded("Debuggee continue", () => client.debuggerStep(STEPS.continue), abandon); }
+      if (alive) { await bounded("Debuggee logout", () => client.logout(), abandon); }
+      if (alive) { await bounded("Debuggee disposal", () => client.dispose?.(), abandon); }
       session = null; stopped = null; frames = [];
-    });
+    }
     wake();
     if (sap) {
-      const { listener, user } = sap;
-      await listener.debuggerDeleteListener("user", terminalId, ideId, user).catch(() => {});
+      const { probe, user } = sap;
+      const abandonProbe = () => { sap.probe = null; retire(probe); };
+      if (probe) { await bounded("Listener deletion", () => probe.debuggerDeleteListener("user", terminalId, ideId, user), abandonProbe); }
+      let timer, ended = !listenLoop;
+      try {
+        await Promise.race([listenLoop && listenLoop.then(() => { ended = true; }),
+          new Promise(resolve => { timer = stopSetTimeout(resolve, listenerStopMs); })]);
+      } finally { stopClearTimeout(timer); }
+      if (!ended || !sap.probe) {
+        if (!ended) { problems.push("The listener did not end within " + listenerStopMs / 1000 + " s; SAP keeps it until its own timeout."); }
+        const retired = sap.listener;
+        sap.listener = null;
+        retire(retired);
+      }
+      listenLoop = null;
       breakpoints.length = 0;
-      await sync(sap).catch(() => {});
+      if (sap.probe) { await bounded("Breakpoint cleanup", () => sync(sap), abandonProbe); }
+      if (!sap.probe && sap.listener) {
+        retire(sap.listener);
+        sap.listener = null;
+      }
     }
     listening = false;
     changed();
@@ -1004,12 +1124,13 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
 
   /* Let the program go and stop listening, as stop does, but keep the
      breakpoints for the next run: SAP forgets them, this list does not. */
-  async function detach() {
+  function detach() { return lifecycle(() => detachNow()); }
+  async function detachNow() {
     const kept = breakpoints.map(b => ({ ...b, adt: null }));
     // What is being let go. Detach continues the program and stops listening,
     // so nothing of ours will ever hear how it ended.
     const letGo = session ? session.program : "";
-    await stop();
+    await stopRun();
     breakpoints.push(...kept);
     changed();
     if (!letGo || !dumpsKnown) { return; }
@@ -1022,7 +1143,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
       const found = await collectDumps();
       if (found.length) { announce(found, letGo); }
     })().catch(error => {
-      problems.push("The dumps could not be read after Detach: " + (error && error.message || error));
+      problems.push("The dumps could not be read after Detach: " + explain(error));
       wake();
     });
   }
@@ -1059,7 +1180,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   /* The scopes SAP groups the variables in - by SAP's own names - and SY,
      which none of them holds. */
   function scopes(withSy) {
-    return exclusive(async () => {
+    return lifecycle(async () => {
       mustBeStopped();
       const client = session.client;
       const root = await client.debuggerChildVariables(["@ROOT"]);
@@ -1074,7 +1195,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   /* The values a recorded stop keeps, in three requests at most: the scopes, the variables of the scopes asked for
      (kinds: params, locals, globals) in one request, and the components of their structures in one more. */
   function stopValues(kinds) {
-    return exclusive(async () => {
+    return lifecycle(async () => {
       mustBeStopped();
       const client = session.client;
       const groups = scopeGroups(await client.debuggerChildVariables(SCOPES), kinds);
@@ -1108,7 +1229,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
 
   /* What is inside a scope, a structure or an object. */
   function children(id) {
-    return exclusive(async () => {
+    return lifecycle(async () => {
       mustBeStopped();
       // One parent asked for: every variable that comes back is its own.
       const found = await session.client.debuggerChildVariables([String(id)]);
@@ -1118,7 +1239,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
 
   /* Rows FROM..TO of a table, for its grid. */
   function tableRows(id, from, to) {
-    return exclusive(async () => {
+    return lifecycle(async () => {
       mustBeStopped();
       const client = session.client;
       // A table's ID ends in [] - its body; the table itself is read by the rest.
@@ -1132,7 +1253,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
 
   /* Make a level of the stack the one the variables are read on. */
   function frame(n) {
-    return exclusive(async () => {
+    return lifecycle(async () => {
       mustBeStopped();
       const f = frames[Number(n)];
       if (!f) { throw new Error("There is no stack level " + n + "."); }
@@ -1145,8 +1266,8 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   /* The active source at a URL - what the program runs, which is what the
      breakpoint lines count in. The stateless connection reads it. */
   async function source(url) {
-    const { listener } = await system();
-    return listener.getObjectSource(String(url).split("#")[0], { version: "active" });
+    const { probe } = await system();
+    return probe.getObjectSource(String(url).split("#")[0], { version: "active" });
   }
 
   /* Where each method of a global class starts in its main source, as ADT's
@@ -1158,8 +1279,8 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   async function classMethods(url, options = {}) {
     const object = String(url).split("#")[0].replace(/\/source\/main$/, "");
     if (!options.fresh && methodLines.has(object)) { return methodLines.get(object); }
-    const { listener } = await system();
-    const root = await listener.classComponents(object);
+    const { probe } = await system();
+    const root = await probe.classComponents(object);
     const found = {};
     (function walk(node) {
       if (!node) { return; }

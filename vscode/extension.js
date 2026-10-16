@@ -28,6 +28,7 @@ const PAGES = fs.existsSync(PACKAGED)
   : path.join(__dirname, "..", "org.vertex.abap.ui", "resources");
 
 let auth;
+let stopDebugger;
 let output;
 const outputLogger = {};
 ["debug", "info", "warn", "error"].forEach(function (level) {
@@ -701,15 +702,16 @@ async function withShownDiff(context, state) {
           + " ('-' removed, '+' added):\n" + lines.join("\n") } };
 }
 
-function systemKey(system) {
-  return JSON.stringify([system.name, system.url, system.client || "", system.user]);
+function connectionKey(system) {
+  return require("./auth/systems").connectionKey(system);
 }
 
 /* The debugger an assistant drives through /debug: one per window, on the
    active system, with the password VS Code keeps. The listener runs on a
    stateless session; each stopped program gets a stateful one of its own. */
-function debuggerFor(context) {
+function debuggerFor(context, auth) {
   const crypto = require("crypto");
+  let connected = null;
   let id = context.globalState.get("vertex.debug.ideId");
   if (!id) {
     id = crypto.randomBytes(16).toString("hex").toUpperCase();
@@ -720,36 +722,41 @@ function debuggerFor(context) {
     terminalId: id,
     openUrl: url => vscode.env.openExternal(vscode.Uri.parse(url)),
     // Which system is active now: a window's own, a chat's named one, or vertex.active.
-    current: () => { const chosen = active(); return chosen.error ? "" : systemKey(chosen.system); },
+    current: () => {
+      const chosen = active();
+      if (chosen.error) { return ""; }
+      if (connected && connected.key === connectionKey(chosen.system)) { connected.system = chosen.system; }
+      return connectionKey(chosen.system);
+    },
+    explain: error => auth.explain(connected ? connected.system : active().system, error),
     connect: async function () {
       const chosen = active();
       if (chosen.error) { throw new Error(chosen.error); }
       const system = chosen.system;
-      const pw = await password(context, system);
-      if (!pw) { throw new Error("The SAP password for " + system.name + " was not supplied."); }
-      const { ADTClient } = require("abap-adt-api");
-      const make = function () {
-        const client = new ADTClient(system.url, system.user, pw, system.client || "", "EN", { timeout: 300000 });
-        client.httpClient.httpclient = require("./sap-http").create(system);
-        return client;
-      };
-      const listener = make();
+      const listener = await auth.makeClient(system, "listener");
       // The listener spends its life in a long poll, so the dump feed gets a
       // stateless session of its own rather than queueing behind it.
-      const probe = make();
-      return {
-        key: systemKey(system), system, user: String(system.user).toUpperCase(), listener, probe,
+      let probe;
+      try { probe = await auth.makeClient(system, "probe"); }
+      catch (error) { await listener.dispose().catch(() => {}); throw error; }
+      connected = {
+        key: connectionKey(system), system, user: String(system.user).toUpperCase(), listener, probe,
         open: async function () {
-          const client = make();
+          const client = await auth.makeClient(system, "debuggee");
           client.stateful = "stateful";
-          await client.login();
+          try { await client.login(); }
+          catch (error) { await client.dispose().catch(() => {}); throw error; }
           return client;
         }
       };
+      return connected;
     }
   });
   // A closed window must not leave breakpoints and a listener behind on SAP.
-  context.subscriptions.push({ dispose: () => { dbg.stop().catch(() => {}); } });
+  let stopping = null;
+  const stop = () => stopping || (stopping = dbg.stop());
+  stopDebugger = stop;
+  context.subscriptions.push({ dispose: () => { stop().catch(() => {}); } });
   return dbg;
 }
 
@@ -792,7 +799,7 @@ function activate(context) {
   // The panel's chat debugs too: its assistant gets the debugger tools beside
   // the source tools, on the same /chat address, with nothing to register.
   // Visual Debug in the Tools window draws this same debugger.
-  const dbg = debuggerFor(context);
+  const dbg = debuggerFor(context, auth);
   sapCode.attachDebugger(dbg);
   const debugTools = mcp.debugSet(dbg);
   const chatTools = withDebugger(sapCode, debugTools);
@@ -1321,6 +1328,7 @@ function activate(context) {
 
 async function deactivate() {
   if (tools) { tools.stop(); tools = null; }
+  if (stopDebugger) { await stopDebugger(); }
   if (auth) { await auth.disposeAll(); }
   if (output) { output.dispose(); output = null; }
 }
