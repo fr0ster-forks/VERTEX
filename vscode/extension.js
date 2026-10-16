@@ -180,12 +180,6 @@ function active() {
   return auth.systemOf(found[0]);
 }
 
-// Temporary password adapter, removed in Task 10.
-function password(_context, system) {
-  const r = auth.systemOf(system);
-  return r.system ? auth.password(r.system) : Promise.resolve(undefined);
-}
-
 /** The client belongs to every request, not to one of them. */
 function withClient(system, requestPath) {
   if (!system.client) {
@@ -780,7 +774,7 @@ function withDebugger(sapCode, debugTools) {
 
 function activate(context) {
   auth = require("./auth/clients").createAuth({ vscode, context, logger: outputLogger });
-  const sapCode = require("./code-workbench").register(vscode, context, { active, password, pin: pinTo,
+  const sapCode = require("./code-workbench").register(vscode, context, { active, auth, pin: pinTo,
     pinned: () => pinnedSystem.getStore() || "", systems });
   require("./local-navigation").register(vscode, context);
   frontendAnalysisRequest = sapCode.frontendRequest;

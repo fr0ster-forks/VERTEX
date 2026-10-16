@@ -319,3 +319,12 @@ test("a data preview statement goes in lines of at most 200 characters, broken o
   assert.ok(lines.length > 1 && lines.every(line => line.length <= 200), lines.map(line => line.length).join(", "));
   assert.ok(lines.some(line => line.includes("'A B  C'")) && lines.some(line => line.includes("'it''s %'")));
 });
+
+test("write failure and lost lock report the object and cause without retry", async () => {
+  const f = fixture(), draft = await change(f);
+  let writes = 0;
+  f.client.setObjectSource = async () => { writes++; throw Error("connection ended"); };
+  f.client.unLock = async () => { throw Error("session gone"); };
+  await assert.rejects(f.repo.apply(draft.change_id, { source: draft.source }), /^Error: The lock on ZTEST was lost: connection ended/);
+  assert.equal(writes, 1);
+});

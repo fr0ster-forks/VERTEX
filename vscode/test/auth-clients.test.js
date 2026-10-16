@@ -146,3 +146,21 @@ test("after disposeAll client and command wire creation reject without prompting
   await assert.rejects(auth.commandWire(sys), /shutting down/);
   assert.equal(v.prompts.length, 0);
 });
+
+test("a disposed client wire used again is tracked by disposeAll", async t => {
+  const server = require("node:http").createServer((request, response) => { response.setHeader("x-csrf-token", "T"); response.end("ok"); });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const entry = { name: "D", url: "http://127.0.0.1:" + server.address().port, user: "u" };
+  const auth = createAuth({ vscode: fakeVscode([entry]), context: fakeContext(), logger: null });
+  const client = await auth.makeClient(auth.systemOf(entry).system, "repository");
+  const wire = client.httpClient.httpclient;
+  await client.httpClient.request("/sap/bc/adt/discovery", {});
+  await client.dispose();
+  let disposed = 0;
+  const dispose = wire.dispose;
+  wire.dispose = () => { disposed++; return dispose(); };
+  await client.httpClient.request("/sap/bc/adt/discovery", {});
+  await auth.disposeAll();
+  assert.equal(disposed, 1);
+});

@@ -63,6 +63,12 @@ function createAuth({ vscode, context, logger }) {
       : createHttpWire(system, { providerFor, onRefusal,
           ensureMeans: async s => s.authType !== "basic" || !!(await password(s)) });
     wires.add(wire);
+    const request = wire.request.bind(wire);
+    wire.request = (...args) => {
+      if (closed) return Promise.reject(shutdownError());
+      wires.add(wire);
+      return request(...args);
+    };
     const dispose = wire.dispose.bind(wire);
     wire.dispose = () => { wires.delete(wire); return Promise.resolve(dispose()); };
     if (closed) { await wire.dispose(); throw shutdownError(); }

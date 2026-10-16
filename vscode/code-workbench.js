@@ -54,8 +54,9 @@ async function originStep(log, label, work) {
   }
 }
 
-function register(vscode, context, { active, password, pin, pinned, systems }) {
+function register(vscode, context, { active, auth, pin, pinned, systems }) {
   const events = require("./agent-events").createEmitter();
+  const pendingRepositories = new Map();
   const repositories = new Map(), texts = new Map(), opened = new Map(), drafts = new Map();
   let debuggerApi, breakpointQueue = Promise.resolve(), breakpointListenerAttached = false;
   const nativeBreakpoints = new Map();
@@ -358,31 +359,71 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   let sequence = 0;
   const provider = { provideTextDocumentContent: uri => texts.get(uri.toString()) || "" };
   context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider("vertex-source", provider));
-  async function repository(savedKey) {
-    const chosen = active();
-    if (savedKey) {
-      const [url, client, user, name, allowInsecureCertificate] = JSON.parse(savedKey);
-      chosen.system = { url, client, user, name, allowInsecureCertificate };
-      chosen.error = undefined;
+  const { connectionKey } = require("./auth/systems");
+  async function repository(saved) {
+    const current = auth.currentSystems();
+    for (const [key, repo] of repositories) {
+      if (!current.some(system => connectionKey(system) === key)) {
+        repositories.delete(key);
+        for (const [uri, entry] of opened) { if (entry.repo === repo) opened.delete(uri); }
+        for (const [id, entry] of drafts) { if (entry.repo === repo) drafts.delete(id); }
+        await repo.client.dispose();
+      }
     }
-    if (chosen.error) { throw new Error(chosen.error); }
-    const system = { ...chosen.system };
-    const key = JSON.stringify([system.url, system.client || "", system.user, system.name,
-      system.allowInsecureCertificate === true]);
+    let system;
+    if (saved) {
+      const old = Array.isArray(saved.key) ? saved.key : JSON.parse(saved.key);
+      const name = saved.name || old[3];
+      system = current.find(system => connectionKey(system) === saved.key);
+      if (!system) {
+        const matches = current.filter(system => system.name === name);
+        if (matches.length > 1) { throw new Error("several systems are named " + name + "; this tab cannot tell which one it belongs to"); }
+        if (!matches.length) { throw new Error(name + " is no longer in vertex.systems"); }
+        system = matches[0];
+      }
+    } else {
+      const chosen = active();
+      if (chosen.error) { throw new Error(chosen.error); }
+      system = current.find(system => connectionKey(system) === connectionKey(chosen.system));
+      if (!system) { throw new Error(chosen.system.name + " is no longer in vertex.systems"); }
+    }
+    const key = connectionKey(system);
     if (!repositories.has(key)) {
-      const pw = await password(context, system);
-      if (!pw) { throw new Error("SAP password was not supplied."); }
-      const { ADTClient } = require("abap-adt-api");
-      const client = new ADTClient(system.url, system.user, pw, system.client || "", "EN", { timeout: 60000 });
-      client.httpClient.httpclient = require("./sap-http").create(system);
-      repositories.set(key, { key, label: `${system.name} / ${system.user} / ${system.client || "default"}`,
-        api: createRepository({ client, systemId: key,
-          emit: event => events.emit({ ...event, system: system.name }) }) });
-      const api = repositories.get(key).api, apply = api.apply;
-      api.apply = async (...args) => {
-        try { return await apply(...args); }
-        finally { require('./frontend-analysis').invalidate(api); }
-      };
+      if (pendingRepositories.has(key)) return pendingRepositories.get(key);
+      const pending = (async () => {
+        const client = await auth.makeClient(system, "repository");
+        const api = createRepository({ client, systemId: key,
+          emit: event => events.emit({ ...event, system: system.name }) });
+        // Returned readers use the same error boundary as repository methods.
+        const wrap = method => (...args) => {
+          const explain = error => {
+            if (error && typeof error === "object") {
+              error.message = auth.explain(system, error);
+              throw error;
+            }
+            throw new Error(auth.explain(system, error), { cause: error });
+          };
+          const resultOf = result => typeof result === "function" ? wrap(result) : result;
+          try {
+            const result = method(...args);
+            return result && typeof result.then === "function" ? result.then(resultOf, explain) : resultOf(result);
+          } catch (error) { return explain(error); }
+        };
+        for (const name of Object.keys(api)) {
+          if (typeof api[name] === "function") api[name] = wrap(api[name]);
+        }
+        repositories.set(key, { key, system, client,
+          label: `${system.name} / ${system.user} / ${system.client || "default"}`, api });
+        const apply = api.apply;
+        api.apply = async (...args) => {
+          try { return await apply(...args); }
+          finally { require('./frontend-analysis').invalidate(api); }
+        };
+        return repositories.get(key);
+      })();
+      pendingRepositories.set(key, pending);
+      try { return await pending; }
+      finally { if (pendingRepositories.get(key) === pending) pendingRepositories.delete(key); }
     }
     return repositories.get(key);
   }
@@ -395,16 +436,41 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   // the first time it is asked for.
   const fromLastSession = new Set(Object.keys(savedEntries));
   async function rememberEditor(uri, entry) {
-    savedEntries[uri.toString()] = { key: entry.repo.key, data: entry.data };
+    savedEntries[uri.toString()] = { ...savedEntries[uri.toString()], key: entry.repo.key, name: entry.repo.system.name, data: entry.data,
+      ...(entry.needsRead ? { reread: true } : {}) };
     await context.workspaceState.update("sapEditors", savedEntries);
   }
   async function fileEntry(uri) {
     const key = uri.toString();
+    const existing = opened.get(key);
+    if (existing && !auth.currentSystems().some(system => connectionKey(system) === existing.repo.key)) {
+      await repository(savedEntries[key] || { key: existing.repo.key, name: existing.repo.system.name });
+    }
     if (!opened.has(key)) {
       const saved = savedEntries[key];
       if (!saved) { throw vscode.FileSystemError.FileNotFound(uri); }
-      const repo = await repository(saved.key);
+      const repo = await repository(saved);
       let data = saved.data && { ...saved.data };
+      const needsRead = saved.reread || saved.key !== repo.key;
+      if (needsRead) {
+        const object = saved.object || data;
+        saved.reread = true;
+        saved.object = { object_name: object.object_name, object_type: object.object_type, include: object.include || "main" };
+        await context.workspaceState.update("sapEditors", savedEntries);
+        try {
+          data = await repo.api.execute("read_sap_object", {
+            ...saved.object
+          });
+          saved.data = data;
+          await context.workspaceState.update("sapEditors", savedEntries);
+          fromLastSession.delete(key);
+        } catch (error) {
+          delete saved.data;
+          fromLastSession.delete(key);
+          await context.workspaceState.update("sapEditors", savedEntries);
+          throw vscode.FileSystemError.Unavailable(error.message);
+        }
+      }
       // A tab can outlive an extension reload, including an upgrade from a
       // version which stored only its object metadata.  Do not let that stale
       // entry make VS Code show its generic "editor could not be opened" page:
@@ -417,7 +483,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
           object_name: data.object_name, object_type: data.object_type,
           include: data.include || "main"
         });
-        savedEntries[key] = { key: repo.key, data };
+        savedEntries[key] = { ...savedEntries[key], key: repo.key, name: repo.system.name, data };
         await context.workspaceState.update("sapEditors", savedEntries);
       }
       if (fromLastSession.delete(key) && data.object_name && data.object_type) {
@@ -426,7 +492,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
             object_name: data.object_name, object_type: data.object_type,
             include: data.include || "main"
           });
-          savedEntries[key] = { key: repo.key, data };
+          savedEntries[key] = { ...savedEntries[key], key: repo.key, name: repo.system.name, data };
           await context.workspaceState.update("sapEditors", savedEntries);
         } catch (error) {
           // Kept rather than lost, and said rather than hidden: the tab is the
@@ -436,7 +502,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
             + (error && error.message || error));
         }
       }
-      opened.set(key, { repo, data });
+      opened.set(key, { repo, data, needsRead });
     }
     return opened.get(key);
   }
@@ -448,9 +514,20 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       return { type: vscode.FileType.File, ctime: 0, mtime: entry.mtime || 0,
         size: Buffer.byteLength(entry.data.source) };
     },
-    async readFile(uri) { return Buffer.from((await fileEntry(uri)).data.source); },
+    async readFile(uri) {
+      const entry = await fileEntry(uri);
+      const content = Buffer.from(entry.data.source);
+      if (entry.needsRead) {
+        await rememberEditor(uri, entry);
+        delete savedEntries[uri.toString()].reread;
+        await context.workspaceState.update("sapEditors", savedEntries);
+        entry.needsRead = false;
+      }
+      return content;
+    },
     async writeFile(uri, content) {
       const entry = await fileEntry(uri), source = Buffer.from(content).toString("utf8");
+      await guardSourceWrite(entry, uri);
       // Review has already activated exactly these bytes. Let VS Code mark
       // the document clean without writing SAP again or saving declined hunks.
       if (entry.acknowledged) {
@@ -968,7 +1045,23 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     }
     return null;
   }
+  async function guardSourceWrite(entry, uri) {
+    uri = uri || entry.document && entry.document.uri
+      || [...opened].find(([, value]) => value === entry)?.[0];
+    if (typeof uri === "string") { uri = vscode.Uri.parse(uri); }
+    if (!uri || uri.scheme !== "vertex-sap") { return; }
+    const current = await fileEntry(uri);
+    if (current !== entry || current.needsRead || savedEntries[uri.toString()]?.reread) {
+      fileEvents.fire([{ type: vscode.FileChangeType.Changed, uri }]);
+      throw vscode.FileSystemError.Unavailable("This tab's system changed and it was re-read. Read the tab again before saving.");
+    }
+  }
+  async function applySource(entry, id, payload) {
+    await guardSourceWrite(entry);
+    return entry.repo.api.apply(id, payload);
+  }
   async function saveSource(entry, source) {
+    await guardSourceWrite(entry);
     if (entry.saving) { throw new Error("This SAP object is already being saved."); }
     entry.saving = true;
     let draft;
@@ -979,9 +1072,10 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       const yes = await vscode.window.showWarningMessage(`Save & Activate ${entry.data.object_name} in ${entry.repo.label}?`,
         { modal: true, detail: "SAP will check syntax, save and activate the editor contents." }, "Save & Activate");
       if (yes !== "Save & Activate") { throw new Error("Save & Activate cancelled."); }
+      await guardSourceWrite(entry);
       draft = await entry.repo.api.execute("modify_sap_object", { ...entry.data,
         base_revision: entry.data.revision, source });
-      const result = await entry.repo.api.apply(draft.change_id, { source, transport: transport.trim().toUpperCase() });
+      const result = await applySource(entry, draft.change_id, { source, transport: transport.trim().toUpperCase() });
       entry.data = { ...entry.data, source, revision: result.revision, active_revision: result.revision };
       entry.transport = transport;
       vscode.window.showInformationMessage(entry.data.object_name + " saved and activated.");
@@ -1092,7 +1186,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const natives = vscode.debug.breakpoints || [];
     const visibleUris = new Set((vscode.window.visibleTextEditors || []).map(e => e.document.uri.toString()));
     const entryFor = point => [...opened.values()].filter(e => e.document && !e.document.isClosed
-      && (!picture.system || JSON.parse(e.repo.key)[3] === picture.system)
+      && (!picture.system || e.repo.system.name === picture.system)
       && String(e.data.source_url || '').split('#')[0].toLowerCase() === String(point.url || '').split('#')[0].toLowerCase())
       .sort((a, b) => Number(visibleUris.has(b.document.uri.toString())) - Number(visibleUris.has(a.document.uri.toString())))[0];
     for (const [nativeId, sapId] of [...nativeBreakpoints]) {
@@ -1819,6 +1913,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       applying = true;
       let draft;
       try {
+      await guardSourceWrite(entry);
       if (entry.saving || entry.data.revision !== baseRevision) { throw new Error("SAP editor base changed. Open a new review before applying."); }
       const approved = Array.isArray(message.approved) ? [...new Set(message.approved.filter(i => Number.isInteger(i) && i >= 0 && i < parts.length))] : [];
       if (!approved.length) { throw new Error("Approve at least one block."); }
@@ -1835,7 +1930,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
         { modal: true, detail: "SAP will check syntax, save and activate." }, "Apply");
       if (yes !== "Apply") { await panel.webview.postMessage({ action: "cancelled" }); return; }
       if (entry.saving || entry.data.revision !== baseRevision) { throw new Error("SAP editor base changed. Open a new review before applying."); }
-      const result = await entry.repo.api.apply(draft.change_id, { source, transport: transport.trim().toUpperCase() });
+      const result = await applySource(entry, draft.change_id, { source, transport: transport.trim().toUpperCase() });
       finished = true;
       // The open editor may still contain declined hunks. Move its SAP base
       // forward only to the reviewed source, so a later review shows exactly
@@ -1888,6 +1983,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const editor = vscode.window.activeTextEditor;
     const current = editor && opened.get(editor.document.uri.toString());
     if (!current) { throw new Error("Open an object with VERTEX: Search SAP Code or Read SAP Code first."); }
+    await guardSourceWrite(current, editor.document.uri);
     const draft = await current.repo.api.execute("modify_sap_object", {
       ...current.data, base_revision: current.data.revision, source: current.data.source
     });
@@ -2349,7 +2445,10 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       { modal: true, detail: "SAP will check syntax, save and activate. A failed creation may leave an inactive object to inspect." }, "Apply");
     if (approved !== "Apply") { return; }
     if (document.version !== version || document.isClosed) { throw new Error("Draft changed during confirmation. Review it again."); }
-    const result = await repo.api.apply(draft.change_id, { source, transport: transport.trim().toUpperCase() });
+    const entry = [...opened.values()].find(entry => entry.repo === repo
+      && entry.data.object_name === draft.object_name && entry.data.object_type === draft.object_type
+      && (entry.data.include || "main") === (draft.include || "main")) || { repo, document };
+    const result = await applySource(entry, draft.change_id, { source, transport: transport.trim().toUpperCase() });
     drafts.delete(draft.change_id);
     repo.api.discard(draft.change_id);
     vscode.window.showInformationMessage(`${draft.object_name} saved and activated in ${repo.label}.`);
@@ -2360,7 +2459,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     if (selected) { selected.repo.api.discard(selected.draft.change_id); drafts.delete(selected.draft.change_id); }
   });
   context.subscriptions.push({ dispose() {
-    for (const repo of repositories.values()) { void repo.api.dispose().catch(() => {}); }
+    for (const repo of repositories.values()) { void repo.client.dispose().catch(() => {}); }
     repositories.clear(); texts.clear(); opened.clear(); drafts.clear();
   } });
   // Where reviews are kept: vertex.review.storage, and the folder of the files. A system without VERTEX's ABAP keeps
@@ -2435,7 +2534,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       // explicit selection is nevertheless exactly what the user asked chat
       // about and is safe, useful context to hand over.
       if (!entry) { return selected_fragment ? { selected_fragment } : null; }
-      return { system: entry.repo.label, system_name: JSON.parse(entry.repo.key)[3], object_name: entry.data.object_name,
+      return { system: entry.repo.label, system_name: entry.repo.system.name, object_name: entry.data.object_name,
         object_type: entry.data.object_type, include: entry.data.include,
         base_revision: entry.data.revision, source: editor.document.getText(), selected_fragment };
     },

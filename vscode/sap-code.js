@@ -268,7 +268,8 @@ function createRepository({ client, systemId, emit = () => {} }) {
         catch (error) {
           const warning = "Could not release SAP lock: " + error.message;
           if (outcome) { outcome.warning = warning; }
-          else { failure = new Error((failure ? failure.message + " " : "") + warning); }
+          else { failure = new Error("The lock on " + change.object_name + " was lost: "
+            + (failure ? failure.message + " " : "") + warning); }
         }
       }
       try { await client.logout(); } catch (_) { /* release stateful session best effort */ }
