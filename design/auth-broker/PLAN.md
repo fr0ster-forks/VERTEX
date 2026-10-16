@@ -90,9 +90,10 @@ reads the spec section it names.
 (`csrf: "A"` or `"B"`), gate 4 (listener deletion ends the poll: yes/no, seconds).
 
 - [ ] **Step 1 (codex): extend the probe with gate 3 and gate 4.** Also add a watchdog to
-  `probe.js` so a stuck native call cannot keep the report from printing: at the start of `main`,
-  `const watchdog = setTimeout(() => { report.fatal = { name: 'Watchdog', message: 'the probe did not finish within 6 minutes' }; print(); process.exit(3); }, 360000);`
-  and `clearTimeout(watchdog)` in the final `.finally` before `print()`. When
+  `probe.js` so a stuck native call cannot keep the report from printing: at module level, next to
+  `report`, declare `let watchdog = null;`; at the start of `main`, assign
+  `watchdog = setTimeout(() => { report.fatal = { name: 'Watchdog', message: 'the probe did not finish within 6 minutes' }; print(); process.exit(3); }, 360000);`
+  and in the final `.finally`, before `print()`, `if (watchdog) clearTimeout(watchdog);`. When
   `report.listenerLeftPending` is set, end the process after printing (`process.exit(0)`) instead
   of waiting on native cleanup. Add to `probe/snc/probe.js`, after
   `read source`, behind flags `--csrf` and `--listener`:
@@ -133,7 +134,7 @@ reads the spec section it names.
       const endedBeforeDelete = pollEndedAt !== null;
       await step('delete listener from second connection', async () => {
         deletedAt = Date.now();
-        const r = await second.makeAdtRequest({ url: `/sap/bc/adt/debugger/listeners?${q}`, method: 'DELETE', timeout: 60000 });
+        const r = await second.makeAdtRequest({ url: `/sap/bc/adt/debugger/listeners?${q}&checkConflict=false&notifyConflict=true`, method: 'DELETE', timeout: 60000 });
         deleteOk = r.status >= 200 && r.status < 300;
         return { status: r.status };
       });
@@ -1439,8 +1440,10 @@ module.exports = { createAuth };
     `appendLine` with its level. In `deactivate()`, before returning: `if (auth) { await auth.disposeAll(); }`
     (make `deactivate` `async`).
   - Replace `secretKey` and `password(context, system)` by a **temporary adapter** kept until
-    Task 10: `function password(_context, system) { return auth.password(system); }` with a
-    comment "removed in Task 10". `debuggerFor` (until Task 9) and the workbench's `register`
+    Task 10: `function password(_context, system) { const r = auth.systemOf(system); return r.system ? auth.password(r.system) : Promise.resolve(undefined); }`
+    with a comment "removed in Task 10". It normalizes first, because `code-workbench.js`
+    (`:364–366`) rebuilds saved systems without `authType`, and `auth.password` asks only for
+    `basic`; `readSystem` reads a missing `authType` as `basic`. `debuggerFor` (until Task 9) and the workbench's `register`
     call (until Task 10) keep working through it. Delete `secretKey`.
   - `active()` and every `missing(system)` use: validate with `auth.systemOf(entry)`; an
     `{ error }` becomes the existing error text. Delete `missing`.
