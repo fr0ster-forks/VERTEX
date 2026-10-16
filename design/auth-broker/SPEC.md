@@ -397,7 +397,7 @@ The choice is recorded with the measurement.
 | Condition | Answer |
 |---|---|
 | `authType` is `"snc"` and `vscode.env.remoteName` is set | "SNC needs the local VS Code on Windows or macOS; this window runs on a remote host (‹remoteName›)." |
-| `authType` is `"snc"` and `process.platform` is neither `win32` nor `darwin` | "SNC runs on Windows and macOS only." |
+| `authType` is `"snc"` and `process.platform` / `process.arch` is neither `win32` / `x64` nor `darwin` / `arm64` | "SNC runs on Windows x64 and macOS on Apple silicon only." |
 | `authType` is `"snc"` and `require.resolve("@mcp-abap-adt/sap-rfc-lite")` fails | "This VERTEX package has no SNC support; install the Windows or macOS package of VERTEX." |
 | otherwise | `null` |
 
@@ -466,26 +466,30 @@ Every client built anywhere goes through `makeClient`. A `grep` for `new ADTClie
 
 - **New runtime dependencies, from the npm registry:**
   - `@mcp-abap-adt/auth-broker`, `@mcp-abap-adt/auth-providers`, `@mcp-abap-adt/auth-stores`;
-  - `@mcp-abap-adt/connection`. Its optional dependency `@mcp-abap-adt/sap-rfc-lite` builds a
-    native binary at install.
+  - `@mcp-abap-adt/connection`. Its optional dependency `@mcp-abap-adt/sap-rfc-lite` 0.2.3 ships
+    prebuilt bindings under `prebuilds/<platform>-<arch>/` for `win32-x64`, `darwin-arm64` and
+    `linux-x64`, loaded by `node-gyp-build`.
 - **Targets:**
 
   | Target | Built on | `sap-rfc-lite` |
   |---|---|---|
-  | `win32-x64` | Windows x64, with the SDK and `SAPNWRFC_HOME` set during `npm ci` | built for the target |
-  | `darwin-arm64` | macOS arm64, same | built for the target |
-  | `darwin-x64` | macOS x64, same | built for the target |
+  | `win32-x64` | any machine; prebuilt binding from sap-rfc-lite; no SDK at install | own prebuilt binding only |
+  | `darwin-arm64` | any machine; prebuilt binding from sap-rfc-lite; no SDK at install | own prebuilt binding only |
   | universal (no target) | any, `npm ci --omit=optional` | absent |
 
-  Windows arm64 is decided with the owner before release.
-- **`package.ps1`** gains `-Target <target>`. For a native target, after `npm ci` it fails if the
-  `sap-rfc-lite` binary for that target is not present: npm drops an optional dependency whose
-  build fails, silently. It then runs `vsce package --target <target>`.
+  SNC supports Windows x64 and macOS on Apple silicon only. `darwin-x64` is no longer supported
+  by the vendor; `win32-arm64` is not available to test. Neither is supported by VERTEX.
+- **`package.ps1`** gains `-Target <target>`. For a native target, after `npm ci` it fails if its
+  own prebuilt binding (`prebuilds/<target>/*.node`) is missing. It removes the other platforms'
+  prebuilds and any `build/` directory, then runs `vsce package --target <target>`. No SDK or
+  toolchain is needed at install; the SDK is needed only at run time.
 - **After packaging,** the script lists the archive and fails on any of these:
-  - a native target without its binary;
-  - the universal package with a `sap-rfc-lite` binary;
+  - a native target without its own prebuilt `+sap-rfc-lite` `.node` binding or with another
+    platform's binding (including `sapnwrfc.node` from a local build);
+  - the universal package with any `sap-rfc-lite` binding (`+sap-rfc-lite` `.node` files or
+    `sapnwrfc.node`);
   - any package with an SAP SDK file (`sapnwrfc*`, `libsapnwrfc*`, `libsapucum*`, `icu*` from the
-    SDK).
+    SDK; binding names are checked separately).
 - **The SAP NW RFC SDK** is never shipped. The README tells SNC users to install it and put its
   `lib` on `PATH` (Windows) or `DYLD_LIBRARY_PATH` (macOS) before starting VS Code.
 - **`engines.vscode`** stays `^1.85.0`, as upstream (owner's decision after gate 2, recorded in
@@ -542,8 +546,8 @@ Every client built anywhere goes through `makeClient`. A `grep` for `new ADTClie
 | migration of an existing password | ✓ | — |
 | refusal on Linux / remote host | — | ✓ |
 
-macOS SNC is run once a macOS machine with Secure Login Client is available. Until then the macOS
-targets are built and marked unverified in `history.md`.
+macOS (Apple silicon) SNC is run once a macOS (Apple silicon) machine with Secure Login Client
+is available. Until then the `darwin-arm64` target is built and marked unverified in `history.md`.
 
 ## 15. Documentation
 

@@ -133,3 +133,22 @@ Both runs agree. For Task 9, `LISTENER_STOP_MS` = ceil(0.828 s) + 5 s =
   bounded by `LISTENER_STOP_MS = 6000`.
 - Gate 1: SPEC §8 is feasible.
 - Gate 2: PASS in VS Code 1.142.0; engines.vscode stays ^1.85.0 (owner); basic verified on Node 18, 20 and 24.
+
+## Owner decisions — SNC platforms and packaging (2026-10-16)
+
+- **D1:** SNC supports `win32-x64` and `darwin-arm64` only: Windows x64 and macOS on Apple
+  silicon. `darwin-x64` is no longer supported by the vendor; `win32-arm64` is not available
+  to test. Neither is supported by VERTEX.
+- **D2:** Separate VSIX packages stay: `win32-x64` and `darwin-arm64`, each carrying only its
+  own sap-rfc-lite prebuilt binding, plus the universal package without sap-rfc-lite
+  (`npm ci --omit=optional`). sap-rfc-lite 0.2.3 ships prebuilds for `win32-x64`, `darwin-arm64`
+  and `linux-x64` under `prebuilds/<platform>-<arch>/`, loaded by `node-gyp-build`. Both native
+  packages can be built on any machine; no SDK or toolchain is needed at install. The SDK is
+  needed only at run time.
+- **D3:** On win32 with an architecture other than x64, or darwin with an architecture other
+  than arm64 (and on other platforms), `hosts.js` refuses an `snc` system before anything native
+  loads: "SNC runs on Windows x64 and macOS on Apple silicon only." The remote-host refusal
+  takes precedence; Basic is never refused.
+
+sap-rfc-lite 0.2.3 (prebuilt) was re-run against gate 1 on Windows with the same result:
+connect, discovery, read, CSRF absent, LOCK/UNLOCK all ok.

@@ -932,7 +932,7 @@ module.exports = { createHttpWire, mergeCookies };
 - Create: `vscode/auth/hosts.js`
 - Test: `vscode/test/auth-hosts.test.js`
 
-**Interfaces — Produces:** `refusalFor(system, { platform, remoteName, resolve }) → string|null`
+**Interfaces — Produces:** `refusalFor(system, { platform, arch, remoteName, resolve }) → string|null`
 (defaults: `process.platform`, `vscode.env.remoteName` passed by the caller, `require.resolve`).
 
 - [ ] **Step 1: failing test:**
@@ -948,17 +948,17 @@ test("basic is never refused", () => {
   assert.equal(refusalFor(basic, { platform: "linux", remoteName: "wsl", resolve: missing }), null);
 });
 test("snc on a remote host", () => {
-  assert.match(refusalFor(snc, { platform: "win32", remoteName: "ssh-remote", resolve: ok }), /remote host \(ssh-remote\)/);
+  assert.match(refusalFor(snc, { platform: "win32", arch: "x64", remoteName: "ssh-remote", resolve: ok }), /remote host \(ssh-remote\)/);
 });
 test("snc on linux", () => {
-  assert.match(refusalFor(snc, { platform: "linux", remoteName: undefined, resolve: ok }), /Windows and macOS only/);
+  assert.match(refusalFor(snc, { platform: "linux", remoteName: undefined, resolve: ok }), /Windows x64 and macOS on Apple silicon only/);
 });
 test("snc without the native module in this package", () => {
-  assert.match(refusalFor(snc, { platform: "win32", remoteName: undefined, resolve: missing }), /no SNC support/);
+  assert.match(refusalFor(snc, { platform: "win32", arch: "x64", remoteName: undefined, resolve: missing }), /no SNC support/);
 });
 test("snc allowed on darwin and win32", () => {
-  assert.equal(refusalFor(snc, { platform: "darwin", remoteName: undefined, resolve: ok }), null);
-  assert.equal(refusalFor(snc, { platform: "win32", remoteName: undefined, resolve: ok }), null);
+  assert.equal(refusalFor(snc, { platform: "darwin", arch: "arm64", remoteName: undefined, resolve: ok }), null);
+  assert.equal(refusalFor(snc, { platform: "win32", arch: "x64", remoteName: undefined, resolve: ok }), null);
 });
 ```
 
@@ -967,10 +967,11 @@ test("snc allowed on darwin and win32", () => {
 
 ```js
 "use strict";
-function refusalFor(system, { platform = process.platform, remoteName, resolve = require.resolve } = {}) {
+function refusalFor(system, { platform = process.platform, arch = process.arch, remoteName, resolve = require.resolve } = {}) {
   if (system.authType !== "snc") return null;
   if (remoteName) return "SNC needs the local VS Code on Windows or macOS; this window runs on a remote host (" + remoteName + ").";
-  if (platform !== "win32" && platform !== "darwin") return "SNC runs on Windows and macOS only.";
+  if (!(platform === "win32" && arch === "x64") && !(platform === "darwin" && arch === "arm64"))
+    return "SNC runs on Windows x64 and macOS on Apple silicon only.";
   try { resolve("@mcp-abap-adt/sap-rfc-lite"); }
   catch (_) { return "This VERTEX package has no SNC support; install the Windows or macOS package of VERTEX."; }
   return null;
@@ -1654,8 +1655,7 @@ test("the auth packages are registry dependencies", () => {
 - Create: `vscode/THIRD-PARTY-NOTICES.md`
 - Modify: `design/auth-broker/GATES.md` (packaging decisions)
 
-- [ ] **Step 1 (OWNER decision, recorded in `GATES.md`):** is a `win32-arm64` VSIX wanted? Default
-  if not answered: no.
+- [x] **Step 1 (`win32-arm64` VSIX):** decided: no (owner, 2026-10-16, see GATES.md).
 - [ ] **Step 2: `THIRD-PARTY-NOTICES.md`** in `vscode/`: one section per shipped runtime package
   outside VERTEX itself — `abap-adt-api` and its licence, `@abaplint/*`, `@mcp-abap-adt/auth-broker`,
   `auth-providers`, `auth-stores`, `auth-errors`, `connection`, the `interfaces-*` they pull, and
@@ -1664,22 +1664,19 @@ test("the auth packages are registry dependencies", () => {
   for the LGPL ones). Generate the list from `npm ls --omit=dev --all --json` so nothing is missed,
   and state that the SAP NW RFC SDK is not shipped.
 - [ ] **Step 3: implement `-Target`** in `package.ps1`:
-  - `param([ValidateSet('universal','win32-x64','win32-arm64','darwin-arm64','darwin-x64')][string]$Target = 'universal')`.
-  - A native target must be built on that platform and architecture: compare `$Target` with
-    `$IsWindows`/`$IsMacOS` and `[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture`;
-    refuse otherwise ("build win32-x64 on Windows x64").
-  - `universal`: `npm ci --omit=optional`. Native: `npm ci` (the caller sets `SAPNWRFC_HOME`
-    and puts the SDK `lib` on the path), then fail unless
-    `node_modules/**/@mcp-abap-adt/sap-rfc-lite/build/Release/sapnwrfc.node` exists — npm drops an
-    optional dependency whose build fails, silently.
-  - Verify the binding's architecture: on Windows read the PE header's machine field of
-    `sapnwrfc.node` (x64 `0x8664`, arm64 `0xAA64`); on macOS `lipo -archs sapnwrfc.node` must
-    contain `arm64` or `x86_64` per target. Mismatch fails.
+  - `param([ValidateSet('universal','win32-x64','darwin-arm64')][string]$Target = 'universal')`.
+  - `universal`: `npm ci --omit=optional`. Native: `npm ci` on any machine (no SDK or
+    toolchain needed at install; the SDK is needed only at run time).
+  - Keep only `node_modules/@mcp-abap-adt/sap-rfc-lite/prebuilds/<target>/`; delete the other
+    `prebuilds/` directories and any `build/` directory in `sap-rfc-lite`. Fail if
+    `prebuilds/<target>/*.node` is missing — npm may silently drop an optional dependency.
   - `vsce package --out $candidate`, plus `--target $Target` for a native target. Output name
     `<name>-<version>[-<target>].vsix`.
   - After packaging, list the archive and fail when:
-    - a native target lacks `extension/node_modules/**/sap-rfc-lite/build/Release/sapnwrfc.node`;
-    - `universal` contains a `sapnwrfc.node`;
+    - a native target lacks its own `sap-rfc-lite/prebuilds/<target>/*+sap-rfc-lite*.node`
+      binding, contains another platform's `+sap-rfc-lite` `.node` binding, or contains
+      `sapnwrfc.node` from a local build;
+    - `universal` contains any `+sap-rfc-lite` `.node` binding or `sapnwrfc.node`;
     - any target contains an SAP SDK library: `sapnwrfc.dll`, `libsapnwrfc.so`, `libsapnwrfc.dylib`,
       `libsapucum.*`, `sapucum.dll`, `icudt*`, `icuin*`, `icuuc*`, `libicu*` — matched by exact
       library names, so the binding `sapnwrfc.node` is never caught;
@@ -1689,9 +1686,9 @@ test("the auth packages are registry dependencies", () => {
 - [ ] **Step 5 (OWNER, Windows x64):** `.\package.ps1 -Target win32-x64` and `.\package.ps1`
   (universal); both succeed; install each in a clean profile; with the universal one an `snc`
   system is refused with "no SNC support"; with the native one, `snc` connects.
-- [ ] **Step 6 (OWNER, when a Mac is available):** `-Target darwin-arm64` / `darwin-x64` on the
-  matching Mac. Until run, `history.md` marks the macOS packages "built, SNC not verified on
-  macOS" and the release attaches no macOS VSIX that was not built on its platform.
+- [ ] **Step 6 (OWNER, when an Apple silicon Mac is available):** install and verify the
+  `-Target darwin-arm64` package (built on any machine). Until run, `history.md` marks it
+  "built, SNC not verified on macOS (Apple silicon)"; attach only a VSIX that was built.
 - [ ] **Step 7: commit** `git commit -m "packaging: per-target VSIX with the RFC binding, never the SDK; third-party notices"`.
 
 ### Task 13 (OWNER): Integration matrix

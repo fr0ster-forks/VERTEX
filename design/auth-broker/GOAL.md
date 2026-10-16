@@ -88,20 +88,22 @@ Each landing is complete on its own: its authentication types meet every criteri
    - A definition edited before the upgrade cannot be told apart from the original, because the
      old key records only the name. That limit is accepted.
 7. **Unsupported hosts get a clear refusal, not a crash.**
-   - `snc` runs only in a local extension host on Windows or macOS. On Linux, or in a remote
-     extension host, selecting an `snc` system is refused with a message saying why. This happens
+   - `snc` runs only in a local extension host on Windows x64 or macOS on Apple
+     silicon. On other platforms or architectures, or in a remote extension host, selecting an
+     `snc` system is refused with a message saying why. This happens
      before any native library is loaded or any connection is attempted.
    - `jwt` and `saml` run only in a local extension host for now. In a remote one they are refused
      the same way.
    - `basic` keeps working wherever it works today.
 8. **The extension still packages and installs.**
    - Without SNC nothing native ships.
-   - SNC ships as platform-specific VSIX packages. The spec names the supported Windows and macOS
-     architectures.
+   - SNC ships as platform-specific VSIX packages. The supported architectures are Windows x64
+     and macOS on Apple silicon.
    - The SAP NW RFC SDK is installed by the user, never shipped.
 
 ## Decided
 
+- SNC platforms: Windows x64 and macOS on Apple silicon (owner, 2026-10-16).
 - Keep `abap-adt-api` for the ADT operations (path a). Credentials come from the broker.
 - SNC is RFC only, through `@mcp-abap-adt/connection` and `@mcp-abap-adt/sap-rfc-lite`, on
   Windows and macOS only. There is no HTTP form of SNC.
