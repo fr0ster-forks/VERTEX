@@ -1,5 +1,17 @@
 # Development history
 
+## 2026-10-16 — Auth broker integration, path a
+
+The user asked for auth broker integration, path a: keep abap-adt-api and replace its transport with provider-driven HTTP for basic and RFC for SNC, using VS Code SecretStorage for credentials. Gate 1 passed (SNC discovery, read and lock/unlock). Gate 2 passed (the stack loads in the local extension host); its addendum found that Electron refuses external buffers, hanging RFC ADT responses, so SNC needs sap-rfc-lite ≥ 0.2.4 with NewOrCopy (now in the lock). Gate 3 chose option B: no CSRF token over RFC, with a local response token stripped outbound. Gate 4 passed twice: deleting the listener ended its poll after 0.828 s and 0.814 s; LISTENER_STOP_MS is 6000.
+
+Owner decisions: engines.vscode stays ^1.85.0, with basic verified on Node 18/20/24. SNC supports Windows x64 and macOS on Apple silicon only, in local VS Code. Packaging is per target with its own prebuilt binding (win32-x64 or darwin-arm64); universal has no SNC. The SDK is installed by the user at runtime. The version is left to the plugin's author when merging; no version is changed here.
+
+Tasks 3–10 built settings validation and login/connection identities, the SecretStorage stores and one-time password migration, the auth broker and HTTP wire, host refusals and the RFC wire, and a shared client factory for commands, repositories and the debugger. Debugger listener work uses a separate probe client with bounded shutdown and disposal on failure; repository restore selects by connection key, then unique name, re-reads after a changed definition and reports failure instead of showing old source, and reports a lost lock without retrying a write.
+
+Preliminary integration on the owner's Windows machine over SNC passed browse/search/read, lock/unlock, logout and read again on one client, ABAP Unit, ATC, and data preview through VERTEX's own client factory under VS Code's Electron; Test SAP Systems passed too. The debugger in VERTEX passed attach, step, stack, variables, detach and attach again, and recognised listener conflict 409. Still open for Task 13: save and activate twice in VERTEX, listener shutdown time, confirming no RFC conversation remains after a failed attach, restore after a system change, the whole basic column, two windows, and migration in a fresh profile. SNC on macOS (Apple silicon) remains unverified; the packages are built in Task 12.
+
+Task 11 documents basic and SNC settings, target packages and runtime prerequisites, host refusals, credential storage and reset, and the separate WebGUI logon in the READMEs and connection walkthrough.
+
 ## 2026-10-15 — 0.9.1: an SAP program run with the transpiler
 
 The user asked for the transpiler run for SAP code too, and for a button beside Run in SAP. Discussed first: where an SAP program's dependencies come from. The analysis (Analyse) already loads sources on demand through ADT (value-origin-demand.js), but only along its slice, without function modules or DDIC, and a failed load is a warning there; a run needs the whole program and must stop on any gap. Settled in stages: (1) the button and a strict whole-program collection of classes and interfaces, (2) a cache of the map and the files, checked for freshness with one SELECT over REPOSRC and DD02L/DD04L/DD01L dates, rebuilt only after changes, (3) function groups, (4) DDIC as abapGit XML. This landing is stage 1.

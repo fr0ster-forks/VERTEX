@@ -188,10 +188,62 @@ the version history, its diff and building a review - reads SAP over ADT and nee
 4. **Open VERTEX** from its icon in the Activity Bar, or **Ctrl+Shift+P → VERTEX: Open Panel**.
    The top line shows the active system; **VERTEX: Switch System** picks another.
 5. **Open an object**: **VERTEX Tools** in the panel, pick a type, type a name - `Z*` lists what
-   matches - and pick a function. SAP asks for the password once per system, and keeps it in the
-   operating system's credential store. Or just ask the chat: *open table SFLIGHT*.
+   matches - and pick a function. For basic, VERTEX asks for the password once per system and keeps it in the
+   operating system's credential store; SNC logs on through Secure Login Client without a prompt. Or just ask the chat: *open table SFLIGHT*.
 
 ## Settings
+
+### Connecting
+
+Configure `vertex.systems` in VS Code settings. `authType` defaults to `basic`: use
+your SAP user and password. VERTEX asks for the password once and keeps it in the
+OS credential store through VS Code SecretStorage, never in settings. A refused
+password is discarded; the next operation asks again. Basic also works on remote
+extension hosts. **VERTEX: Forget Credentials** clears the active system's stored
+credentials.
+
+For `snc`, install the **win32-x64** VSIX on Windows x64 or the **darwin-arm64**
+VSIX on macOS on Apple silicon. These packages carry their own prebuilt
+`@mcp-abap-adt/sap-rfc-lite` binding. The **universal**
+package has no SNC support; use it otherwise. SNC requires local VS Code,
+Secure Login Client, and the SAP NW RFC SDK installed by you. Put the SDK's `lib`
+directory on `PATH` (Windows) or `DYLD_LIBRARY_PATH` (macOS) before starting
+VS Code. Your SAP account needs RFC authorization for `SADT_REST_RFC_ENDPOINT`.
+
+```json
+"vertex.systems": [
+  {
+    "name": "<display name>",
+    "url": "https://<ADT address>:<ICM port>",
+    "client": "<client>",
+    "user": "<ABAP user>",
+    "authType": "snc",
+    "snc": { "partnerName": "p:CN=SID, O=ACME", "qop": "9" },
+    "rfc": { "ashost": "<application server>", "sysnr": "00" }
+  }
+]
+```
+
+For SNC, `user` identifies the ABAP user the debugger targets; no password is
+prompted for. Secure Login Client supplies the logon. `snc.partnerName` and
+`rfc.ashost`/`rfc.sysnr` are required; the RFC address is never derived from `url`.
+Optional SNC settings are `qop` (`"1"`, `"2"`, `"3"`, `"8"`, `"9"`), `library`
+(the SNC library path, discovered when omitted), and `myName` (the local SNC
+name). `rfc.saprouter` is optional. `url` remains required for identity and WebGUI.
+
+SNC can be refused before connecting:
+
+- "SNC needs the local VS Code on Windows or macOS; this window runs on a remote host (‹remoteName›)."
+- "SNC runs on Windows x64 and macOS on Apple silicon only."
+- "This VERTEX package has no SNC support; install the Windows or macOS package of VERTEX."
+
+If the binding cannot load, VERTEX asks you to install the SAP NW RFC SDK, put
+its `lib` directory on `PATH` or `DYLD_LIBRARY_PATH`, and restart VS Code, with
+the load failure included.
+
+Running a program under the debugger opens WebGUI. ADT breakpoints do not catch
+a SAP GUI (SAP Logon) session. For SNC systems too, browser logon for WebGUI is
+SAP's (SSO certificate/SPNego or password), independent of SNC.
 
 The Eclipse plugin inherits its connection from the ABAP project. There is no
 project to inherit from here, so the systems are a list and one of them is
@@ -203,7 +255,7 @@ A first install opens **Get started with VERTEX** (VS Code's Get Started page; l
 system's host and instance from SAP Logon (for a logon group, its message server's host), the client and user from an Eclipse ADT workspace - the recent workspaces of the Eclipse installations it finds are offered, another folder can be chosen - and
 looks for ADT on the usual ports - 443NN and 80NN for the instance, then 44300, 8000, 50001, 50000, 443, 80, 8443,
 8080 - offering only addresses that answer. **VERTEX: Test SAP Systems** then logs on to each configured system and
-says what is wrong, if anything; the password it asks for is kept in the OS credential store, never in settings. The import also checks where the debugger can open WebGUI (`/sap/bc/gui/sap/its/webgui`): on the system's `url` it needs nothing; served on another address that answered - say `url` on HTTP 8000, WebGUI on HTTPS 44300 - or behind a redirect to a host this computer resolves, it writes that as `webgui`; found nowhere, it says so, and `webgui` is set by hand.
+says what is wrong, if anything; for basic, the password it asks for is kept in the OS credential store, never in settings. The import also checks where the debugger can open WebGUI (`/sap/bc/gui/sap/its/webgui`): on the system's `url` it needs nothing; served on another address that answered - say `url` on HTTP 8000, WebGUI on HTTPS 44300 - or behind a redirect to a host this computer resolves, it writes that as `webgui`; found nowhere, it says so, and `webgui` is set by hand.
 By hand, the entries look like this; the HTTP(S) port is in SMICM > Goto > Services.
 
 ```json
@@ -218,8 +270,7 @@ By hand, the entries look like this; the HTTP(S) port is in SMICM > Goto > Servi
 "vertex.active": "DEV"
 ```
 
-The `url` is the ICM port, not the one SAP GUI connects to. The password is
-asked once per system and kept in the operating system's credential store.
+The `url` is the ICM port, not the one SAP GUI connects to.
 `allowInsecureCertificate` accepts a certificate that cannot be verified, which
 development systems often have; it is off by default on purpose.
 
@@ -296,7 +347,7 @@ Breakpoints set through Visual Debug or MCP appear as native VS Code points in t
   (needs the ABAP backend), files, or both. Two people saving the same review at once do not
   overwrite each other: the second save is refused and asks to read the review again.
 - **VERTEX: Switch System**
-- **VERTEX: Forget Password**
+- **VERTEX: Forget Credentials**
 - **Add the VERTEX MCP server to Claude Code or Codex** — the link under `vertex.mcp.port` in
   Settings: choose Codex or Claude Code to copy configuration for both the review and debugger servers
   ([Debug with an assistant](#debug-with-an-assistant))
@@ -701,7 +752,7 @@ over code and never writes source or data.
 
 1. Install VERTEX 0.7.3 or newer and reload the window.
 2. Choose the system in the panel's **SAP system** list (or **VERTEX: Switch System**) and
-   enter the password once.
+   for basic, enter the password once; SNC uses Secure Login Client without a prompt.
 3. Close any other debugger for your SAP user - an Eclipse debug session, ABAP FS - or tell the
    assistant it may take over.
 4. For Claude Code or Codex only: register `vertex-debug` once, as described below, and start a
@@ -719,7 +770,7 @@ over code and never writes source or data.
 | **Claude Code** or **Codex** | a second MCP server of the extension, `/debug`, registered as `vertex-debug` | once, below |
 
 The debugger runs on the **active** system - the one chosen with **VERTEX: Switch System** or in
-the panel's system list - with the password VS Code keeps. Naming another system in a chat
+the panel's system list - with its configured authentication. Naming another system in a chat
 question does not move the debugger there; switch first. Switching while breakpoints or a
 stopped program are still on the old system is refused until `debug_stop` has removed them.
 A VS Code window with VERTEX has to stay open while it works.

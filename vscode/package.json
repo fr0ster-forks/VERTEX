@@ -292,7 +292,7 @@
             "properties": {
               "name": {
                 "type": "string",
-                "description": "How this system is called in the switch list. Also what its stored password is filed under."
+                "description": "How this system is called in the switch list."
               },
               "url": {
                 "type": "string",
@@ -304,7 +304,64 @@
               },
               "user": {
                 "type": "string",
-                "description": "SAP user. The password is asked once and kept in the OS credential store, per system."
+                "description": "SAP user. For basic, the logon user — its password is asked once and kept in the OS credential store. For snc, the ABAP user the debugger targets; no password."
+              },
+              "authType": {
+                "type": "string",
+                "enum": [
+                  "basic",
+                  "snc"
+                ],
+                "default": "basic",
+                "description": "Authentication type. basic uses a password; snc uses Secure Login Client over RFC. Never put a password in settings."
+              },
+              "snc": {
+                "type": "object",
+                "description": "SNC settings, required for snc authentication.",
+                "properties": {
+                  "partnerName": {
+                    "type": "string",
+                    "description": "Required. The system's SNC name, for example p:CN=SID, O=ACME."
+                  },
+                  "qop": {
+                    "type": "string",
+                    "enum": [
+                      "1",
+                      "2",
+                      "3",
+                      "8",
+                      "9"
+                    ],
+                    "description": "Optional SNC quality of protection."
+                  },
+                  "library": {
+                    "type": "string",
+                    "description": "Optional SNC library path; discovered when absent."
+                  },
+                  "myName": {
+                    "type": "string",
+                    "description": "Optional local SNC name."
+                  }
+                }
+              },
+              "rfc": {
+                "type": "object",
+                "description": "RFC address, required for snc; never derived from url.",
+                "properties": {
+                  "ashost": {
+                    "type": "string",
+                    "description": "Required. Application server host."
+                  },
+                  "sysnr": {
+                    "type": "string",
+                    "pattern": "^\\d\\d$",
+                    "description": "Required. Two-digit instance number."
+                  },
+                  "saprouter": {
+                    "type": "string",
+                    "description": "Optional SAProuter string."
+                  }
+                }
               },
               "webgui": {
                 "type": "string",
