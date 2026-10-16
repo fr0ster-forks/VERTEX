@@ -112,6 +112,12 @@ A changed RFC address, SNC setting or certificate policy is therefore a differen
   content.
 - If the current definition's connection key differs from the saved one, the editor re-reads its
   object from the current system, because the source may differ.
+  - If that read fails, for example because the object does not exist there, or the system cannot
+    be reached or refuses the login, the editor shows the failure instead of content.
+  - The saved content is discarded in that case, never shown or saved against the new system.
+    This replaces `code-workbench.js`'s fallback to the saved data when a read fails
+    (`:423–439`), for the changed-key case.
+  - With an unchanged key, the existing fallback stays as it is.
 
 This replaces `code-workbench.js`'s rebuild of a system from the saved key (`:362–366`).
 
@@ -242,18 +248,31 @@ produces.
 
 **What the library does with a 401 the wire returns.**
 
-- `_request` turns a returned 401 response into an ADT-type exception: through `fromResponse`, or
-  `simpleError` when there is no body (`AdtHTTP.js:225–226`, `AdtException.js:112`, `:115–123`,
-  `:179`).
-- `isLoginError` matches only an HTTP-type exception with status 401, or a CSRF refusal
-  (`AdtException.js:110`, `:113–114`). A 401 the wire returns is therefore not a login error to the
-  library, and `request()` does not log in again (`AdtHTTP.js:157–173`).
-- So a refused request costs one send, plus the wire's single retry when the provider answered Ok,
-  in either session mode. The caller receives the 401 as an ADT error.
+- `_request` turns a returned error response into an exception through `fromResponse`
+  (`AdtHTTP.js:225–226`, `AdtException.js:115–123`).
+- **If the body contains `CSRF`,** the exception is an `AdtCsrfException`, whatever the status
+  (`AdtException.js:118–119`).
+- **Otherwise** it is an ADT-type exception: through `simpleError` when there is no body or no
+  `exc:exception` root, or the parsed ADT error (`AdtException.js:112`, `:116–117`, `:120–121`).
+- `isLoginError` matches an HTTP-type exception with status 401, or a CSRF exception
+  (`AdtException.js:110`). Of the two, a returned response can only ever produce the CSRF
+  exception.
+- `request()` logs in again once, and retries once, only on a login error, when the request was
+  not itself the auto-login, and when the client is stateless (`AdtHTTP.js:157–173`). That login
+  clears the library's cookies.
 
-For `basic` the provider answers `rejected` with Oops, so the wire never retries: one send, and
-the caller receives the 401. VERTEX reports it and discards the refused password (§12). The test
-suite pins this count with the real `AdtHTTP` and `AdtException` (§14).
+So a request the provider refuses (`basic`: `rejected` answers Oops, so the wire never retries)
+costs:
+
+| Response body | Stateless client | Stateful client |
+|---|---|---|
+| no `CSRF` in it | 1 send; the caller receives the 401 | 1 send |
+| `CSRF` in it | 1 send, then the library's login (`GET /sap/bc/adt/compatibility/graph`, through the wire, refused the same way) and its retry: 3 sends; the caller receives the last error | 1 send |
+
+With the second landing's token providers, the wire's own retry adds one send before either row.
+
+VERTEX reports the final 401 and discards the refused password (§12). The test suite pins every
+cell of this table with the real `AdtHTTP` and `AdtException` (§14).
 
 `dispose()` destroys the keep-alive agent.
 
@@ -483,8 +502,8 @@ Every client built anywhere goes through `makeClient`. A `grep` for `new ADTClie
   - `options.auth` dropped;
   - a new provider instance after the means change.
 - **The wire under the real `abap-adt-api`:** an `ADTClient` on `http-wire.js` against the local
-  server, pinning §7's count: one send for a refused `basic` request, stateless and stateful, and
-  no library re-login.
+  server, pinning every cell of §7's table: bodies with and without `CSRF`, on stateless and on
+  stateful clients.
 - **`rfc-wire.js`**, with a fake connector:
   - mapping;
   - stripped headers;
@@ -505,6 +524,7 @@ Every client built anywhere goes through `makeClient`. A `grep` for `new ADTClie
 | ABAP Unit, ATC, data preview | ✓ | ✓ |
 | debugger: attach, step, stack, variables, detach, attach again | ✓ | ✓ |
 | debugger: a failed attach leaves no RFC conversation open (SM04 / SMGW) | — | ✓ |
+| restore a saved editor after its system's URL changed and the object is absent there: failure shown, no old source | ✓ | ✓ |
 | breakpoint change and source read while the listener polls | ✓ | ✓ |
 | listener shutdown time | ✓ | ✓ (gate 4) |
 | password changed in window A is used by window B | ✓ | — |
