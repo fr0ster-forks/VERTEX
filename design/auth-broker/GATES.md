@@ -38,7 +38,39 @@ Run B:
 
 ## Gate 2 — the extension host runs the stack
 
-Status: not yet run.
+Verdict: PASS.
+
+Run (2026-10-16): `probe/host` at commit `919f475`, on the owner's Windows
+machine in a local window. `npm install` in `probe/host` with SAPNWRFC_HOME
+set and the SDK lib on PATH built `sapnwrfc.node`. VS Code was started from
+that shell with `code --extensionDevelopmentPath=<repo>\probe\host`, then
+command "VERTEX Probe: Report Host" was run.
+
+Report (verbatim, contains nothing secret):
+
+```json
+{
+  "vscode": "1.142.0",
+  "node": "24.21.0",
+  "electron": "43.7.7",
+  "napi": "10",
+  "platform": "win32",
+  "arch": "x64",
+  "remoteName": null,
+  "@mcp-abap-adt/auth-broker": "loaded",
+  "@mcp-abap-adt/connection": "loaded",
+  "@mcp-abap-adt/sap-rfc-lite": "loaded"
+}
+```
+
+Node ≥ 22: yes (24.21.0). sap-rfc-lite loads in the extension host: yes,
+in-process, so SPEC §8 runs in the extension host.
+
+For the engines.vscode floor (SPEC §13), the measured, verified release is
+1.142.0, so the floor becomes `^1.142.0` (`vscode/package.json` today says
+`^1.85.0`). Earlier releases also run Node 22 or later in the extension host,
+but sap-rfc-lite was not verified in any of them; lowering the floor is the
+owner's call and needs its own measurement.
 
 ## Gate 3 — CSRF over RFC
 
@@ -81,4 +113,4 @@ Both runs agree. For Task 9, `LISTENER_STOP_MS` = ceil(0.828 s) + 5 s =
 - Gate 4: shutdown deletes through the probe wire and awaits the poll,
   bounded by `LISTENER_STOP_MS = 6000`.
 - Gate 1: SPEC §8 is feasible.
-- Gate 2: still open (Task 2).
+- Gate 2: PASS; engines.vscode floor ^1.142.0 (Task 11/12 applies it).
