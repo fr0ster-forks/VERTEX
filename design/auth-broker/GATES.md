@@ -69,6 +69,14 @@ in-process, so SPEC §8 runs in the extension host.
 Gate 2 itself passed in VS Code 1.142.0. The engines.vscode floor (SPEC §13)
 is the owner's decision below.
 
+### Gate 2 addendum — RFC calls inside the extension host (2026-10-16)
+
+- Gate 2 measured that sap-rfc-lite loads in the extension host; it did not make a call. Running VERTEX in VS Code 1.142 (Electron 43.7.7, Node 24.21.0) showed the first ADT request over RFC never returning, while the same code in plain Node 24.19.0 answered 200 in about 3 s.
+- Cause: Electron runs V8 with the memory cage, where `napi_create_external_buffer` is refused. sap-rfc-lite 0.2.3 wrapped RFCTYPE_BYTE and RFCTYPE_XSTRING results in external buffers (`src/cpp/nwrfcsdk.cc`). Under VS Code's Electron run as Node the call fails with "External buffers are not allowed"; in the extension host the exception is lost in the async completion and the call never settles. ADT over RFC returns its body as XSTRING, so every request hung. `connect` was unaffected.
+- Fix, by the owner's decision, in sap-rfc-lite (PR fr0ster/sap-rfc-lite#18, branch `fix/electron-external-buffers`): `Napi::Buffer::NewOrCopy` keeps zero-copy where allowed (plain Node unchanged) and copies where not.
+- Verified with a locally built binding (not committed to VERTEX): Electron as Node — connect, discovery 200, read 200, CSRF absent, LOCK/UNLOCK 200; VS Code extension host — VERTEX's Test SAP Systems on an snc system: discovery 200 (401206 bytes); plain Node — unchanged.
+- Consequence for VERTEX: snc in the extension host needs sap-rfc-lite ≥ 0.2.4 (the release with this fix). Until it is published, VERTEX's lock stays on 0.2.3, and Task 13's snc integration waits for it. The lock is raised in a later commit once 0.2.4 is on the registry.
+
 ## Owner decision — engines.vscode stays ^1.85.0
 
 Decision (2026-10-16): `engines.vscode` stays `^1.85.0`, as in upstream VERTEX.
@@ -133,6 +141,7 @@ Both runs agree. For Task 9, `LISTENER_STOP_MS` = ceil(0.828 s) + 5 s =
   bounded by `LISTENER_STOP_MS = 6000`.
 - Gate 1: SPEC §8 is feasible.
 - Gate 2: PASS in VS Code 1.142.0; engines.vscode stays ^1.85.0 (owner); basic verified on Node 18, 20 and 24.
+- Gate 2 addendum: snc needs sap-rfc-lite ≥ 0.2.4 (Electron external-buffer fix, PR fr0ster/sap-rfc-lite#18).
 
 ## Owner decisions — SNC platforms and packaging (2026-10-16)
 
