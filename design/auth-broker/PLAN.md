@@ -69,9 +69,11 @@ reads the spec section it names.
 | `vscode/auth/clients.js` | `makeClient(system, role)` | 8 |
 | `vscode/extension.js` | password, own request path, commands, debugger wiring | 8, 9 |
 | `vscode/debugger.js` | listener→probe moves, failure-path cleanup | 9 |
-| `vscode/code-workbench.js` | repository via `makeClient`; restore against current settings | 10 |
+| `vscode/code-workbench.js` | repository via `makeClient`; restore by key, then unique name | 10 |
+| `vscode/sap-code.js` | lost-lock message | 10 |
+| `vscode/THIRD-PARTY-NOTICES.md` | shipped packages and licences | 12 |
 | `vscode/package.json` | dependencies; `vertex.systems` schema | 3, 11 |
-| `vscode/sap-http.js` | deleted | 8 |
+| `vscode/sap-http.js` | deleted | 10 |
 | `vscode/package.ps1` | `-Target`, native/SDK checks | 12 |
 | `vscode/test/auth-*.test.js` | unit tests per module | 3–10 |
 | docs | README, vscode/README, history, dev_history | 11 |
@@ -92,14 +94,16 @@ reads the spec section it names.
 
 ```js
     if (opts.csrf) {
-      await step('csrf fetch over RFC', async () => {
+      // Gate 3 measures what abap-adt-api's login sends: GET compatibility/graph with x-csrf-token: fetch.
+      await step('csrf on the library login request over RFC', async () => {
         const r = await connection.makeAdtRequest({
-          url: '/sap/bc/adt/discovery', method: 'GET', timeout: 60000,
-          headers: { Accept: 'application/atomsvc+xml', 'x-csrf-token': 'fetch' },
+          url: '/sap/bc/adt/compatibility/graph', method: 'GET', timeout: 60000,
+          headers: { 'x-csrf-token': 'fetch' },
         });
         const h = Object.fromEntries(Object.entries(r.headers || {}).map(([k, v]) => [k.toLowerCase(), v]));
-        return { status: r.status, csrfHeaderPresent: 'x-csrf-token' in h,
-          csrfLooksLikeToken: typeof h['x-csrf-token'] === 'string' && h['x-csrf-token'].length > 8 };
+        const token = h['x-csrf-token'];
+        return { status: r.status, csrfHeaderPresent: token !== undefined,
+          csrfValueKind: token === undefined ? 'absent' : /^(fetch|required)$/i.test(String(token)) ? String(token) : 'token-like' };
       });
     }
     if (opts.listener) {
@@ -107,26 +111,31 @@ reads the spec section it names.
       const user = String(opts.user || '').toUpperCase();
       if (!user) throw new Error('--listener needs --user <ABAP user>');
       const ide = 'VERTEXPROBE' + Date.now().toString(16).toUpperCase();
-      const second = createConnection({ system: 'onprem', transport: 'rfc', config: connection.config ?? {
+      const second = createConnection({ system: 'onprem', transport: 'rfc', config: {
         url: means.serviceUrl, client: means.sapClient, authType: 'snc', sncPartnerName: means.sncPartnerName,
         sncQop: means.sncQop, sncLib: means.sncLib, sncMyName: means.sncMyName }, credential, logger });
       await second.connect();
       try {
-        const listenUrl = `/sap/bc/adt/debugger/listeners?debuggingMode=user&requestUser=${user}`
-          + `&terminalId=${ide}&ideId=${ide}&timeout=240&checkConflict=true&isNotifiedOnConflict=true`;
+        const q = `debuggingMode=user&requestUser=${user}&terminalId=${ide}&ideId=${ide}`;
         const started = Date.now();
-        const poll = connection.makeAdtRequest({ url: listenUrl, method: 'POST', timeout: 300000,
-          headers: { Accept: 'application/xml' } })
-          .then(r => ({ status: r.status }), e => ({ error: e && e.message, status: e && e.response && e.response.status }));
+        let pollEndedAt = null;
+        const poll = connection.makeAdtRequest({ url: `/sap/bc/adt/debugger/listeners?${q}&timeout=240&checkConflict=true&isNotifiedOnConflict=true`,
+          method: 'POST', timeout: 300000, headers: { Accept: 'application/xml' } })
+          .then(r => ({ outcome: 'answered', status: r.status }), e => ({ outcome: 'failed', error: e && e.message, status: e && e.response && e.response.status }))
+          .then(x => { pollEndedAt = Date.now(); return x; });
         await new Promise(r => setTimeout(r, 5000));
+        const endedBeforeDelete = pollEndedAt !== null;
+        const deletedAt = Date.now();
         await step('delete listener from second connection', async () => {
-          const r = await second.makeAdtRequest({
-            url: `/sap/bc/adt/debugger/listeners?debuggingMode=user&requestUser=${user}&terminalId=${ide}&ideId=${ide}&notifyConflict=true`,
-            method: 'DELETE', timeout: 60000 });
+          const r = await second.makeAdtRequest({ url: `/sap/bc/adt/debugger/listeners?${q}&notifyConflict=true`, method: 'DELETE', timeout: 60000 });
           return { status: r.status };
         });
-        const settled = await poll;
-        report.steps.push({ name: 'listener poll ended', ok: true, ms: Date.now() - started, ...settled });
+        // RFC ignores request timeouts, so the wait is bounded here: 300 s, past SAP's own 240 s poll timeout.
+        const settled = await Promise.race([poll, new Promise(r => setTimeout(() => r({ outcome: 'still-pending-after-300s' }), 300000))]);
+        const endedByDelete = !endedBeforeDelete && pollEndedAt !== null && settled.outcome !== 'still-pending-after-300s';
+        report.steps.push({ name: 'listener poll after deletion', ok: endedByDelete,
+          endedBeforeDelete, secondsAfterDelete: pollEndedAt ? (pollEndedAt - deletedAt) / 1000 : null,
+          totalSeconds: (Date.now() - started) / 1000, ...settled });
       } finally {
         await second.disconnect().catch(() => {});
       }
@@ -148,8 +157,10 @@ node probe.js --dir <dir> --destination <name> --program <PROG> --listener --use
 
 - [ ] **Step 3 (codex): record the results** in `design/auth-broker/GATES.md`, one section per
   gate: the command, the JSON report with nothing secret, the verdict, and for gate 3 the choice
-  `A` (header present) or `B` (absent → SPEC §8.5 option B). Gate 4: whether the poll ended after
-  the deletion, and how long it took. Commit.
+  `A` (a token-like value present) or `B` (absent, or only `fetch`/`Required` → SPEC §8.5 option B).
+  Gate 4: `ok` only when the poll ended after, and because of, the deletion
+  (`endedBeforeDelete: false`), with `secondsAfterDelete`; that number becomes
+  `LISTENER_STOP_MS` (rounded up, plus 5 s) for Task 9. Commit.
 
 - [ ] **Step 4 (STOP):** report to the owner. If gate 1 fails, or gate 4 shows the poll does not
   end, the owner decides before Task 7 starts.
@@ -358,9 +369,10 @@ module.exports = { readSystem, canonicalOrigin, loginIdentity, connectionKey };
     `currentSystems()` returns the validated systems from settings, and
     `means = { password(identity), setPassword(identity, value), forget(identity) }`.
   - `migrateOnce({ secrets, globalState, currentSystems }) → Promise<{ migrated: string[], kept: string[] }>`
-  - `legacyPasswordFor({ secrets, currentSystems }, system) → Promise<string|undefined>` (used on
-    the first need of a system whose legacy key could not be migrated: returns undefined when the
-    name is ambiguous) and `retireLegacy({ secrets, currentSystems, hasLogin }, name)`.
+  - `retireLegacy({ secrets, currentSystems, hasLogin }, name)` — deletes a retained legacy key
+    once every `basic` system of that name has its own login. A retained legacy key is **never**
+    read as a password after the migration (SPEC §10: a collision asks, a later identity change
+    asks).
 
 - [ ] **Step 1: write the failing tests** `vscode/test/auth-stores.test.js`:
 
@@ -423,8 +435,15 @@ test("session store: save/load/delete, authorization config null, set refused, m
   await assert.rejects(sessionStore.setAuthorizationConfig(id, { uaaUrl: "u", uaaClientId: "c", uaaClientSecret: "s" }), /session store/);
   await sessionStore.deleteSession(id);
   assert.equal(await sessionStore.loadSession(id), null);
-  secrets.m.set(id + ".session", "{not json");
-  await assert.rejects(sessionStore.loadSession(id), /not this store's format/);
+  for (const bad of ["{not json", JSON.stringify({ authorizationToken: 5 }), JSON.stringify({ authorizationToken: "t", sessionCookies: "c" }),
+    JSON.stringify({ authorizationToken: "t", expiresAt: -1 }), JSON.stringify({ authorizationToken: "t", expiresAt: 1.5 }),
+    JSON.stringify({ authorizationToken: "t", extra: "x" }), JSON.stringify(["t"])]) {
+    secrets.m.set(id + ".session", bad);
+    await assert.rejects(sessionStore.loadSession(id), /not this store's format/, bad);
+  }
+  secrets.m.delete(id + ".session");
+  await assert.rejects(sessionStore.saveSession(id, { authorizationToken: "t", unknown: "x" }), /unknown/);
+  await assert.rejects(sessionStore.saveSession(id, { authorizationToken: "t", expiresAt: "soon" }), /expiresAt/);
 });
 test("means: forget removes means and session", async () => {
   const secrets = memorySecrets();
@@ -442,7 +461,7 @@ test("means: forget removes means and session", async () => {
 ```js
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
-const { migrateOnce, legacyPasswordFor, retireLegacy } = require("../auth/migrate");
+const { migrateOnce, retireLegacy } = require("../auth/migrate");
 const { createStores } = require("../auth/stores");
 const { readSystem, loginIdentity } = require("../auth/systems");
 function memorySecrets(init) { const m = new Map(Object.entries(init || {})); return { m,
@@ -472,7 +491,7 @@ test("a duplicate name keeps the legacy key and gives no password", async () => 
   const r = await migrateOnce({ secrets, globalState: memoryState(), currentSystems: () => [a, b] });
   assert.deepEqual(r.kept, ["DEV"]);
   assert.equal(secrets.m.get("vertex.password.DEV"), "pw");
-  assert.equal(await legacyPasswordFor({ secrets, currentSystems: () => [a, b] }, a), undefined);
+  assert.equal(await createStores({ secrets, currentSystems: () => [a, b] }).means.password(loginIdentity(a)), undefined);
 });
 test("an snc system of that name does not take the password", async () => {
   const s = readSystem({ name: "DEV", url: "https://h", user: "u", authType: "snc", snc: { partnerName: "p:CN=X" }, rfc: { ashost: "h", sysnr: "00" } }).system;
@@ -548,13 +567,24 @@ function createStores({ secrets, currentSystems }) {
   const chains = new Map();
   const serial = (id, work) => { const run = (chains.get(id) || Promise.resolve()).then(work, work); chains.set(id, run.catch(() => {})); return run; };
   const systemOf = id => currentSystems().find(s => loginIdentity(s) === id);
+  // Mirrors the reference takeSecret (auth-stores src/session/sessionSecret.ts): strings are
+  // strings, expiresAt a non-negative safe integer, one credential kind at most, no other field.
+  function validSecret(v) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+    for (const [k, val] of Object.entries(v)) {
+      if (!FIELDS.includes(k)) return false;
+      if (k === "expiresAt") { if (typeof val !== "number" || !Number.isSafeInteger(val) || val < 0) return false; }
+      else if (typeof val !== "string") return false;
+    }
+    return !(v.authorizationToken && v.sessionCookies);
+  }
   async function readJson(key, what) {
     const raw = await secrets.get(key);
     if (raw === undefined || raw === null || raw === "") return null;
     let v; try { v = JSON.parse(raw); } catch (_) { v = undefined; }
-    if (!v || typeof v !== "object" || Array.isArray(v) || Object.keys(v).some(k => !what.includes(k))) {
-      throw new Error("The stored " + key.split(".").pop() + " record is not this store's format; it was not used.");
-    }
+    const ok = what === FIELDS ? validSecret(v)
+      : !!v && typeof v === "object" && !Array.isArray(v) && Object.entries(v).every(([k, x]) => what.includes(k) && typeof x === "string");
+    if (!ok) throw new Error("The stored " + key.split(".").pop() + " record is not this store's format; it was not used.");
     return v;
   }
   async function connectionConfig(id) {
@@ -580,7 +610,10 @@ function createStores({ secrets, currentSystems }) {
     async loadSession(id) { return readJson(id + ".session", FIELDS); },
     saveSession(id, config) { return serial(id, async () => {
       const current = (await readJson(id + ".session", FIELDS)) || {};
+      const unknown = Object.keys(config || {}).filter(k => !FIELDS.includes(k) && config[k] !== undefined);
+      if (unknown.length) throw new Error("The session store holds no " + unknown.join(", ") + " (unknown field).");
       const write = {}; for (const f of FIELDS) if (config && config[f] !== undefined) write[f] = config[f];
+      if (write.expiresAt !== undefined && (!Number.isSafeInteger(write.expiresAt) || write.expiresAt < 0)) throw new Error("expiresAt must be a non-negative whole number (epoch milliseconds).");
       const next = applySecret(current, write);
       if (Object.keys(next).length) await secrets.store(id + ".session", JSON.stringify(next));
       else await secrets.delete(id + ".session");
@@ -634,18 +667,12 @@ async function migrateOnce({ secrets, globalState, currentSystems }) {
   return out;
 }
 
-async function legacyPasswordFor({ secrets, currentSystems }, system) {
-  const same = currentSystems().filter(s => s.name === system.name);
-  if (same.length !== 1 || system.authType !== "basic") return undefined;
-  return (await secrets.get(legacyKey(system.name))) || undefined;
-}
-
 async function retireLegacy({ secrets, currentSystems, hasLogin }, name) {
   const same = currentSystems().filter(s => s.name === name && s.authType === "basic");
   for (const s of same) if (!(await hasLogin(loginIdentity(s)))) return;
   await secrets.delete(legacyKey(name));
 }
-module.exports = { migrateOnce, legacyPasswordFor, retireLegacy };
+module.exports = { migrateOnce, retireLegacy };
 ```
 
 - [ ] **Step 4: run, expect pass.** `npm test`.
@@ -662,8 +689,9 @@ module.exports = { migrateOnce, legacyPasswordFor, retireLegacy };
 - Produces:
   - `createBroker({ serviceKeyStore, sessionStore, logger }) → { providerFor(system, signal) }`
   - `createHttpWire(system, { providerFor, onRefusal }) → { request(options), dispose() }` —
-    `onRefusal(system, refusal)` is called when a provider's Oops ends a request (§7 step 5, or
-    `prepare` / `authorize` Oops); the wire keeps no secret.
+    `onRefusal(system, refusal, moment)` is called when a provider's Oops ends a request, with
+    `moment` ∈ `"prepare" | "establish" | "authorize" | "rejected"`; the wire keeps no secret and
+    sends nothing more because of it.
 
 - [ ] **Step 1: write the failing test** `vscode/test/auth-http-wire.test.js`:
 
@@ -749,12 +777,13 @@ async function refusedCount({ body, stateful, loggedIn }) {
   });
   const system = readSystem({ name: "D", url, user: "u" }).system;
   const client = new ADTClient(url, "u", "-", "", "EN");
-  client.httpClient.httpclient = createHttpWire(system, { providerFor: async () => provider(), onRefusal() {} });
+  const wire = createHttpWire(system, { providerFor: async () => provider(), onRefusal() {} });
+  client.httpClient.httpclient = wire;
   if (loggedIn) await client.login();
   if (stateful) client.stateful = "stateful";
   const before = seen.length;
   await client.httpClient.request("/sap/bc/adt/repository/nodestructure", {}).catch(() => {});
-  s.close();
+  wire.dispose(); s.close();
   return seen.length - before;
 }
 test("§7: not yet logged in → 1 send", async () => assert.equal(await refusedCount({ body: "", loggedIn: false }), 1));
@@ -806,9 +835,9 @@ function createHttpWire(system, { providerFor, onRefusal }) {
     const p = await providerFor(system);
     if (!ready.has(p)) {
       const prepared = await p.prepare();
-      if (!prepared.ok) { onRefusal(system, prepared.refusal); throw refusedError(prepared.refusal); }
+      if (!prepared.ok) { onRefusal(system, prepared.refusal, "prepare"); throw refusedError(prepared.refusal); }
       const established = await p.establish(httpLogonTarget);
-      if (!established.ok) { onRefusal(system, established.refusal); throw refusedError(established.refusal); }
+      if (!established.ok) { onRefusal(system, established.refusal, "establish"); throw refusedError(established.refusal); }
       ready.add(p);
     }
     return p;
@@ -836,7 +865,7 @@ function createHttpWire(system, { providerFor, onRefusal }) {
     const headers = { ...options.headers };
     const extraCookies = [];
     const outcome = await p.authorize({ header(name, value) { headers[name] = value; }, cookies(value) { extraCookies.push(value); } });
-    if (!outcome.ok) { onRefusal(system, outcome.refusal); throw refusedError(outcome.refusal); }
+    if (!outcome.ok) { onRefusal(system, outcome.refusal, "authorize"); throw refusedError(outcome.refusal); }
     if (extraCookies.length) headers.Cookie = mergeCookies(extraCookies.join("; "), headers.Cookie || headers.cookie || "");
     return { p, response: await send(options, headers) };
   }
@@ -846,7 +875,7 @@ function createHttpWire(system, { providerFor, onRefusal }) {
       const first = await attempt(options);
       if (first.response.status !== 401) return first.response;
       const verdict = await first.p.rejected({ at: "request", status: 401, error: first.response });
-      if (!verdict.ok) { onRefusal(system, verdict.refusal); return first.response; }
+      if (!verdict.ok) { await onRefusal(system, verdict.refusal, "rejected"); return first.response; }
       const second = await attempt(options);
       return second.response;
     },
@@ -967,12 +996,30 @@ function fakeFactory(log) {
 }
 const wireWith = log => createRfcWire(system, { providerFor: async () => ({}), logger: null, connector: fakeFactory(log) });
 
-test("mapping: default GET, headers stripped, body/params mapped, response mapped", async () => {
+test("mapping: default GET, headers stripped, response mapped", async () => {
   const log = []; const w = wireWith(log);
   const r = await w.request({ url: "/sap/bc/adt/discovery", headers: { Authorization: "x", Cookie: "c", "x-csrf-token": "fetch", "X-sap-adt-sessiontype": "stateless", Accept: "a" } });
   assert.equal(r.status, 200); assert.equal(r.body, "body1");
   const req = log.find(l => l[0] === "req");
   assert.equal(req[3], "GET"); assert.equal(req[5], "accept");
+});
+test("mapping: qs becomes params, body becomes data, method passes", async () => {
+  const seen = [];
+  const w = createRfcWire(system, { providerFor: async () => ({}), logger: null, connector: () => ({
+    async connect() {}, setSessionType() {}, async disconnect() {},
+    async makeAdtRequest(o) { seen.push(o); return { status: 200, statusText: "OK", headers: {}, data: "" }; } }) });
+  await w.request({ url: "/sap/bc/adt/x?a=1", method: "PUT", qs: { b: "2" }, body: "<x/>" });
+  assert.equal(seen[0].method, "PUT"); assert.deepEqual(seen[0].params, { b: "2" }); assert.equal(seen[0].data, "<x/>");
+  assert.equal(seen[0].url, "/sap/bc/adt/x?a=1");
+});
+test("a credential refusal without a response is thrown with its sentence, a cause with a response is the response", async () => {
+  const mk = err => createRfcWire(system, { providerFor: async () => ({}), logger: null, connector: () => ({
+    async connect() {}, setSessionType() {}, async disconnect() {}, async makeAdtRequest() { throw err; } }) });
+  const refused = Object.assign(new Error("SNC logon refused: no credential"), { name: "AuthRefusedError" });
+  await assert.rejects(mk(refused).request({ url: "/a" }), /SNC logon refused/);
+  const wrapped = Object.assign(new Error("wrapped"), { cause: { response: { status: 403, statusText: "Forbidden", headers: {}, data: "no" } } });
+  const r = await mk(wrapped).request({ url: "/a" });
+  assert.equal(r.status, 403); assert.equal(r.body, "no");
 });
 test("session mode: stateful, keep, stateless", async () => {
   const log = []; const w = wireWith(log);
@@ -1100,7 +1147,10 @@ function createRfcWire(system, { providerFor, logger = null, connector = default
             params: options.qs, data: options.body, headers, timeout: options.timeout || 60000 });
           return respond(r);
         } catch (e) {
+          // An HTTP-status failure carries the answer (RfcTransport.ts:700); a credential refusal
+          // arrives as AuthRefusedError with the original failure under .cause (authErrors.ts:24).
           if (e && e.response) return respond(e.response);
+          if (e && e.cause && e.cause.response) return respond(e.cause.response);
           throw e;
         }
       });
@@ -1119,17 +1169,33 @@ module.exports = { createRfcWire, sdkSentence };
 
 **Files:**
 - Create: `vscode/auth/clients.js`
-- Modify: `vscode/extension.js` (`secretKey`, `password`, `missing`, `request`, `csrf`, `fetch`,
-  test-connection and forget-password commands, activation), delete `vscode/sap-http.js`
-- Test: `vscode/test/auth-clients.test.js`; update `vscode/test/extension.test.js` where it
-  stubs `sap-http` or `context.secrets`
+- Modify: `vscode/extension.js` (module-level `auth`, `secretKey`, `password`, `missing`, `request`,
+  `csrf`, `fetch`, `vertex.testSystems`, `vertex.forgetPassword`, `activate`, `deactivate`)
+- Test: `vscode/test/auth-clients.test.js`; update `vscode/test/extension.test.js` where it stubs
+  `context.secrets` or the password prompt
+- `vscode/sap-http.js` stays until Task 10: the repository (`code-workbench.js`) and the
+  debugger (`extension.js` `debuggerFor`) still use it until Tasks 9 and 10.
 
 **Interfaces:**
 - Consumes: Tasks 3–7.
-- Produces: `createAuth({ vscode, context, logger }) → { systemOf(entry), makeClient(system, role),
-  wireFor(system, role), password(system), forget(system), refusalFor(system) }`. `makeClient`
-  returns an `ADTClient` with an added `dispose()` that disposes its wire. `role` ∈
-  `"repository" | "listener" | "probe" | "debuggee" | "command"`.
+- Produces: `createAuth({ vscode, context, logger }) → auth` with:
+  - `systemOf(entry) → { system } | { error }` (= `readSystem`)
+  - `currentSystems() → system[]`
+  - `makeClient(system, role) → Promise<ADTClient>` — `role` ∈ `"repository" | "listener" | "probe"
+    | "debuggee"`; the client gets `dispose()`, which disposes its wire and forgets it.
+  - `commandWire(system) → Promise<wire>` — one shared wire per connection key for the
+    extension's own requests; reused, disposed by `disposeAll()`.
+  - `password(system) → Promise<string|undefined>` — `basic` only; for any other type it
+    returns `undefined` without asking.
+  - `forget(system)`, `lastRefusal(system) → refusal|undefined`, `disposeAll() → Promise`
+  - Refusal handling (SPEC §7, §12), shared by every wire: when a `basic` provider answers
+    `rejected` with Oops, `auth` deletes the stored password (`means.forget`) and keeps the
+    refusal for `lastRefusal`. Nothing is sent because of it. `prepare`/`authorize` Oops only
+    record the refusal.
+- **Lifetime:** `extension.js` declares `let auth;` at module level, sets it first thing in
+  `activate(context)`, and passes it on explicitly: `code-workbench.register(vscode, context, { …, auth })`
+  (Task 10) and `debuggerFor(context, auth)` (Task 9). `deactivate()` awaits
+  `auth.disposeAll()`.
 
 - [ ] **Step 1: failing test** `vscode/test/auth-clients.test.js`:
 
@@ -1137,14 +1203,16 @@ module.exports = { createRfcWire, sdkSentence };
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
 const { createAuth } = require("../auth/clients");
+const { loginIdentity } = require("../auth/systems");
 function fakeVscode(systems, { remoteName } = {}) {
   const prompts = [];
   return { prompts, env: { remoteName }, window: { showInputBox: async o => { prompts.push(o.prompt); return "typed"; } },
     workspace: { getConfiguration: () => ({ get: k => (k === "systems" ? systems : "") }) } };
 }
-function fakeContext() { const m = new Map(), g = new Map(); return { m,
+function fakeContext(init) { const m = new Map(Object.entries(init || {})), g = new Map(); return { m,
   secrets: { get: async k => m.get(k), store: async (k, v) => { m.set(k, v); }, delete: async k => { m.delete(k); } },
   globalState: { get: k => g.get(k), update: async (k, v) => { g.set(k, v); } } }; }
+const sncEntry = { name: "S", url: "https://s", user: "u", authType: "snc", snc: { partnerName: "p:CN=S" }, rfc: { ashost: "s", sysnr: "00" } };
 
 test("makeClient builds an ADTClient on the HTTP wire with no secret in it", async () => {
   const auth = createAuth({ vscode: fakeVscode([{ name: "D", url: "http://127.0.0.1:9", user: "u" }]), context: fakeContext(), logger: null });
@@ -1152,25 +1220,48 @@ test("makeClient builds an ADTClient on the HTTP wire with no secret in it", asy
   const client = await auth.makeClient(system, "repository");
   assert.equal(typeof client.dispose, "function");
   assert.equal(client.httpClient.password, "-");
+  await auth.disposeAll();
 });
-test("password asks once, then reads the store", async () => {
-  const v = fakeVscode([{ name: "D", url: "http://h", user: "u" }]), ctx = fakeContext();
+test("password asks once for basic, never for snc", async () => {
+  const v = fakeVscode([{ name: "D", url: "http://h", user: "u" }, sncEntry]), ctx = fakeContext();
   const auth = createAuth({ vscode: v, context: ctx, logger: null });
-  const s = auth.systemOf({ name: "D", url: "http://h", user: "u" }).system;
-  assert.equal(await auth.password(s), "typed"); assert.equal(await auth.password(s), "typed");
+  const d = auth.systemOf({ name: "D", url: "http://h", user: "u" }).system;
+  assert.equal(await auth.password(d), "typed"); assert.equal(await auth.password(d), "typed");
+  assert.equal(await auth.password(auth.systemOf(sncEntry).system), undefined);
+  assert.equal(v.prompts.length, 1);
+});
+test("after migration a retained (ambiguous) legacy key is never used as a password", async () => {
+  const a = { name: "D", url: "http://h", user: "u" }, b = { name: "D", url: "http://h", user: "u", client: "200" };
+  const v = fakeVscode([a, b]), ctx = fakeContext({ "vertex.password.D": "old" });
+  const auth = createAuth({ vscode: v, context: ctx, logger: null });
+  assert.equal(await auth.password(auth.systemOf(a).system), "typed");
   assert.equal(v.prompts.length, 1);
 });
 test("snc on a remote host is refused before any client is built", async () => {
-  const entry = { name: "S", url: "https://s", user: "u", authType: "snc", snc: { partnerName: "p:CN=S" }, rfc: { ashost: "s", sysnr: "00" } };
-  const auth = createAuth({ vscode: fakeVscode([entry], { remoteName: "wsl" }), context: fakeContext(), logger: null });
-  await assert.rejects(auth.makeClient(auth.systemOf(entry).system, "repository"), /remote host \(wsl\)/);
+  const auth = createAuth({ vscode: fakeVscode([sncEntry], { remoteName: "wsl" }), context: fakeContext(), logger: null });
+  await assert.rejects(auth.makeClient(auth.systemOf(sncEntry).system, "repository"), /remote host \(wsl\)/);
 });
-test("forget removes the stored password", async () => {
-  const v = fakeVscode([{ name: "D", url: "http://h", user: "u" }]), ctx = fakeContext();
+test("a basic refusal through any wire discards the stored password; the next need asks", async () => {
+  const http = require("node:http");
+  const s = await new Promise(r => { const srv = http.createServer((q, res) => { res.statusCode = 401; res.end(""); }); srv.listen(0, "127.0.0.1", () => r(srv)); });
+  const entry = { name: "D", url: "http://127.0.0.1:" + s.address().port, user: "u" };
+  const v = fakeVscode([entry]), ctx = fakeContext();
   const auth = createAuth({ vscode: v, context: ctx, logger: null });
-  const s = auth.systemOf({ name: "D", url: "http://h", user: "u" }).system;
-  await auth.password(s); await auth.forget(s); await auth.password(s);
-  assert.equal(v.prompts.length, 2);
+  const sys = auth.systemOf(entry).system;
+  const client = await auth.makeClient(sys, "repository");
+  await client.httpClient.request("/sap/bc/adt/discovery", {}).catch(() => {});
+  assert.equal(ctx.m.has(loginIdentity(sys) + ".means"), false);
+  assert.ok(auth.lastRefusal(sys));
+  await auth.password(sys); assert.equal(v.prompts.length, 2);
+  await auth.disposeAll(); s.close();
+});
+test("command wires are shared per system and disposed by disposeAll", async () => {
+  const auth = createAuth({ vscode: fakeVscode([{ name: "D", url: "http://127.0.0.1:9", user: "u" }]), context: fakeContext(), logger: null });
+  const sys = auth.systemOf({ name: "D", url: "http://127.0.0.1:9", user: "u" }).system;
+  const w1 = await auth.commandWire(sys), w2 = await auth.commandWire(sys);
+  assert.equal(w1, w2);
+  let disposed = 0; const orig = w1.dispose; w1.dispose = () => { disposed++; return orig(); };
+  await auth.disposeAll(); assert.equal(disposed, 1);
 });
 ```
 
@@ -1180,9 +1271,9 @@ test("forget removes the stored password", async () => {
 ```js
 "use strict";
 const path = require("path");
-const { readSystem, loginIdentity } = require("./systems");
+const { readSystem, loginIdentity, connectionKey } = require("./systems");
 const { createStores } = require("./stores");
-const { migrateOnce, legacyPasswordFor, retireLegacy } = require("./migrate");
+const { migrateOnce, retireLegacy } = require("./migrate");
 const { createBroker } = require("./broker");
 const { createHttpWire } = require("./http-wire");
 const { refusalFor } = require("./hosts");
@@ -1195,75 +1286,102 @@ function createAuth({ vscode, context, logger }) {
   const broker = createBroker({ serviceKeyStore, sessionStore, logger });
   const migrated = migrateOnce({ secrets, globalState: context.globalState, currentSystems });
   const refusals = new Map();
+  const wires = new Set();          // every live wire, for disposeAll
+  const commandWires = new Map();   // connectionKey → wire
 
   async function password(system) {
+    if (system.authType !== "basic") return undefined;
     await migrated;
     const id = loginIdentity(system);
     let pw = await means.password(id);
     if (pw) return pw;
-    pw = await legacyPasswordFor({ secrets, currentSystems }, system);
-    if (!pw) pw = await vscode.window.showInputBox({ prompt: "SAP password for " + system.user + " on " + system.name, password: true, ignoreFocusOut: true });
+    pw = await vscode.window.showInputBox({ prompt: "SAP password for " + system.user + " on " + system.name, password: true, ignoreFocusOut: true });
     if (pw) {
       await means.setPassword(id, pw);
       await retireLegacy({ secrets, currentSystems, hasLogin: async other => !!(await means.password(other)) }, system.name);
     }
     return pw;
   }
+  async function onRefusal(system, refusal, moment) {
+    refusals.set(loginIdentity(system), refusal);
+    if (system.authType === "basic" && moment === "rejected") await means.forget(loginIdentity(system)).catch(() => {});
+  }
   function hostRefusal(system) {
-    const connectionDir = (() => { try { return path.dirname(require.resolve("@mcp-abap-adt/connection/package.json")); } catch (_) { return undefined; } })();
+    let connectionDir;
+    try { connectionDir = path.dirname(require.resolve("@mcp-abap-adt/connection/package.json")); } catch (_) { connectionDir = undefined; }
     return refusalFor(system, { platform: process.platform, remoteName: vscode.env.remoteName,
       resolve: name => require.resolve(name, connectionDir ? { paths: [connectionDir] } : undefined) });
   }
-  async function wireFor(system) {
+  async function newWire(system) {
     const refused = hostRefusal(system);
     if (refused) throw new Error(refused);
     if (system.authType === "basic" && !(await password(system))) throw new Error("No password was entered for " + system.name + ", so nothing was sent.");
     const providerFor = s => broker.providerFor(s);
-    if (system.authType === "snc") return require("./rfc-wire").createRfcWire(system, { providerFor, logger });
-    return createHttpWire(system, { providerFor, onRefusal: (s, refusal) => refusals.set(loginIdentity(s), refusal) });
+    const wire = system.authType === "snc"
+      ? require("./rfc-wire").createRfcWire(system, { providerFor, logger })
+      : createHttpWire(system, { providerFor, onRefusal });
+    wires.add(wire);
+    const dispose = wire.dispose.bind(wire);
+    wire.dispose = () => { wires.delete(wire); return Promise.resolve(dispose()); };
+    return wire;
   }
   async function makeClient(system, role) {
-    const wire = await wireFor(system, role);
+    const wire = await newWire(system);
     const { ADTClient } = require("abap-adt-api");
     const client = new ADTClient(system.url, system.user, "-", system.client || "", "EN",
       { timeout: role === "listener" || role === "probe" || role === "debuggee" ? 300000 : 60000 });
     client.httpClient.httpclient = wire;
-    client.dispose = () => Promise.resolve(wire.dispose());
+    client.dispose = () => wire.dispose();
     return client;
   }
+  async function commandWire(system) {
+    const key = connectionKey(system);
+    if (!commandWires.has(key)) commandWires.set(key, await newWire(system));
+    return commandWires.get(key);
+  }
   return {
-    systemOf: readSystem, currentSystems, makeClient, wireFor, password, hostRefusal,
+    systemOf: readSystem, currentSystems, makeClient, commandWire, password, hostRefusal,
     lastRefusal: system => refusals.get(loginIdentity(system)),
     async forget(system) { await means.forget(loginIdentity(system)); },
+    async disposeAll() { commandWires.clear(); await Promise.all([...wires].map(w => w.dispose())); },
   };
 }
 module.exports = { createAuth };
 ```
 
-- [ ] **Step 4: integrate `extension.js`.** In `activate(context)` create
-  `const auth = require("./auth/clients").createAuth({ vscode, context, logger })` (logger: the
-  existing output channel wrapped as `{ debug, info, warn, error }` writing at those levels).
-  Then:
-  - Replace `secretKey` and `password(context, system)` with `auth.password(system)`; delete both.
-  - Replace `missing(system)` and the `active()` validation with `auth.systemOf(entry)`: an `{ error }`
-    becomes `"ERROR:" + error`.
-  - Replace `request(system, pw, requestPath, extra)` so it sends through
-    `await auth.wireFor(system, "command")` and its `request({ url: withClient(system, requestPath),
-    method, headers, body })`, keeping the `Accept` defaults and `Content-Type` it sets today and
-    dropping its `Authorization` header. Map the wire response `{ status, headers, body }` to the
-    same shape callers use today.
-  - `csrf(system)`: unchanged logic over the new `request`; for `system.authType === "snc"` return
-    `{ token: "", cookies: "" }` and send no CSRF header.
-  - `fetch`'s 401 branch: `await auth.forget(system)` instead of deleting `secretKey(system)`;
-    keep the message; append `auth.lastRefusal(system)`'s `reason` if present.
-  - The test-connection command: a discovery GET through `auth.wireFor(system, "command")`.
-  - The forget-password command: rename its title to "VERTEX: Forget Credentials" in
-    `package.json` (keep the command id), body `await auth.forget(system)`.
-  - Delete `vscode/sap-http.js`; `grep -rn "sap-http" vscode --include=*.js` must return only test
-    files that are updated in this step.
-- [ ] **Step 5: run** `npm test`; fix `test/extension.test.js` stubs that relied on
-  `secretKey`/`sap-http` so they inject `context.secrets` and a fake wire instead. All green.
-- [ ] **Step 6: commit** `git commit -m "auth: one client factory; the extension's own requests through the wire"`.
+- [ ] **Step 4: integrate `extension.js`** — the extension's own request path only:
+  - Add `let auth;` at module level. First line of `activate(context)`:
+    `auth = require("./auth/clients").createAuth({ vscode, context, logger: outputLogger });`
+    where `outputLogger` wraps the existing output channel as `{ debug, info, warn, error }`, each
+    `appendLine` with its level. In `deactivate()`, before returning: `if (auth) { await auth.disposeAll(); }`
+    (make `deactivate` `async`).
+  - Delete `secretKey` and `password(context, system)`.
+  - `active()` and every `missing(system)` use: validate with `auth.systemOf(entry)`; an
+    `{ error }` becomes the existing error text. Delete `missing`.
+  - `request(system, requestPath, extra)` (drop the `pw` parameter everywhere): send through
+    `await auth.commandWire(system)` with `{ url: withClient(system, requestPath), method:
+    extra.method || "GET", headers, body: extra.body }`, keeping today's `Accept` default and
+    `Content-Type` for a body, and **no** `Authorization` header. Return `{ status, headers, body }`
+    as today.
+  - `csrf(system)`: for `system.authType === "snc"` return `{ token: "", cookies: "" }` without a
+    request and send no CSRF/Cookie header in `fetch`; otherwise unchanged over the new `request`.
+  - `fetch()`: delete the `const pw = await password(...)` block; the wire asks for a `basic`
+    password itself and never asks for `snc`. A wire error `No password was entered…` becomes
+    `"ERROR:No password was entered, so the request was not sent."`. The 401 branch: the
+    password is already discarded by `auth`'s refusal handling; the message becomes
+    `"ERROR:HTTP 401: " + system.name + " rejected user " + system.user + ". " + reasonAndHint(auth.lastRefusal(system)) + " The stored password has been discarded; loading again will ask for it."`
+    where `reasonAndHint(r) = r ? r.reason + (r.hint ? " " + r.hint : "") : ""`. For `snc`
+    the sentence drops the password part.
+  - `vertex.testSystems`: per system, `auth.systemOf` validation, then a discovery GET through
+    `request(system, …)`; no `password()` call. The 401 text uses `reasonAndHint(auth.lastRefusal(system))`;
+    for `basic` it adds "the stored password is dropped, the next test asks again". A host refusal
+    (`snc` on Linux/remote) is reported as that system's result.
+  - `vertex.forgetPassword`: `await auth.forget(chosen.system)`; its title in `package.json`
+    becomes "VERTEX: Forget Credentials" (command id unchanged).
+- [ ] **Step 5: run** `npm test`; update `test/extension.test.js` stubs that used `secretKey` or the
+  password prompt so they inject `context.secrets`/`globalState` and assert the new texts. All
+  green. `grep -n "secretKey\|password(context" vscode/extension.js` returns nothing.
+- [ ] **Step 6: commit** `git commit -m "auth: one client factory; the extension's own requests through the wire; refusals discard a basic password"`.
 
 ### Task 9: Debugger wiring
 
@@ -1271,68 +1389,104 @@ module.exports = { createAuth };
 - Modify: `vscode/extension.js` (`systemKey`, `debuggerFor`), `vscode/debugger.js`
 - Test: `vscode/test/debugger.test.js` (extend)
 
-**Interfaces:** Consumes `auth.makeClient`, `connectionKey`.
+**Interfaces:** Consumes `auth.makeClient` (Task 8), `connectionKey` (Task 3),
+`LISTENER_STOP_MS` from `GATES.md` gate 4 (Task 1).
 
-- [ ] **Step 1: failing tests** in `vscode/test/debugger.test.js` (using its existing fake `connect`):
-  - `sync`, `source` and `classMethods` call the **probe** client, never the listener, while a
-    `debuggerListen` promise is pending (fake listener whose `debuggerListen` never settles; assert
-    the probe received `debuggerSetBreakpoints`, `getObjectSource`, `classComponents`).
-  - `stop()` deletes the listener through the probe (`debuggerDeleteListener` on probe).
-  - A failing `debuggerAttach` disposes the client `open()` returned (fake client counts
-    `dispose()` calls → 1) and leaves `session` null.
-  - A system switch with no live session disposes the old listener and probe (each `dispose()` → 1).
-  - `release`, `end` and `stop` call `logout()` on the debuggee client (unchanged) and nothing
-    else is left undisposed (fake counts).
+- [ ] **Step 1: failing tests** in `vscode/test/debugger.test.js`, with its existing fake
+  `connect`, extended so the fake listener's `debuggerListen` returns a promise the test releases
+  by hand (`let releasePoll; listen = () => new Promise(r => { releasePoll = r; })`) and every
+  fake client counts `dispose()` and `logout()` calls:
+  - While a poll is pending, `sync` (setting a breakpoint), `source` and `classMethods` call the
+    **probe** (`debuggerSetBreakpoints`, `getObjectSource`, `classComponents` recorded on probe,
+    none on listener).
+  - `stop()` deletes the listener through the probe, then waits for the loop to end: it resolves
+    only after `releasePoll(null)`; `listening` is `false` only after that.
+  - A start (`listen` again) while the previous loop has not ended waits for it, so two loops
+    never run at once (count concurrent `debuggerListen` calls ≤ 1).
+  - If the poll does not end within `LISTENER_STOP_MS`, `stop()` resolves anyway with a problem
+    "The listener did not end within N s; SAP keeps it until its own timeout." and the next start
+    still waits for the old loop.
+  - A failing `debuggerAttach` disposes the client `open()` returned (dispose → 1), and `session`
+    is `null`.
+  - `open()` whose `login()` fails disposes its client before rethrowing (dispose → 1).
+  - A system switch with no live session disposes the old listener and probe (each → 1).
+  - A step that fails because the program is gone keeps today's `end()` path; a step that fails
+    with an error whose message matches the RFC wire's session loss or an HTTP 400 "Session timed
+    out" reports "The debugging session on ‹program› ended: ‹cause›" and does not retry.
 - [ ] **Step 2: run, expect failure.**
 - [ ] **Step 3: implement** in `vscode/debugger.js`:
-  - In `sync` (`:268`), `source` (`:1147`), `classMethods` (`:1161`) and the takeover delete
+  - `sync` (`:268`), `source` (`:1147`), `classMethods` (`:1161`) and the takeover delete
     (`:620`): take `probe` from `system()` and call the same method on it instead of `listener`.
-  - In `stop()` (`:992`): `const { probe, user } = sap; await probe.debuggerDeleteListener(...)`.
-  - In `loop()`'s attach catch (`:653`): `await exclusive(() => attach(hit)).catch(async error => {
-    problems.push(...); if (session && session.client && session.client.dispose) await session.client.dispose().catch(() => {}); session = null; })`.
-    In `attach`, if `debuggerAttach` throws after `open()`, the catch above disposes it — set
-    `session` before calling `debuggerAttach` (already the case at `:642`).
-  - In `system()` (`:220`), before `sap = null`: `await Promise.all([sap.listener, sap.probe].map(c => c && c.dispose ? c.dispose() : null)).catch(() => {})`.
+  - Keep the loop's promise: `listenLoop = loop().catch(...)` at the start site (`:627`); `loop()`
+    sets `listening = false` in a `finally`.
+  - A new start awaits `listenLoop` if it is still pending before resetting `stopListening`.
+  - `stop()` (`:986`): after the session block, `const { probe, user } = sap; await
+    probe.debuggerDeleteListener("user", terminalId, ideId, user).catch(() => {});` then
+    `await Promise.race([listenLoop, delay(LISTENER_STOP_MS)])`; if the loop is still pending, push
+    the problem sentence above. `LISTENER_STOP_MS` is a constant at the top of `debugger.js` with a
+    comment citing `GATES.md` gate 4.
+  - `loop()`'s attach catch (`:653`): dispose `session.client` if present before `session = null`.
+  - `system()` (`:220`): before `sap = null`, dispose `sap.listener` and `sap.probe`.
+  - In `step`'s error path, the session-loss sentence above (§12), no retry.
 
-  In `vscode/extension.js` `debuggerFor`:
+  In `vscode/extension.js`:
   - `systemKey(system)` → `require("./auth/systems").connectionKey(system)`.
-  - `connect`: `const listener = await auth.makeClient(system, "listener"); const probe = await auth.makeClient(system, "probe");`
+  - `debuggerFor(context, auth)`; the call site in `activate` passes `auth`.
+  - `connect`: no password lookup; `const listener = await auth.makeClient(system, "listener");
+    const probe = await auth.makeClient(system, "probe");`
   - `open`: `const client = await auth.makeClient(system, "debuggee"); client.stateful = "stateful";
     try { await client.login(); } catch (e) { await client.dispose().catch(() => {}); throw e; } return client;`
-  - Remove the password lookup in `connect` (`makeClient` asks when needed).
 - [ ] **Step 4: run** `npm test`, all green. **Step 5: commit**
-  `git commit -m "debugger: probe carries everything but the poll; every client is disposed on every path"`.
+  `git commit -m "debugger: the probe carries everything but the poll; stop awaits the loop; every client disposed on every path"`.
 
-### Task 10: Repository and restore
+### Task 10: Repository, restore, lock loss, and `sap-http.js` removal
 
 **Files:**
-- Modify: `vscode/code-workbench.js` (`repository()` `:361–390`, `rememberEditor`, `fileEntry` `:399–439`)
-- Test: `vscode/test/code-workbench.test.js` (extend)
+- Modify: `vscode/code-workbench.js` (`register` signature `:57`, `repository()` `:361–390`,
+  `rememberEditor`, `fileEntry` `:399–439`), `vscode/sap-code.js` (`apply` `:186–280`),
+  `vscode/extension.js` (`activate`'s `register` call `:823`)
+- Delete: `vscode/sap-http.js`
+- Test: `vscode/test/code-workbench.test.js` (extend; harness updated), `vscode/test/sap-code.test.js`
+  if present, else new `vscode/test/auth-lock-loss.test.js`
 
-- [ ] **Step 1: failing tests** in `vscode/test/code-workbench.test.js` with its `host()` helper:
-  - A saved editor whose system name exists in settings with the same connection key restores
-    from the current definition (assert the repository was built for the current system).
-  - A saved editor whose system name no longer exists shows "DEV is no longer in vertex.systems"
-    and no content.
-  - A saved editor whose system's connection key changed, and whose re-read fails, shows the
-    failure and never the saved content (assert no write is possible on it).
-  - A saved key without `authType` restores as `basic`.
-- [ ] **Step 2: run, expect failure.**
-- [ ] **Step 3: implement:**
-  - `repository(savedKey)`: build `system` from the **current** settings by name
-    (`auth.currentSystems().find(s => s.name === savedName)`), never from the saved key. If none:
-    throw `new Error(savedName + " is no longer in vertex.systems")`. The cache key is
-    `connectionKey(system)`. The client is `await auth.makeClient(system, "repository")`. When a
-    repository is dropped from `repositories`, call its client's `dispose()`.
+**Interfaces:** `register(vscode, context, { active, auth, pin, pinned, systems })` — `password`
+is gone; `auth` is Task 8's object.
+
+- [ ] **Step 1: update the harness** in `test/code-workbench.test.js` (`:110–135`): the context
+  gains `secrets` and `globalState` (in-memory); `register` receives
+  `auth: { currentSystems: () => current, makeClient: async () => new ADTClient(), …}` with a
+  fake `ADTClient` that counts `dispose()`; `password` is removed.
+- [ ] **Step 2: failing tests:**
+  - A saved editor whose saved key equals a current system's connection key restores against that
+    system.
+  - Saved key changed, one system with the name: restores against it and re-reads; a failing
+    re-read shows the failure, and the saved content is neither shown nor writable.
+  - Two systems with the saved name, neither matching the key: the editor shows "several systems
+    are named DEV; this tab cannot tell which one it belongs to".
+  - No system with the name: "DEV is no longer in vertex.systems".
+  - A saved entry in the old format (array key) restores by its name (`key[3]`) through the same
+    rules, as `basic`.
+  - A repository dropped from the cache disposes its client.
+  - `apply`: a failure after the lock was taken (fake client throws on the write, then on
+    `unLock`) reports "the lock on ‹object› was lost: ‹cause›" and does not retry the write.
+- [ ] **Step 3: run, expect failure.**
+- [ ] **Step 4: implement:**
+  - `repository(saved)`: pick the system per SPEC §4.2 (exact `connectionKey` match among
+    `auth.currentSystems()`, else the unique name, else the ambiguity error, else "no longer in
+    vertex.systems"); the cache key is `connectionKey(system)`; the client is
+    `await auth.makeClient(system, "repository")`; dispose a client when its repository leaves the
+    cache.
   - `rememberEditor`: store `{ key: connectionKey(system), name: system.name, data }`.
-  - `fileEntry`: if the saved `key` differs from the current system's `connectionKey`, re-read the
-    object; on a read failure throw `vscode.FileSystemError.Unavailable(<the failure>)` and drop
-    `savedEntries[key]` — do not fall back to `saved.data`. With an unchanged key, the existing
-    fallback (`:423–439`) stays.
-  - A saved entry in the old format (an array key) is read as `{ name: key[3] }` and goes through
-    the same path.
-- [ ] **Step 4: run** `npm test`. **Step 5: commit**
-  `git commit -m "workbench: restore against current settings, never old source after a key change"`.
+  - `fileEntry`: when the saved key differs from the chosen system's key, re-read; on failure throw
+    `vscode.FileSystemError.Unavailable(<failure>)` and delete the saved entry — no fallback to
+    `saved.data`. With an unchanged key, the existing fallback (`:423–439`) stays.
+  - `sap-code.js` `apply`: when an error occurs between a successful `lock` and the `finally`'s
+    `unLock`, and `unLock` also fails, the thrown message starts with "The lock on ‹object› was
+    lost: " followed by the cause; nothing is retried.
+  - `extension.js`: `register(vscode, context, { active, auth, pin: pinTo, pinned: …, systems })`.
+  - Delete `vscode/sap-http.js`. `grep -rn "sap-http\|new ADTClient" vscode --include=*.js | grep -v "^vscode/test/" | grep -v "auth/clients.js"` returns nothing.
+- [ ] **Step 5: run** `npm test`. **Step 6: commit**
+  `git commit -m "workbench: repository via the auth factory; restore by key, then unique name; lost lock said; sap-http.js gone"`.
 
 ### Task 11: Settings schema and documentation
 
@@ -1378,6 +1532,7 @@ test("the auth packages are registry dependencies", () => {
     user with its `lib` on `PATH`/`DYLD_LIBRARY_PATH` before starting VS Code, RFC authorization
     for `SADT_REST_RFC_ENDPOINT`), and which VSIX to install per platform; remote hosts: `snc` not
     supported.
+  - The "Forget Credentials" command (renamed from "Forget Password").
   - `history.md`: the user-visible change for the next version (version left to the owner).
   - `dev_history.md`: a stage entry with the gate results from `GATES.md`.
 - [ ] **Step 5: run** `npm test`. **Step 6: commit**
@@ -1386,26 +1541,49 @@ test("the auth packages are registry dependencies", () => {
 ### Task 12: Packaging per target
 
 **Files:**
-- Modify: `vscode/package.ps1`, `vscode/.vscodeignore`, `vscode/package.json` (`engines.vscode`
-  from gate 2)
+- Modify: `vscode/package.ps1`, `vscode/package.json` (`engines.vscode` from gate 2)
+- Create: `vscode/THIRD-PARTY-NOTICES.md`
+- Modify: `design/auth-broker/GATES.md` (packaging decisions)
 
-- [ ] **Step 1: implement `-Target`** in `package.ps1`:
-  - `param([ValidateSet('universal','win32-x64','darwin-arm64','darwin-x64')][string]$Target = 'universal')`.
-  - For `universal`: `npm ci --omit=optional`; for a native target: `npm ci` (the caller sets
-    `SAPNWRFC_HOME` and the SDK `lib` on the path), then fail unless
-    `node_modules/**/@mcp-abap-adt/sap-rfc-lite/build/Release/*.node` exists.
-  - `vsce package --out $candidate` plus `--target $Target` for a native target.
-  - After packaging, list the archive and fail on: a native target without
-    `extension/node_modules/**/sap-rfc-lite/build/Release/*.node`; `universal` with one; any
-    entry matching `sapnwrfc*`, `libsapnwrfc*`, `libsapucum*`, `libicu*`, `icudt*`, `icuin*`,
-    `icuuc*`.
-  - Add the auth packages' `package.json` and `LICENSE` entries to `$required`.
-  - Output name: `<name>-<version>[-<target>].vsix`.
-- [ ] **Step 2:** `engines.vscode` per `GATES.md` gate 2.
-- [ ] **Step 3 (OWNER, Windows):** `.\package.ps1 -Target win32-x64` and `.\package.ps1`
+- [ ] **Step 1 (OWNER decision, recorded in `GATES.md`):** is a `win32-arm64` VSIX wanted? Default
+  if not answered: no.
+- [ ] **Step 2: `THIRD-PARTY-NOTICES.md`** in `vscode/`: one section per shipped runtime package
+  outside VERTEX itself — `abap-adt-api` and its licence, `@abaplint/*`, `@mcp-abap-adt/auth-broker`,
+  `auth-providers`, `auth-stores`, `auth-errors`, `connection`, the `interfaces-*` they pull, and
+  `@mcp-abap-adt/sap-rfc-lite` (Apache-2.0, native targets only) — each with name, version range,
+  licence id and where its licence text sits in the VSIX (`node_modules/<pkg>/LICENSE`, `COPYING`
+  for the LGPL ones). Generate the list from `npm ls --omit=dev --all --json` so nothing is missed,
+  and state that the SAP NW RFC SDK is not shipped.
+- [ ] **Step 3: implement `-Target`** in `package.ps1`:
+  - `param([ValidateSet('universal','win32-x64','win32-arm64','darwin-arm64','darwin-x64')][string]$Target = 'universal')`.
+  - A native target must be built on that platform and architecture: compare `$Target` with
+    `$IsWindows`/`$IsMacOS` and `[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture`;
+    refuse otherwise ("build win32-x64 on Windows x64").
+  - `universal`: `npm ci --omit=optional`. Native: `npm ci` (the caller sets `SAPNWRFC_HOME`
+    and puts the SDK `lib` on the path), then fail unless
+    `node_modules/**/@mcp-abap-adt/sap-rfc-lite/build/Release/sapnwrfc.node` exists — npm drops an
+    optional dependency whose build fails, silently.
+  - Verify the binding's architecture: on Windows read the PE header's machine field of
+    `sapnwrfc.node` (x64 `0x8664`, arm64 `0xAA64`); on macOS `lipo -archs sapnwrfc.node` must
+    contain `arm64` or `x86_64` per target. Mismatch fails.
+  - `vsce package --out $candidate`, plus `--target $Target` for a native target. Output name
+    `<name>-<version>[-<target>].vsix`.
+  - After packaging, list the archive and fail when:
+    - a native target lacks `extension/node_modules/**/sap-rfc-lite/build/Release/sapnwrfc.node`;
+    - `universal` contains a `sapnwrfc.node`;
+    - any target contains an SAP SDK library: `sapnwrfc.dll`, `libsapnwrfc.so`, `libsapnwrfc.dylib`,
+      `libsapucum.*`, `sapucum.dll`, `icudt*`, `icuin*`, `icuuc*`, `libicu*` — matched by exact
+      library names, so the binding `sapnwrfc.node` is never caught;
+    - `extension/THIRD-PARTY-NOTICES.md` is missing.
+  - Add to `$required`: the auth packages' `package.json` and licence files.
+- [ ] **Step 4:** `engines.vscode` per `GATES.md` gate 2.
+- [ ] **Step 5 (OWNER, Windows x64):** `.\package.ps1 -Target win32-x64` and `.\package.ps1`
   (universal); both succeed; install each in a clean profile; with the universal one an `snc`
-  system is refused with "no SNC support".
-- [ ] **Step 4: commit** `git commit -m "packaging: per-target VSIX with the RFC binding, never the SDK"`.
+  system is refused with "no SNC support"; with the native one, `snc` connects.
+- [ ] **Step 6 (OWNER, when a Mac is available):** `-Target darwin-arm64` / `darwin-x64` on the
+  matching Mac. Until run, `history.md` marks the macOS packages "built, SNC not verified on
+  macOS" and the release attaches no macOS VSIX that was not built on its platform.
+- [ ] **Step 7: commit** `git commit -m "packaging: per-target VSIX with the RFC binding, never the SDK; third-party notices"`.
 
 ### Task 13 (OWNER): Integration matrix
 

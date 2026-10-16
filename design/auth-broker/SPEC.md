@@ -105,8 +105,13 @@ A changed RFC address, SNC setting or certificate policy is therefore a differen
 **Saved editors are restored against the current settings, never from a snapshot.**
 
 - A saved editor stores the system's `name` and the connection key it was opened with.
-- On restore, VERTEX looks up the system of that name in the current `vertex.systems` and builds
-  the repository from that definition. The credential then comes from the current login identity,
+- On restore, VERTEX picks the current system in this order:
+  1. the one whose connection key equals the saved key;
+  2. otherwise the one system with the saved name;
+  3. if several systems have that name and none matches the key, nothing: the editor shows
+     "several systems are named ‹name›; this tab cannot tell which one it belongs to".
+
+  It builds the repository from that definition. The credential then comes from the current login identity,
   which is the only one the store answers (§5.1).
 - If no system has that name, the editor shows "‹name› is no longer in vertex.systems" instead of
   content.
