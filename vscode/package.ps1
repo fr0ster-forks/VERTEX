@@ -27,6 +27,7 @@ try {
             'extension/vendor/open-abap-core/LICENSE',
             'extension/vendor/open-abap-core/REVISION',
             'extension/vendor/open-abap-core/src/ddic/dtel/mandt.dtel.xml',
+            'extension/vendor/open-abap-core/src/exceptions/cx_sy_zerodivide.clas.abap',
             'extension/node_modules/temporal-polyfill/package.json',
             'extension/node_modules/temporal-spec/package.json',
             'extension/node_modules/temporal-utils/package.json', 'extension/local-run.js', 'extension/local-trace.js', 'extension/local-debug-vars.js', 'extension/local-debug-adapter.js',

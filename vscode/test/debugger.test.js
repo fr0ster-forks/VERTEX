@@ -10,7 +10,7 @@ const URL_MAIN = "/sap/bc/adt/programs/programs/z_calc/source/main";
 function fakeDumps(entries = []) {
   const list = entries.slice();
   const probe = { async dumps() { return { dumps: list.slice() }; } };
-  probe.push = d => list.push(Object.assign({ author: "SYCHOV", type: "text",
+  probe.push = d => list.push(Object.assign({ author: "DEVELOPER", type: "text",
     categories: [{ term: "SYNTAX_ERROR", label: "ABAP runtime error" }], links: [{ href: "/sap/bc/adt/runtime/dump/1" }] }, d));
   return probe;
 }
@@ -34,7 +34,7 @@ function fakeSap({ stops = [], conflict = false, probe = fakeDumps(), dumpOnEnd 
       });
     },
     async debuggerListeners() {
-      if (conflict) { const e = new Error("conflict"); e.type = "conflictDetected"; e.properties = { conflictText: "Eclipse of SYCHOV" }; throw e; }
+      if (conflict) { const e = new Error("conflict"); e.type = "conflictDetected"; e.properties = { conflictText: "Eclipse of DEVELOPER" }; throw e; }
     },
     async debuggerListen() {
       if (!delivered && stops.length) { delivered = true; return hit; }
@@ -133,7 +133,7 @@ function fakeSap({ stops = [], conflict = false, probe = fakeDumps(), dumpOnEnd 
   const dbg = create({
     ideId: "IDE", terminalId: "TERM",
     openUrl: async url => opened.push(url),
-    connect: async () => ({ system: { name: "QAS", url: "https://sap.example:44300", client: "100" }, user: "SYCHOV",
+    connect: async () => ({ system: { name: "QAS", url: "https://sap.example:44300", client: "100" }, user: "DEVELOPER",
       listener, probe, open: async () => session })
   });
   return { dbg, calls, sent, opened, scopedSent, probe };
@@ -217,7 +217,7 @@ test("a line SAP refuses is reported and not kept", async () => {
 
 test("another debugger listening is not taken over silently", async () => {
   const { dbg } = fakeSap({ conflict: true });
-  await assert.rejects(dbg.setBreakpoint({ name: "Z_CALC", line: 45 }), /Another debugger already listens for SYCHOV: Eclipse of SYCHOV/);
+  await assert.rejects(dbg.setBreakpoint({ name: "Z_CALC", line: 45 }), /Another debugger already listens for DEVELOPER: Eclipse of DEVELOPER/);
 });
 
 test("log breakpoints record and run on; a stop breakpoint waits; the end is reported", async () => {
@@ -261,7 +261,7 @@ test("a step that kills the run says whether it finished or dumped, and only for
   const before = fakeDumps([
     // Already in ST22 when the run starts: this user's history, and somebody
     // else's dump of the same minute. Neither belongs to the run.
-    { id: "old", author: "SYCHOV", categories: [{ term: "MESSAGE_TYPE_X", label: "ABAP runtime error" }] },
+    { id: "old", author: "DEVELOPER", categories: [{ term: "MESSAGE_TYPE_X", label: "ABAP runtime error" }] },
     { id: "theirs", author: "OTHER", categories: [{ term: "SYNTAX_ERROR", label: "ABAP runtime error" }] }
   ]);
   const { dbg } = fakeSap({
@@ -271,7 +271,7 @@ test("a step that kills the run says whether it finished or dumped, and only for
       // The feed writes its summary as HTML, with SAP's own runtime-viewer
       // link inside it: the sentence is what a reader wants, the link is not.
       text: "<p>Syntax error in program ZCL_CALC_DATA_PROVIDER====CP.</p>"
-        + "<p><a class=\"showInRuntimeViewerLink\" href=\"adt://ALC/sap/bc/adt/runtime/dumps/1\">Show in Runtime Error Viewer</a></p>",
+        + "<p><a class=\"showInRuntimeViewerLink\" href=\"adt://A4H/sap/bc/adt/runtime/dumps/1\">Show in Runtime Error Viewer</a></p>",
       categories: [{ term: "SYNTAX_ERROR", label: "ABAP runtime error" }] }
   });
   await dbg.setBreakpoint({ name: "Z_CALC", line: 45 });
@@ -291,7 +291,7 @@ test("a step that kills the run says whether it finished or dumped, and only for
   // The markup is taken off, and the link's own label is not read as part of
   // the message; SAP's address for the dump is kept apart from it.
   assert.doesNotMatch(run.dumped[0].text, /<|Runtime Error Viewer/);
-  assert.equal(run.dumped[0].adt, "adt://ALC/sap/bc/adt/runtime/dumps/1");
+  assert.equal(run.dumped[0].adt, "adt://A4H/sap/bc/adt/runtime/dumps/1");
   assert.match(run.note, /did not finish - it dumped/);
   // ST22's own table is read through the ABAP backend, which this fake SAP
   // does not serve. The dump is still reported; only the line it points at is

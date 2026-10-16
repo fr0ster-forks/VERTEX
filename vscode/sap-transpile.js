@@ -42,19 +42,40 @@ function namedObjects(text) {
   return { objects: found, functions: [...functions].filter(customerObject) };
 }
 
-/* Every source of the run, read with read({ object_name, object_type, include }) - ADT's active version. */
-async function collect(read, root, { progress = () => {}, cancelled = () => false } = {}) {
-  const loaded = [], seen = new Set([up(root.name)]), queue = [{ name: up(root.name), type: up(root.type) }];
-  const take = (owner, text) => {
+/* Every source of the run, read with read({ object_name, object_type, include }) - ADT's active version. A customer
+   function module called - or the module run itself - brings its whole function group, read by groups.read(name) and
+   found by groups.of(module) (sap-fugr.js); without them a call is refused. */
+async function collect(read, root, { progress = () => {}, cancelled = () => false, groups = null } = {}) {
+  const loaded = [], seen = new Set(), queue = [];
+  const groupsRead = new Set();
+  const take = (owner, text, inGroup = false) => {
     const named = namedObjects(text);
-    if (named.functions.length) throw new Error(owner + " calls function module " + named.functions.join(", ") +
-      ": function modules are not read for a transpiler run yet.");
-    for (const [name, type] of named.objects) if (!seen.has(name)) { seen.add(name); queue.push({ name, type }); }
+    for (const module of named.functions) {
+      if (seen.has("FUNC:" + module)) continue;
+      if (!groups) throw new Error(owner + " calls function module " + module + ": function modules are not read for this run.");
+      seen.add("FUNC:" + module); queue.push({ name: module, type: "FUNC" });
+    }
+    // A group's own INCLUDEs are read with the group.
+    for (const [name, type] of named.objects) if (!(inGroup && type === "INCL") && !seen.has(name)) { seen.add(name); queue.push({ name, type }); }
   };
+  if (up(root.type) === "FUNC") { seen.add("FUNC:" + up(root.name)); queue.push({ name: up(root.name), type: "FUNC" }); }
+  else { seen.add(up(root.name)); queue.push({ name: up(root.name), type: up(root.type) }); }
   while (queue.length) {
     if (cancelled()) throw new Error("Transpiler run cancelled.");
     const next = queue.shift();
     progress(next.name);
+    if (next.type === "FUNC") {
+      if (!groups) throw new Error("Function module " + next.name + ": function modules are not read for this run.");
+      const group = await groups.of(next.name);
+      if (groupsRead.has(group)) continue;
+      groupsRead.add(group);
+      const read = await groups.read(group);
+      for (const source of read.sources) {
+        loaded.push({ name: group, type: "FUGR", include: source.name, kind: source.kind, text: source.text, signature: source.signature });
+        take(source.name, source.text, true);
+      }
+      continue;
+    }
     let data;
     const asClass = next.type === "REF" ? "CLAS" : next.type;
     try { data = await read({ object_name: next.name, object_type: asClass }); }
@@ -82,12 +103,21 @@ async function collect(read, root, { progress = () => {}, cancelled = () => fals
   return loaded;
 }
 
-/* abapGit's file name of an object: lower case, a namespace's slashes as #. */
+/* abapGit's file name of an object: lower case, a namespace's slashes as #. A function group's part is
+   <group>.fugr.<part>.abap. */
 function fileName(name, type, include = "main") {
   const base = name.toLowerCase().replace(/\//g, "#");
+  if (type === "FUGR") return base + ".fugr." + include.toLowerCase().replace(/\//g, "#") + ".abap";
   if (type === "CLAS") return base + ".clas." + (include === "main" ? "" : CLASS_PARTS[include] + ".") + "abap";
   if (type === "INTF") return base + ".intf.abap";
   return base + ".prog.abap";
+}
+
+/* Where a source read from SAP stands in the folder of a run: a program or include in sap, as SAP holds it; a class
+   part or an interface in src. A step in that file is a step in the SAP object it was read from. */
+function copyPath(folder, source) {
+  return source.type === "PROG" || source.type === "INCL" ? path.join(folder, "sap", fileName(source.name, "PROG"))
+    : path.join(folder, "src", fileName(source.name, source.type, source.include));
 }
 
 const progXml = (name, kind) => `<?xml version="1.0" encoding="utf-8"?>\n<abapGit version="v1.0.0" serializer="LCL_OBJECT_PROG" serializer_version="v1.0.0"><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><PROGDIR><NAME>${name}</NAME><SUBC>${kind}</SUBC></PROGDIR></asx:values></asx:abap></abapGit>\n`;
@@ -141,15 +171,25 @@ function writeProject(system, sources, dictionary = [], folder = path.join(os.tm
   let shown = null;
   for (const source of sources) {
     if (source.type === "PROG" || source.type === "INCL") {
-      const file = path.join(sap, fileName(source.name, "PROG"));
+      const file = copyPath(folder, source);
       fs.writeFileSync(file, source.text);
       texts.set(source.name, source.text);
       if (source.type === "PROG") programs.push(source.name);
       if (!shown) shown = file;
       continue;
     }
-    const file = path.join(src, fileName(source.name, source.type, source.include));
-    fs.writeFileSync(file, source.text);
+    const file = copyPath(folder, source);
+    fs.writeFileSync(file, source.kind === "module" ? require("./sap-fugr").moduleBody(source.text, source.signature) : source.text);
+    written.push(file);
+  }
+  // The DEFAULTs of the modules' optional parameters, which the transpiler leaves unset (sap-fugr applyModuleDefaults).
+  fs.writeFileSync(path.join(folder, "vertex-defaults.json"), JSON.stringify(sources.filter(source => source.kind === "module")
+    .map(source => ({ module: source.include, params: [...source.signature.parts.IMPORTING, ...source.signature.parts.CHANGING]
+      .filter(param => param.default !== undefined).map(param => ({ name: param.name, default: param.default })) }))));
+  // Each function group's XML: its includes and its modules' signatures.
+  for (const group of new Set(sources.filter(source => source.type === "FUGR").map(source => source.name))) {
+    const file = path.join(src, group.toLowerCase().replace(/\//g, "#") + ".fugr.xml");
+    fs.writeFileSync(file, require("./sap-fugr").groupXml(group, sources.filter(source => source.type === "FUGR" && source.name === group)));
     written.push(file);
   }
   const maps = [];
@@ -167,14 +207,16 @@ function writeProject(system, sources, dictionary = [], folder = path.join(os.tm
     fs.writeFileSync(path.join(src, file), xml);
     written.push(path.join(src, file));
   }
-  const core = path.join(__dirname, "vendor", "open-abap-core", "src", "ddic");
-  const inputs = ["src"], filters = written.map(file =>
-    "(?:^|[/\\\\])" + path.basename(file).replace(/[.*+?^${}()|[\]\\#]/g, "\\$&") + "$");
-  if (fs.existsSync(core)) { inputs.push(core); filters.push("(?:^|[/\\\\])[^/\\\\]+\\.(?:dtel|doma)\\.xml$"); }
+  // The whole of open-abap-core goes with every run: SAP's own classes the code names (CX_SY_*, CL_ABAP_CHAR_UTILITIES,
+  // RTTI) and those the runtime raises by itself. It costs a few seconds of transpiling, and no class is left out.
+  const core = path.join(__dirname, "vendor", "open-abap-core", "src");
+  if (!fs.existsSync(core)) throw new Error("The bundled open-abap-core is missing. Reinstall the VS Code extension.");
+  const inputs = ["src", core], filters = written.map(file =>
+    "(?:^|[/\\\\])" + path.basename(file).replace(/[.*+?^${}()|[\]\\#]/g, "\\$&") + "$")
+    .concat("[/\\\\]open-abap-core[/\\\\]src[/\\\\]");
   // Data elements such as CHAR12 that open-abap-core lacks, made as a local file's run makes them.
   const { localDdicAliases, coreDdicNames } = require("./local-run");
-  const aliases = localDdicAliases(written, path.join(folder, "ddic"),
-    fs.existsSync(core) ? coreDdicNames(path.dirname(path.dirname(core))) : new Set());
+  const aliases = localDdicAliases(written, path.join(folder, "ddic"), coreDdicNames(path.dirname(core)));
   if (aliases.length) {
     inputs.push("ddic");
     filters.push(...aliases.map(name => "(?:^|[/\\\\])" + name.toLowerCase() + "\\.dtel\\.xml$"));
@@ -244,4 +286,4 @@ function remapIncludes(root, outputRoot) {
   }
 }
 
-module.exports = { namedObjects, collect, fileName, expandIncludes, writeProject, remapIncludes };
+module.exports = { namedObjects, collect, fileName, copyPath, expandIncludes, writeProject, remapIncludes };

@@ -134,7 +134,7 @@ test("a review plan opens the request, its review, then the object in it", () =>
   assert.deepEqual(calls[1], ["review", "DEVK900578", "", "", ""]);
   assert.equal(context.mode, "R");
   answer({ request: "devk900578", table: true, saved: true, saved_at: "20260913150000",
-           saved_by: "SYCHOV", reviewers: [], history: [],
+           saved_by: "DEVELOPER", reviewers: [], history: [],
            objects: [{ objtype: "METH", obj_name: METHOD, display_name: "ZCL_AVE_POPUP=>BUILD_LAYOUT",
                        hunks: 1, inserted: 1, deleted: 0, modified: 0, approved: 0, declined: 0, open: 1 }] });
   assert.deepEqual(calls[2], ["review", "DEVK900578", "", METHOD, "METH"]);

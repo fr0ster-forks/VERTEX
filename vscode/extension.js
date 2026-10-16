@@ -905,17 +905,32 @@ function activate(context) {
     // Opened to run, not to analyse: until a breakpoint is set the panel is the selection screen and the output.
     runOnly: dockedDebugSource.local === true && dockedDebugSource.runOnly === true,
     // Opened by the Run command, not by Clear: the program runs at once.
-    autoRun: dockedDebugSource.local === true && dockedDebugSource.autoRun === true,
+    autoRun: dockedDebugSource.local === true && dockedDebugSource.autoRun === true && !localDebugAdapter?.hasTrace(),
+    // Opened again while its run is alive: the page takes the run's record instead of starting one.
+    restore: dockedDebugSource.local === true && !!localDebugAdapter?.hasTrace(),
     scenarios: dockedDebugSource.local ? require("./local-run").scenariosFor(dockedDebugSource.document) : [],
     // A method or function module under the cursor: the screen of its parameters, or why it cannot be called.
     entry: dockedDebugSource.local ? localEntry(dockedDebugSource) : null,
-    parameters: dockedDebugSource.local ? require("./local-run").parametersFor(dockedDebugSource.document) : []
+    parameters: dockedDebugSource.local ? require("./local-run").parametersFor(dockedDebugSource.document) : [],
+    // The whole selection screen with its texts, which the panel draws.
+    screen: dockedDebugSource.local ? require("./local-run").screenFor(dockedDebugSource.document) : null
+  };
+  // A transpiler run of an SAP program works on copies of its sources; the reader works in the SAP tabs. These turn one
+  // into the other: a copy's path and its tab's address. A local file is its own path.
+  const sapCopy = (by, value) => (dockedDebugSource?.sapCopies?.copies || []).find(copy =>
+    by === "uri" ? copy.uri === value : copy.path.toLowerCase() === String(value || "").toLowerCase());
+  const runPathOf = uri => uri?.scheme === "file" ? uri.fsPath : sapCopy("uri", uri?.toString())?.path || null;
+  const runUriOf = file => { const copy = sapCopy("path", file); return copy ? vscode.Uri.parse(copy.uri) : vscode.Uri.file(file); };
+  const runDocument = async file => {
+    const copy = sapCopy("path", file);
+    return copy ? pinTo(dockedDebugSource.sapCopies.system, () => sapCode.sourceOf(copy.object))
+      : vscode.workspace.openTextDocument(vscode.Uri.file(file));
   };
   const postDockedPicture = () => {
     if (dockedDebugSource?.local && localDebugAdapter) {
       const frame = localDebugAdapter.picture().stopped?.frames?.[0];
       const editor = (vscode.window.visibleTextEditors || []).find(item =>
-        frame && item.document.uri.fsPath?.toLowerCase() === String(frame.url || "").toLowerCase());
+        frame && runPathOf(item.document.uri)?.toLowerCase() === String(frame.url || "").toLowerCase());
       if (localHistoryEditor && localHistoryEditor !== editor) clearLocalHistoryMark();
       if (editor && frame?.line > 0 && frame.line <= editor.document.lineCount) {
         editor.setDecorations(localHistoryMark, [editor.document.lineAt(frame.line - 1).range]);
@@ -1030,7 +1045,7 @@ function activate(context) {
             const point = JSON.parse(String((message.args || [])[0] || "{}"));
             let editor = null;
             if (dockedDebugSource?.local) {
-              editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(String(point.url || ""))), { preview: false });
+              editor = await vscode.window.showTextDocument(await runDocument(String(point.url || "")), { preview: false });
             } else {
               await sapCode.revealFrame(point);
               const name = String(point.program || "").toLowerCase();
@@ -1052,7 +1067,7 @@ function activate(context) {
             if (dockedDebugSource?.local) {
               const source = String(frame.url || "");
               if (source && /\.abap$/i.test(source)) {
-                const document = await vscode.workspace.openTextDocument(vscode.Uri.file(source));
+                const document = await runDocument(source);
                 const line = Math.max(0, Math.min(document.lineCount - 1, Number(frame.line || 1) - 1));
                 const editor = await vscode.window.showTextDocument(document, { preserveFocus: true, preview: false });
                 const position = new vscode.Position(line, 0);
@@ -1165,7 +1180,7 @@ function activate(context) {
     localDebugAdapter = source.local ? require("./local-debug-adapter").create(vscode, source.document,
       selection => require("./local-run").launch(vscode, false, { document: source.document, selection, live: true, entryLine: source.entryLine }),
       postDockedPicture, () => require("./local-run").runScope(vscode, source.document),
-      { entry: () => localEntry(source), variants: context.workspaceState }) : null;
+      { entry: () => localEntry(source), variants: context.workspaceState, pathOf: runPathOf, uriOf: runUriOf }) : null;
     if (source.local && latestLocalVariables && dockedDebugView) {
       setTimeout(() => void dockedDebugView?.webview.postMessage({ type: "localVariables", state: latestLocalVariables }), 150);
     }
@@ -1182,18 +1197,54 @@ function activate(context) {
   // An SAP program run with the ABAP transpiler: its sources are read into a folder of their own, and Visual Debug turns
   // to the transpiler's panel on the program written there, running at once.
   const runSapTranspiler = async shown => {
-    if (!shown || String(shown.object_type).toUpperCase() !== "PROG") throw new Error("The transpiler runs an SAP program; open one first.");
+    const kind = String(shown?.object_type || "").toUpperCase();
+    if (!["PROG", "CLAS", "FUNC"].includes(kind)) throw new Error("The transpiler runs an SAP program, a method of an SAP class or a function module; open one first.");
+    // A class runs one method: the one the cursor stands in, in the tab of the class's own source.
+    let entryLine = 1;
+    if (kind === "CLAS") {
+      const object = { object_name: shown.object_name, object_type: "CLAS", include: "main" };
+      const tab = await pinTo(shown.system_name, () => sapCode.sourceUri(object)), editor = vscode.window.activeTextEditor;
+      if (!editor || editor.document.uri.toString() !== tab)
+        throw new Error("Put the cursor in a method of " + shown.object_name + ", in the tab of its class source.");
+      entryLine = editor.selection.active.line + 1;
+    }
+    // A function module runs whole: from the cursor in its tab, else from its first line.
+    if (kind === "FUNC") {
+      const tab = await pinTo(shown.system_name, () => sapCode.sourceUri({ object_name: shown.object_name, object_type: "FUNC", include: "main" }));
+      const editor = vscode.window.activeTextEditor;
+      entryLine = editor && editor.document.uri.toString() === tab ? editor.selection.active.line + 1 : 1;
+    }
     const read = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "VERTEX: reading " + shown.object_name + " for the transpiler" },
       report => pinTo(shown.system_name, () => sapCode.transpileSources(shown, name => report.report({ message: name }))));
-    const file = require("./sap-transpile").writeProject(shown.system_name, read.sources, read.dictionary);
-    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
-    openVisualDebug(true, { ...require("./local-analysis").sourceObject(document), local: true, document, entryLine: 1, autoRun: true });
+    const transpile = require("./sap-transpile"), file = transpile.writeProject(shown.system_name, read.sources, read.dictionary);
+    // The programs' texts, for the selection screen the panel draws (local-run screenFor).
+    fs.writeFileSync(path.join(path.dirname(path.dirname(file)), "vertex-texts.json"), JSON.stringify(read.texts || {}));
+    // Each copy and the SAP tab it was read from: the run steps, marks and stops in the tab, not in the copy.
+    const folder = path.dirname(path.dirname(file)), copies = [];
+    for (const source of read.sources) {
+      // A function group's module is its FUNC tab; its main program and includes have no VERTEX tab and stay copies.
+      if (source.type === "FUGR" && source.kind !== "module") continue;
+      const object = source.type === "FUGR" ? { object_name: source.include, object_type: "FUNC", include: "main" }
+        : { object_name: source.name, object_type: source.type, include: source.include };
+      copies.push({ path: transpile.copyPath(folder, source), object,
+        uri: await pinTo(shown.system_name, () => sapCode.sourceUri(object)) });
+    }
+    const module = kind === "FUNC" && read.sources.find(source => source.kind === "module" && source.include === String(shown.object_name).toUpperCase());
+    if (kind === "FUNC" && !module) throw new Error(shown.object_name + " was not among the modules read of its function group.");
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(module ? transpile.copyPath(folder, module) : file));
+    if (kind === "FUNC") entryLine = Math.max(entryLine, module.signature.firstLine);
+    if (kind !== "PROG" && !require("./local-run").entryScreen(document, entryLine))
+      throw new Error("Line " + entryLine + " of " + shown.object_name + " is in no method: put the cursor in the method to run.");
+    openVisualDebug(true, { ...require("./local-analysis").sourceObject(document), local: true, document, entryLine, autoRun: true,
+      sapCopies: { system: shown.system_name, copies } });
   };
   // F5-F8 are deliberately scoped in package.json to a VERTEX ABAP editor.
   // A stopped program is shared with Visual Debug, so stepping here redraws
   // the already open visual tab without a second debugger session.
   const stepFromSource = async kind => {
-    if (require("./local-analysis").isLocalAbap(vscode.window.activeTextEditor?.document)) {
+    // A step from a local file, or from the SAP tab of a source the transpiler run took a copy of.
+    const fromRun = dockedDebugSource?.sapCopies && runPathOf(vscode.window.activeTextEditor?.document?.uri);
+    if (require("./local-analysis").isLocalAbap(vscode.window.activeTextEditor?.document) || fromRun) {
       if (localDebugAdapter?.hasTrace() && dockedDebugView) {
         await dockedDebugView.webview.postMessage({ type: "historyStep", kind });
         return;

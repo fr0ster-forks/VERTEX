@@ -152,5 +152,6 @@ test("a generated file of several sources records each one's lines with its own 
   assert.equal(require("../local-trace").instrumentProject(dir, false), 1);
   const code = fs.readFileSync(path.join(dir, "zfg.fugr.mjs"), "utf8");
   assert.doesNotMatch(code, /lzfgtop\.abap",1/, "FUNCTION-POOL is no step");
-  assert.match(code, /z_add\.abap",3,\{[^}]*"iv_a"[^}]*\},"ZFG","Z_ADD"\);\nabap\.add\(\);/);
+  // The record stands on the statement's own line, so the generated lines keep their numbers.
+  assert.match(code, /z_add\.abap",3,\{"iv_a":[^\n]*\},"ZFG","Z_ADD"\); abap\.add\(\);/);
 });

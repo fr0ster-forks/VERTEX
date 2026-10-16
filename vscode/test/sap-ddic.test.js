@@ -86,3 +86,27 @@ test("a program typed by the dictionary transpiles and runs", async () => {
     assert.match(result.output, /^ABCDEFG\s*DEU\s*1\b/);
   } finally { fs.rmSync(folder, { recursive: true, force: true }); }
 });
+
+test("a step records the SY fields and the SELECTs of the statement before it", async () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-sap-sql-"));
+  const run = require("../local-run");
+  const asked = [];
+  run.setSelectorQuery(async sql => { asked.push(sql); return { values: [{ ID: "A1", WEIGHT: "2.000", COUNTRY: "DEU" }] }; });
+  try {
+    const objects = await readDictionary(queryOf(dictionary).query, new Set(["ZSHIP"]));
+    const file = writeProject("TEST", [{ name: "ZSQL", type: "PROG", include: "main", text: "REPORT zsql.\n" +
+      "DATA lt TYPE STANDARD TABLE OF zship WITH EMPTY KEY.\nDATA lv TYPE i.\nSELECT * FROM zship INTO TABLE @lt.\n" +
+      "lv = lines( lt ).\nREAD TABLE lt TRANSPORTING NO FIELDS WITH KEY id = 'ZZ'.\nlv = 2.\nWRITE / lv.\n" }], objects, folder);
+    const document = { uri: { scheme: "file", fsPath: file }, getText: () => fs.readFileSync(file, "utf8") };
+    let log = "";
+    const vscode = { workspace: { getWorkspaceFolder: () => undefined },
+      window: { createOutputChannel: () => ({ append: t => { log += t; }, appendLine: t => { log += t + "\n"; }, hide() {}, show() {} }) } };
+    const result = await launch(vscode, false, { document, selection: {}, trace: true })
+      .catch(error => { throw new Error(error.message + "\n" + log); });
+    assert.equal(asked.length, 1);
+    const after = result.records.find(r => r.line === 5);
+    assert.ok(after && after.sql && after.sql[0].rows === 1 && /zship/i.test(after.sql[0].select), "the SELECT shows at the next step");
+    const read = result.records.find(r => r.line === 7);
+    assert.equal(read && read.sy && read.sy.SUBRC, 4, "READ TABLE without a hit set SY-SUBRC 4");
+  } finally { run.setSelectorQuery(undefined); fs.rmSync(folder, { recursive: true, force: true }); }
+});

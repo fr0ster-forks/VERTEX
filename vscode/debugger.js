@@ -32,7 +32,7 @@ const DUMPS_SETTLE = 1500;     // SAP formats the short dump after the program i
 const STEPS = { over: "stepOver", into: "stepInto", out: "stepReturn", continue: "stepContinue" };
 
 /* A step and the stack after it in one request: ADT's debugger batch, a
-   multipart POST of both. Measured on ALC (2026-10-14): about 62 ms against
+   multipart POST of both. Measured on A4H (2026-10-14): about 62 ms against
    110 for the two apart. Each part needs its own Accept, or SAP answers it
    400. The answers are read as abap-adt-api reads the separate requests. */
 const { fullParse, xmlNodeAttr, xmlArray, encodeEntity, numberParseOptions, toInt } = require("abap-adt-api/build/utilities");
@@ -50,7 +50,7 @@ function variablesBody(names) {
 }
 const CHILDREN_TYPE = "application/vnd.sap.as+xml;charset=UTF-8;dataname=com.sap.adt.debugger.ChildVariables";
 /* Every scope SAP may have at a stop, with @ROOT among them: its answer says which scopes this stop really has, and SAP
-   answers nothing for one it does not have. Seen on ALC (2026-10-14): @ROOT -> @GLOBALS in a report event; ME,
+   answers nothing for one it does not have. Seen on A4H (2026-10-14): @ROOT -> @GLOBALS in a report event; ME,
    @PARAMETERS, @LOCALS in a method; one request of all four took 55-80 ms. */
 const SCOPES = ["@ROOT", "@GLOBALS", "@PARAMETERS", "@LOCALS"];
 function childrenBody(parents) {

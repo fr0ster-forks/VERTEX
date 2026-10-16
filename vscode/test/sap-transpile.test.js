@@ -84,3 +84,59 @@ test("the collected program runs with the transpiler, stepping into its include 
     assert.ok(at("zcl_price.clas.locals_imp.abap", 3), "LCL_HELPER=>BONUS body");
   } finally { fs.rmSync(folder, { recursive: true, force: true }); }
 });
+
+test("a method of an SAP class runs from the folder written for it, its result in the output", async () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-sap-method-"));
+  try {
+    const sources = await collect(read, { name: "ZCL_PRICE", type: "CLAS" });
+    const file = writeProject("TEST", sources, [], folder);
+    assert.equal(path.relative(folder, file), path.join("src", "zcl_price.clas.abap"));
+    const document = { uri: { scheme: "file", fsPath: file }, getText: () => fs.readFileSync(file, "utf8"), isDirty: false };
+    assert.ok(require("../local-run").entryScreen(document, 8), "line 8 is in METHOD price");
+    let log = "";
+    const vscode = { workspace: { getWorkspaceFolder: () => undefined },
+      window: { createOutputChannel: () => ({ append: t => { log += t; }, appendLine: t => { log += t + "\n"; }, hide() {}, show() {} }) } };
+    const result = await launch(vscode, false, { document, entryLine: 8, trace: true,
+      selection: { $entry: { parameters: { N: "4" } } } }).catch(error => { throw new Error(error.message + "\n" + log); });
+    assert.match(result.output, /41/);
+    assert.ok(result.records.some(r => path.basename(r.file) === "zcl_price.clas.locals_imp.abap" && r.line === 3), "the method's call recorded");
+  } finally { fs.rmSync(folder, { recursive: true, force: true }); }
+});
+
+test("SAP's own classes come from the bundled open-abap-core, those the runtime raises too, and are not recorded", async () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-sap-core-"));
+  try {
+    const file = writeProject("TEST", [{ name: "ZSTD", type: "PROG", include: "main", text: "REPORT zstd.\n" +
+      "DATA lv_n TYPE i.\nDATA lv_text TYPE string.\nDATA lx TYPE REF TO cx_sy_zerodivide.\nTRY.\n    lv_n = 1 / lv_n.\n" +
+      "  CATCH cx_sy_zerodivide INTO lx.\n" +
+      "    lv_text = lx->get_text( ).\nENDTRY.\nIF strlen( cl_abap_char_utilities=>newline ) = 1.\n  WRITE / 'newline'.\nENDIF.\n" +
+      "WRITE / lv_text.\n" }], [], folder);
+    const document = { uri: { scheme: "file", fsPath: file }, getText: () => fs.readFileSync(file, "utf8") };
+    let log = "";
+    const vscode = { workspace: { getWorkspaceFolder: () => undefined },
+      window: { createOutputChannel: () => ({ append: t => { log += t; }, appendLine: t => { log += t + "\n"; }, hide() {}, show() {} }) } };
+    const result = await launch(vscode, false, { document, selection: {}, trace: true })
+      .catch(error => { throw new Error(error.message + "\n" + log); });
+    assert.match(result.output, /newline/);
+    assert.ok(result.records.every(r => !/open-abap-core/i.test(r.file)), "no step inside the library");
+  } finally { fs.rmSync(folder, { recursive: true, force: true }); }
+});
+
+test("a run that fails says where in the ABAP, not where in the generated JavaScript", async () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-sap-fail-"));
+  try {
+    const sources = [{ name: "ZFAIL", type: "PROG", include: "main", text: "REPORT zfail.\nDATA lo TYPE REF TO zcl_boom.\n" +
+      "lo = NEW zcl_boom( ).\nlo->go( ).\n" },
+      { name: "ZCL_BOOM", type: "CLAS", include: "main", text: "CLASS zcl_boom DEFINITION PUBLIC.\n  PUBLIC SECTION.\n" +
+        "    METHODS go.\nENDCLASS.\nCLASS zcl_boom IMPLEMENTATION.\n  METHOD go.\n    DATA lo TYPE REF TO zcl_boom.\n" +
+        "    lo->go( ).\n  ENDMETHOD.\nENDCLASS.\n" }];
+    const file = writeProject("TEST", sources, [], folder);
+    const document = { uri: { scheme: "file", fsPath: file }, getText: () => fs.readFileSync(file, "utf8") };
+    const vscode = { workspace: { getWorkspaceFolder: () => undefined },
+      window: { createOutputChannel: () => ({ append() {}, appendLine() {}, hide() {}, show() {} }) } };
+    await assert.rejects(launch(vscode, false, { document, selection: {}, trace: true }), error => {
+      assert.match(error.message, /\n  at ZCL_BOOM line 8 \(zcl_boom\.clas\.abap\)\n  called from ZFAIL line 4 \(zfail\.prog\.abap\)/);
+      return true;
+    });
+  } finally { fs.rmSync(folder, { recursive: true, force: true }); }
+});

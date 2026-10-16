@@ -2407,14 +2407,32 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       if (open && (open.document.isDirty || revision(open.document.getText()) !== revision(first.source))) {
         throw new Error(first.object_name + ': save and activate the source first - the transpiler runs the active version.');
       }
-      const sources = await require('./sap-transpile').collect(read, { name: first.object_name, type: first.object_type }, { progress });
+      // A function module called brings its function group, read through ADT and TFDIR.
+      const fugr = require('./sap-fugr'), query = (sql, rows) => repo.api.query(sql, rows);
+      const groups = { of: module => fugr.groupOf(query, module),
+        read: group => fugr.readFunctionGroup({ sourceAt: repo.api.sourceAt, query }, group, progress) };
+      const sources = await require('./sap-transpile').collect(read, { name: first.object_name, type: first.object_type }, { progress, groups });
       // The dictionary objects the sources use, beside open-abap-core's and the classes read.
       const ddic = require('./sap-ddic'), named = new Set();
       for (const source of sources) for (const name of ddic.dictionaryNames(source.text)) named.add(name);
       progress('dictionary');
       const known = new Set([...ddic.coreNames(), ...sources.map(source => source.name)]);
-      return { system: repo.label, sources, dictionary: await ddic.readDictionary((sql, rows) => repo.api.query(sql, rows), named, known) };
+      // The selection texts and text symbols of each program, for its selection screen; why they could not be read, if so.
+      const texts = {};
+      for (const source of sources.filter(source => source.type === 'PROG')) {
+        const base = '/sap/bc/adt/textelements/programs/' + encodeURIComponent(source.name.toLowerCase()) + '/source/';
+        try { texts[source.name] = require('./selection-screen').adtTexts(await repo.api.sourceAt(base + 'selections'), await repo.api.sourceAt(base + 'symbols')); }
+        catch (error) { texts[source.name] = { selections: {}, symbols: {}, error: error.message }; }
+      }
+      return { system: repo.label, sources, texts, dictionary: await ddic.readDictionary((sql, rows) => repo.api.query(sql, rows), named, known) };
     },
+    // The address of an object's VERTEX tab, open or not, as sourceDocument makes it; and that tab's document.
+    sourceUri: async ({ object_name, object_type, include = 'main' }) => {
+      const system = require('crypto').createHash('sha256').update((await repository()).key).digest('hex').slice(0, 16);
+      return vscode.Uri.parse('vertex-sap:/' + system + '/' + object_type + '/' + encodeURIComponent(object_name)
+        + (include === 'main' ? '' : '.' + include) + '.abap').toString();
+    },
+    sourceOf: async args => (await sourceDocument(await repository(), args)).document,
     schemas, onEvent: events.on, runUnitTests: unitTestsOf, runAtc: atcOf, attachDebugger, revealFrame, originPath, forgetOrigin: () => { lastOriginGraph = null; }, openToolSource, originPoints, originOpen, originVariables, documentObject,
     editorContext() {
       const editor = vscode.window.activeTextEditor;

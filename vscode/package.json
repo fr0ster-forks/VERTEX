@@ -418,7 +418,7 @@
         },
         {
           "command": "vertex.runTranspiler",
-          "when": "editorLangId == abap && (resourceScheme == file || resourceScheme == vertex-sap && resourcePath =~ /^\/[^/]+\/PROG\//)",
+          "when": "editorLangId == abap && (resourceScheme == file || resourceScheme == vertex-sap && resourcePath =~ /^\/[^/]+\/(PROG|CLAS|FUNC)\//)",
           "group": "navigation@8"
         },
         {

@@ -80,9 +80,9 @@ test("Versions finds requests by user on a resource of their own", () => {
   vm.runInContext(fs.readFileSync(path.join(__dirname, "../extension.js"), "utf8"), context);
   const build = vm.runInContext("SERVICES.versions.requests", context);
   assert.equal(build(["", ""]), "/sap/bc/adt/vertex/requests");
-  assert.equal(build(["sychov", ""]), "/sap/bc/adt/vertex/requests?user=SYCHOV");
+  assert.equal(build(["developer", ""]), "/sap/bc/adt/vertex/requests?user=DEVELOPER");
   assert.equal(build(["", "true"]), "/sap/bc/adt/vertex/requests?released=true");
-  assert.equal(build(["sychov", "true"]), "/sap/bc/adt/vertex/requests?user=SYCHOV&released=true");
+  assert.equal(build(["developer", "true"]), "/sap/bc/adt/vertex/requests?user=DEVELOPER&released=true");
   assert.match(vm.runInContext("SHIM", context), /window\.sdeRequests = send\('requests'\);/);
   // Every window asks the same resource what the system has.
   assert.match(vm.runInContext("SHIM", context), /window\.sdeAbout = send\('about'\);/);

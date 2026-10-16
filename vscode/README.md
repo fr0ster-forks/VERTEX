@@ -65,16 +65,28 @@ For calculation code that can run without SAP services, use the transpiler and
 runtime bundled with VERTEX. Open a saved local `.abap` file and choose
 **VERTEX: Run with ABAP Transpiler**, which runs it at once - the selection screen first, then to the first
 breakpoint, or to the end with the output when there is none - or **VERTEX: Visual Analysis / Debug**, which opens the
-panel without running. An SAP program runs the same way from **VERTEX: Run with ABAP Transpiler** in the editor's context menu of its tab, or
+panel without running. An SAP program, or the method of an SAP class the cursor stands in, runs the same way from **VERTEX: Run with ABAP
+Transpiler** in the editor's context menu of its tab, or
 from **Run with ABAP Transpiler** beside Run in SAP in its Visual Debug panel, which reads it, its includes and the classes and interfaces it uses from SAP first. The panel is shared with SAP runs;
 for local files its title is **Visual Transpiler Debug** and its Run button is **Run with ABAP Transpiler**. Run
-asks the selection screen in a window of its own - the radio buttons, the other PARAMETERS (a value field with its
-DEFAULT, AS CHECKBOX as a checkbox; a value is upper-cased as SAP does unless LOWER CASE), Execute (F8) - so it takes
-no room in the panel. SELECT-OPTIONS are not asked. The panel counts the breakpoints of its own object and the sources it uses - a point in another object's file
+asks the selection screen in a window of its own, laid out as SAP lays out screen 1000: blocks with their frame and
+title, lines of several elements, comments, SKIP and ULINE; radio buttons, checkboxes and value fields with their
+DEFAULT (a value is upper-cased as SAP does unless LOWER CASE, and its LENGTH holds); SELECT-OPTIONS as rows of sign,
+option, low and high, with + row unless NO-EXTENSION and without high under NO INTERVALS. Each element is named by
+its selection text - from the abapGit text pool beside a local file, from SAP for an SAP program; if SAP's texts cannot
+be read the window says so and shows the technical names. A field marked OBLIGATORY must be filled before Execute (F8)
+runs. A pushbutton, a tabbed block or a function key is named in the window as not drawn, and another screen
+(BEGIN OF SCREEN) is not asked. The window takes no room in the panel. The panel counts the breakpoints of its own object and the sources it uses - a point in another object's file
 neither shows nor stops it, and Clear all leaves it; **All BP** in the Breakpoints header counts every ABAP breakpoint
 in VS Code instead. Opened by Run with ABAP Transpiler and with none of those set, the panel is a run: the Run button and the
 Output, nothing else; set a breakpoint and it is the debugger, and back when the last one is removed. A transpiler run
-always records every step with its values: it is fast enough that there is no record switch.
+always records every step with its values: it is fast enough that there is no record switch. Beside the routine's
+variables a step shows **SY** - the fields the run has set (SY-SUBRC, SY-TABIX, SY-INDEX, SY-DBCNT, SY-FDPOS) - and
+**SQL**, each SELECT the statement before it ran with the rows it brought or why it failed. A run that fails says
+where in the ABAP: the error, then the object and line it happened on and each call that led there; Node's own text
+is in the VERTEX Local ABAP channel. A run stays alive while
+the panel is closed: opened again, the panel shows it as it stands - the steps, where it stopped, the output - and
+**Clear** starts a new one.
 
 **A method or a function module runs too.** With the cursor inside a method of a local class
 (`zcl_x.clas.abap`) or inside a function module of a local function group (`zfg.fugr.z_fm.abap`, abapGit
@@ -1076,17 +1088,27 @@ debugger the assistant drives - one session, not a second one:
 - **Run in SAP** (first in the header, with the SAP execute clock) starts the program in WebGUI, as `debug_run` does. A program runs itself. For a class
   or a function module, name the program that calls it in the field - or leave it empty for the
   object's test screen, SE24 or SE37 with the name filled in, and start the test there with F8.
-- **Run with ABAP Transpiler** (beside Run in SAP, for a program) runs the SAP program on your machine instead. It reads
+- **Run with ABAP Transpiler** (beside Run in SAP, for a program, a class or a function module) runs the SAP program on
+  your machine instead - or, for a class, the method the cursor stands in, in the tab of the class's source; or the
+  function module: the panel asks the parameters, with their DEFAULTs, as for a local one (see
+  [Local ABAP execution](#local-abap-execution)). A customer function module the code calls brings its whole function
+  group - main program, includes and every module - and a step goes into the module's VERTEX tab; the group's other
+  includes open as copies, having no tab of their own. It reads
   the program's active version, its includes and every customer class and interface it names - their local definitions
   and implementations too, not their test classes - into a temporary folder, and the panel turns to Visual Transpiler
   Debug on it (see [Local ABAP execution](#local-abap-execution)); SELECTs still read SAP. The dictionary types the code
   uses - tables and structures, data elements, domains and table types, and what they are built of - are read from
   SAP's DD tables too. A step into an include stands in the include, as in SAP, and a breakpoint can be set there. An
   open tab of the program with changes not activated stops it. So does anything that cannot be read, a dictionary type
-  whose definition names one the dictionary does not have, an `INCLUDE` sharing its line with another statement, and,
-  for now, a call of a customer function module: the reason names the object. A name the dictionary does not have
+  whose definition names one the dictionary does not have, an `INCLUDE` sharing its line with another statement, and a
+  function module parameter whose DEFAULT is no literal: the reason names the object. What the transpiler itself cannot
+  run, `FORMAT` for one, stops the run at its line. A name the dictionary does not have
   either is left to the transpiler, which names what it cannot resolve.
-  Breakpoints and steps then belong to the copies in the temporary folder, not to the SAP source.
+  SAP's own classes the code uses - `CX_SY_*`, `CL_ABAP_CHAR_UTILITIES`, RTTI and the rest of open-abap-core,
+  bundled with VERTEX - run with it; they are not recorded and a step does not go into them.
+  The run works on those copies, but you stay in the SAP tabs: a step opens and marks the program, include or class
+  in its VERTEX tab, F5-F8 there step the run, and a breakpoint set in a tab stops the run - the same breakpoint is
+  set in SAP for Run in SAP too.
 - **Detach** lets the program go and stops listening, but keeps the breakpoints in the list:
   **Run in SAP** sets them in SAP again and listens before it starts the next run.
 - **Exit program** ends the stopped program where it stands, as the debugger's Exit does; the
