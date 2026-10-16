@@ -61,10 +61,15 @@ decided, and what still needs measuring. Not user documentation; it goes once th
   - The broker keeps the refresh token in its provider's memory, and it joins renewals only within
     one process.
   - `refreshThenLogin()` falls back to a login on any refresh failure, including `invalid_grant`.
-  - Recommended: a per-destination lock across processes (a lock file under the shared
-    `globalStorageUri`) covering re-read → renew or log in → persist. Use a freshly seeded provider
-    inside the lock.
-  - A renewal-lock port in the auth stack would be the cleaner long-term fix.
+  - **Decided:** no lock goes into the auth stack, not even a port. VERTEX coordinates outside the
+    broker, under its own per-destination lock across processes (a lock file under the shared
+    `globalStorageUri`):
+    1. re-read the stored envelope;
+    2. if another window already renewed, take its token;
+    3. otherwise build a fresh broker and provider, so they are seeded from the store, renew,
+       persist, and only then release the lock.
+  - VERTEX supplies its own `renewal` strategy, so a failed refresh does not open a login in every
+    window. The login itself runs under the same lock, in one window.
   - Only the token envelope is shared between windows. SAP cookies and CSRF stay per window and
     per session.
 - **Runtime:** broker, providers and stores need Node 22+. VERTEX declares VS Code `^1.85`, so
