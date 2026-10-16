@@ -61,15 +61,53 @@ function missingObligatory(){var missing=[];document.querySelectorAll('#local-se
 /* A method's or a function module's screen: its parameters - a field, a structure's fields, a table as a grid - and its
    named variants. The page gives debug(command, args) for the variants and failed(error) to say what went wrong. */
 var entryEditors=null,entryKey="",entryBlocked="";
-function entryEditor(p){
+/* A structure's fields as a grid, folded: closed at first, its summary saying how many fields there are and how many are filled.
+   onChange(summary) is told the filled fields as NAME=value, for a table row's own summary. */
+function structureEditor(p,onChange){
+  var shape=p.shape,box=document.createElement("table");box.className="entry-grid";var parts={};
+  var fold=document.createElement("details"),summary=document.createElement("summary");fold.className="entry-fold";fold.appendChild(summary);fold.appendChild(box);
+  var filled=function(){return Object.keys(parts).map(function(k){var v=parts[k].read();return v===undefined||v===""?"":k+"="+(typeof v==="object"?"…":v);}).filter(Boolean);};
+  var refresh=function(){var f=filled();summary.textContent=shape.fields.length+" fields"+(f.length?" · "+f.length+" filled":"");if(onChange)onChange(f);};
+  shape.fields.forEach(function(f){var tr=document.createElement("tr"),th=document.createElement("th"),td=document.createElement("td");th.textContent=f.name;
+    if(f.shape.kind==="table"){td.textContent="(a table - not entered here)";}else{parts[f.name]=entryEditor({name:f.name,shape:f.shape,optional:true},refresh);td.appendChild(parts[f.name].el);}
+    tr.append(th,td);box.appendChild(tr);});
+  box.addEventListener("input",refresh);refresh();
+  return {el:fold,fold:fold,read:function(){var o={},any=false;Object.keys(parts).forEach(function(k){var v=parts[k].read();if(v!==undefined){o[k]=v;any=true;}});return any?o:(p.optional?undefined:{});},
+    write:function(v){Object.keys(parts).forEach(function(k){parts[k].write(v&&v[k]);});refresh();}};
+}
+function entryEditor(p,onChange){
   var shape=p.shape||{kind:"simple"};
-  if(shape.kind==="structure"){
-    var box=document.createElement("table");box.className="entry-grid",parts={};
-    shape.fields.forEach(function(f){var tr=document.createElement("tr"),th=document.createElement("th"),td=document.createElement("td");th.textContent=f.name;
-      if(f.shape.kind==="table"){td.textContent="(a table - not entered here)";}else{parts[f.name]=entryEditor({name:f.name,shape:f.shape,optional:true});td.appendChild(parts[f.name].el);}
-      tr.append(th,td);box.appendChild(tr);});
-    return {el:box,read:function(){var o={},any=false;Object.keys(parts).forEach(function(k){var v=parts[k].read();if(v!==undefined){o[k]=v;any=true;}});return any?o:(p.optional?undefined:{});},
-      write:function(v){Object.keys(parts).forEach(function(k){parts[k].write(v&&v[k]);});}};
+  if(shape.kind==="structure")return structureEditor(p,onChange);
+  // A table of structures: its rows shown as a table; the row picked is entered below it as a structure, and a row is
+  // duplicated to make the next one from it.
+  if(shape.kind==="table"&&shape.row.kind==="structure"){
+    var cols=shape.row.fields.filter(function(f){return f.shape.kind==="simple";}).map(function(f){return f.name;});
+    var grid=document.createElement("table"),head=document.createElement("tr"),rowsOf=[],chosen=null;grid.className="entry-grid entry-table";
+    ["#"].concat(cols,[""]).forEach(function(c){var th=document.createElement("th");th.textContent=c;head.appendChild(th);});grid.appendChild(head);
+    var form=document.createElement("div");form.className="entry-row-form";
+    var draw=function(){rowsOf.forEach(function(r,i){r.cells[0].textContent=String(i+1);var v=r.value||{};
+      cols.forEach(function(c,k){r.cells[k+1].textContent=v[c]==null?"":String(v[c]);});r.tr.classList.toggle("chosen",r===chosen);});};
+    var choose=function(row){chosen=row;form.textContent="";
+      if(row){var title=document.createElement("div");title.className="entry-row-title";title.textContent="Row "+(rowsOf.indexOf(row)+1);
+        var editor=structureEditor({name:p.name,shape:shape.row,optional:true},function(){if(editor){row.value=editor.read()||{};draw();}});
+        editor.write(row.value);editor.fold.open=true;form.append(title,editor.el);}
+      draw();};
+    var addRow=function(v,after){
+      var row={value:v?JSON.parse(JSON.stringify(v)):{},tr:document.createElement("tr"),cells:[]};
+      for(var k=0;k<cols.length+1;k++){var td=document.createElement("td");row.cells.push(td);row.tr.appendChild(td);}
+      var tools=document.createElement("td"),copy=document.createElement("button"),drop=document.createElement("button");tools.className="entry-row-tools";
+      copy.textContent="Duplicate";copy.title="A copy of this row below it, to change";drop.textContent="×";drop.title="Remove the row";
+      copy.onclick=function(e){e.preventDefault();e.stopPropagation();choose(addRow(row.value,row));};
+      drop.onclick=function(e){e.preventDefault();e.stopPropagation();row.tr.remove();rowsOf=rowsOf.filter(function(r){return r!==row;});choose(chosen===row?null:chosen);};
+      tools.append(copy,drop);row.tr.appendChild(tools);row.tr.onclick=function(){choose(row===chosen?null:row);};row.tr.style.cursor="pointer";
+      if(after){after.tr.after(row.tr);rowsOf.splice(rowsOf.indexOf(after)+1,0,row);}else{grid.appendChild(row.tr);rowsOf.push(row);}
+      return row;};
+    var more=document.createElement("button");more.textContent="+ row";more.onclick=function(e){e.preventDefault();choose(addRow(null,null));};
+    var wrapRows=document.createElement("div");wrapRows.append(grid,more,form);
+    var filledOf=function(v){var o={},any=false;Object.keys(v||{}).forEach(function(k){if(v[k]!==""&&v[k]!==undefined){o[k]=v[k];any=true;}});return any?o:undefined;};
+    return {el:wrapRows,read:function(){var values=rowsOf.map(function(r){return filledOf(r.value);}).filter(function(v){return v!==undefined;});
+        return values.length?values:(p.optional?undefined:[]);},
+      write:function(v){rowsOf.forEach(function(r){r.tr.remove();});rowsOf=[];(Array.isArray(v)?v:[]).forEach(function(one){addRow(one,null);});choose(null);}};
   }
   if(shape.kind==="table"){
     var wrap=document.createElement("div"),grid=document.createElement("table"),rows=[];grid.className="entry-grid";

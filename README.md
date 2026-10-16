@@ -127,6 +127,15 @@ The url is the ICM port, not the one SAP GUI connects to. An empty `vertex.activ
 first. **VERTEX: Switch System** picks another one from a list, and the password is asked once per
 system - two systems are two users often enough.
 
+A system that logs on with **SNC single sign-on** has no password for HTTP. It is reached *only with
+SAP ADT extension*: SAP's ABAP Development Tools for VS Code logs on to it, SNC included, and VERTEX
+reads, writes and activates through that extension. **VERTEX: Get Connections from SAP ADT for VS
+Code** adds its destinations to `vertex.systems` (`"connection": "sap-adt-extension"`, `"destination"`),
+and **VERTEX: Index SAP System** builds, once, the index by which VERTEX finds objects by name there.
+Sources, VERTEX Tools, Value Origin and the ABAP transpiler's run work on such a system; Run in SAP,
+the SAP debugger, SelecTor, Versions, where-used, ABAP Unit and ATC need VERTEX's own connection and
+say so. Details: [vscode/README.md](vscode/README.md#systems-with-snc-single-sign-on).
+
 ### Eclipse
 
 The update site address is pasted into **Help → Install New Software → Add → Location**; the

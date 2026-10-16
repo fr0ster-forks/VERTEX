@@ -17,7 +17,7 @@ test("Codex and Claude setup work without the Copilot MCP API", async () => {
     workspace: { getConfiguration: () => ({ get: () => 37777 }),
       registerFileSystemProvider: () => ({ dispose() {} }),
       registerTextDocumentContentProvider: () => ({ dispose() {} }) },
-    extensions: { getExtension: () => ({ packageJSON: { version: "0.4.1" } }) },
+    extensions: { getExtension: () => ({ packageJSON: { version: "0.4.1" } }), all: [], onDidChange: () => ({ dispose() {} }) },
     Uri: { file: file => file },
     commands: { executeCommand: async (name, file) => {
       if (name === "workbench.action.openWalkthrough") { assert.equal(file, "YuriiSychov.vertex-abap#vertex.start"); return; }

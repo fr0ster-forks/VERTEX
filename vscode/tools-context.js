@@ -26,6 +26,12 @@ function register(vscode,context,sapCode,showTools){
    let object=selected?.object_name?selected:selected?.object?.object_name?selected.object:null;
    let document;
    const uri=selected?.resourceUri||selected?.uri||(selected?.scheme?selected:null);
+   // A package or object of SAP's ADT extension: known by its path in the extension's tree, read through its system.
+   const abapUri=uri?.scheme==='abap'?uri:!uri&&vscode.window.activeTextEditor?.document?.uri?.scheme==='abap'?vscode.window.activeTextEditor.document.uri:null;
+   if(!object&&abapUri){
+    object=await sapCode.abapTools(abapUri);
+    if(abapUri.toString()===vscode.window.activeTextEditor?.document?.uri?.toString())document=vscode.window.activeTextEditor.document;
+   }
    if(!object){
     document=uri?await vscode.workspace.openTextDocument(uri):vscode.window.activeTextEditor?.document;
     object=document&&(sapCode.documentObject(document)||localAnalysis.sourceObject(document));
@@ -54,6 +60,7 @@ function register(vscode,context,sapCode,showTools){
    // Validate before opening a webview: invalid actions must produce an
    // error message, not abort its script and leave all controls blank.
    return showTools({...require('./resources/object-tools').normalize(initial),boundObject:true,
+    ...(object.system_name?{systemName:object.system_name}:{}),
     ...(local?{localSession:local}:{}),
     ...(document&&editor?.document===document&&editor.selection?{cursorLine:editor.selection.active.line+1}:{})});
   }catch(error){vscode.window.showErrorMessage('VERTEX Tools: '+error.message);}

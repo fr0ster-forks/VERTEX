@@ -18,7 +18,7 @@ const CLASS_PARTS = { definitions: "locals_def", implementations: "locals_imp", 
 
 /* The objects a source names, with the kind the name stands for there. A name after TYPE alone may be a class or a
    DDIC type, and is left to the transpiler, which reports what it cannot resolve. */
-function namedObjects(text) {
+function namedObjects(text, customer = customerObject) {
   const tokens = tokenize(text), found = new Map(), functions = new Set();
   const word = i => tokens[i] && tokens[i].kind === "word" ? up(tokens[i].value) : "";
   const at = i => up(tokens[i] && tokens[i].value);
@@ -38,19 +38,139 @@ function namedObjects(text) {
     if (current === "CALL" && at(i + 1) === "FUNCTION" && tokens[i + 2] && tokens[i + 2].kind === "literal")
       functions.add(up(tokens[i + 2].value.slice(1, -1)));
   }
-  for (const name of [...found.keys()]) if (!customerObject(name)) found.delete(name);
-  return { objects: found, functions: [...functions].filter(customerObject) };
+  for (const name of [...found.keys()]) if (!customer(name)) found.delete(name);
+  return { objects: found, functions: [...functions].filter(customer) };
+}
+
+/* ---------- what the run reaches ----------
+   A source as its statements, by its tokens: those of each routine (METHOD, FORM, FUNCTION, MODULE ... END...) and the
+   rest. A routine is reached from where the run starts, through the calls of the routines reached: meth( ), me->meth( ),
+   x=>meth( ), CALL METHOD, PERFORM - by name, so an instance call reaches every method of that name. What a reached
+   statement names is read; what nothing reached names is left out of the run, and the transpiler (unknownTypes
+   runtimeError) fails only if the run gets there after all - a dynamic call, say. */
+const ROUTINE_START = { METHOD: "ENDMETHOD", FORM: "ENDFORM", FUNCTION: "ENDFUNCTION", MODULE: "ENDMODULE" };
+function statementsOf(text) {
+  const tokens = tokenize(text), list = [];
+  let current = [];
+  for (const token of tokens) {
+    if (token.kind === "symbol" && token.value === ".") { if (current.length) list.push(current); current = []; }
+    else current.push(token);
+  }
+  if (current.length) list.push(current);
+  return list;
+}
+function partsOf(text) {
+  const routines = new Map(), global = [];
+  let open = null;
+  for (const statement of statementsOf(text)) {
+    const first = up(statement[0].value);
+    if (!open && ROUTINE_START[first] && statement[1]) {
+      open = { name: up(statement[1].value), end: ROUTINE_START[first], statements: [statement], first: statement[0].line, last: statement[0].line };
+      continue;
+    }
+    if (open) {
+      open.statements.push(statement);
+      open.last = statement[statement.length - 1].line;
+      if (first === open.end) { (routines.get(open.name) || routines.set(open.name, []).get(open.name)).push(open); open = null; }
+      continue;
+    }
+    global.push(statement);
+  }
+  return { routines, global };
+}
+const textOf = statement => statement.map(token => token.value).join(" ") + ".";
+const STUB = 'ASSERT 1 = 2. " VERTEX: not transpiled - not reached from where the run started';
+/* A class source with the bodies of the methods not in `reached` (names) left out: the METHOD and ENDMETHOD lines stay, the
+   first line between them fails if the run gets there after all, the others are blank - every line keeps its number, so
+   breakpoints and steps stand where SAP has them. */
+function stubUnreached(text, reached) {
+  const lines = text.split("\n");
+  for (const [name, list] of partsOf(text).routines) {
+    if (reached.has(name)) continue;
+    for (const routine of list) {
+      if (up(routine.statements[0][0].value) !== "METHOD") continue;
+      const open = routine.statements[0], close = routine.statements[routine.statements.length - 1];
+      const from = open[open.length - 1].line, to = close[0].line;     // the METHOD statement's last line, ENDMETHOD's line
+      if (to - from < 2) continue;                                      // no line of its own for the body
+      for (let line = from + 1; line < to; line++) lines[line - 1] = line === from + 1 ? STUB : "";
+    }
+  }
+  return lines.join("\n");
+}
+// The routines and methods a statement calls, by name.
+function callsOf(statement) {
+  const names = new Set(), at = i => up(statement[i] && statement[i].value), sym = i => statement[i] && statement[i].kind === "symbol" ? statement[i].value : "";
+  for (let i = 0; i < statement.length; i++) {
+    const token = statement[i];
+    if (token.kind === "word" && sym(i + 1) === "(") names.add(up(token.value));
+    if ((sym(i) === "->" || sym(i) === "=>") && statement[i + 1] && statement[i + 1].kind === "word") names.add(at(i + 1));
+    if (at(i) === "PERFORM" && statement[i + 1]) names.add(at(i + 1));
+    if (at(i) === "CALL" && at(i + 1) === "METHOD") { let j = i + 2; while (sym(j + 1) === "->" || sym(j + 1) === "=>") j += 2; if (statement[j]) names.add(at(j)); }
+  }
+  return names;
 }
 
 /* Every source of the run, read with read({ object_name, object_type, include }) - ADT's active version. A customer
    function module called - or the module run itself - brings its whole function group, read by groups.read(name) and
    found by groups.of(module) (sap-fugr.js); without them a call is refused. */
-async function collect(read, root, { progress = () => {}, cancelled = () => false, groups = null } = {}) {
+/* customer(name): whether the run reads that object; standard ones are left to the transpiler, as void. */
+async function collect(read, root, { progress = () => {}, cancelled = () => false, groups = null, customer = customerObject, entryLine = 0 } = {}) {
   const loaded = [], seen = new Set(), queue = [];
   const groupsRead = new Set();
+  // What is reached: the routines (object:name), the names called, the words used - and what waits for them.
+  const reached = new Set(), called = new Set(["CONSTRUCTOR", "CLASS_CONSTRUCTOR"]), used = new Set(), waiting = [];
+  const scan = (owner, statements, inGroup) => {
+    for (const statement of statements) {
+      take(owner, textOf(statement), inGroup);
+      for (const name of callsOf(statement)) called.add(name);
+      for (const token of statement) if (token.kind === "word") used.add(up(token.value));
+    }
+  };
+  // A loaded source: a program's, an include's, an interface's and a group's own statements run or declare, and are
+  // taken whole; a class's routines wait to be reached, its attributes to be used, INHERITING FROM and INTERFACES not.
+  const offer = (owner, type, text, inGroup, start) => {
+    const parts = partsOf(text);
+    if (type !== "CLAS") scan(owner, parts.global, inGroup);
+    else for (const statement of parts.global) {
+      const words = statement.map(token => up(token.value));
+      if (words.includes("INHERITING") || words.includes("INTERFACES") || words[0] === "CLASS" && words.includes("DEFINITION")) { scan(owner, [statement], inGroup); continue; }
+      if (["DATA", "CLASS-DATA", "CONSTANTS", "STATICS"].includes(words[0])) {
+        // A chained declaration: one item per variable, each taken when the variable is used.
+        let item = [];
+        const items = [];
+        for (const token of statement.slice(1)) { if (token.kind === "symbol" && token.value === ",") { items.push(item); item = []; } else if (!(token.kind === "symbol" && token.value === ":")) item.push(token); }
+        items.push(item);
+        for (const one of items.filter(i => i.length)) waiting.push({ owner, variable: up(one[0].value), statements: [one], inGroup });
+        continue;
+      }
+      // TYPES and the rest of a definition: taken when a name they declare is used.
+      waiting.push({ owner, variable: up((statement[1] && statement[1].kind === "word" ? statement[1] : statement.find((t, k) => k > 0 && t.kind === "word") || statement[0]).value), statements: [statement], inGroup });
+    }
+    for (const [name, list] of parts.routines) for (const routine of list) {
+      const entry = start && (!entryLine || entryLine >= routine.first && entryLine <= routine.last);
+      waiting.push({ owner, routine: name, statements: routine.statements, inGroup, entry });
+    }
+  };
+  // What is waiting and now reached: a routine called by name (or where the run starts), a declaration used.
+  const settle = () => {
+    for (let again = true; again;) {
+      again = false;
+      for (let k = 0; k < waiting.length; k++) {
+        const w = waiting[k];
+        const go = w.routine ? w.entry || called.has(w.routine) : used.has(w.variable);
+        if (!go) continue;
+        waiting.splice(k--, 1);
+        if (w.routine) reached.add(w.owner + ":" + w.routine);
+        scan(w.owner, w.statements, w.inGroup);
+        again = true;
+      }
+    }
+  };
   const take = (owner, text, inGroup = false) => {
-    const named = namedObjects(text);
+    const named = namedObjects(text, customer);
     for (const module of named.functions) {
+      // A module called is reached, in a group read already or one read for it.
+      called.add(module);
       if (seen.has("FUNC:" + module)) continue;
       if (!groups) throw new Error(owner + " calls function module " + module + ": function modules are not read for this run.");
       seen.add("FUNC:" + module); queue.push({ name: module, type: "FUNC" });
@@ -58,7 +178,7 @@ async function collect(read, root, { progress = () => {}, cancelled = () => fals
     // A group's own INCLUDEs are read with the group.
     for (const [name, type] of named.objects) if (!(inGroup && type === "INCL") && !seen.has(name)) { seen.add(name); queue.push({ name, type }); }
   };
-  if (up(root.type) === "FUNC") { seen.add("FUNC:" + up(root.name)); queue.push({ name: up(root.name), type: "FUNC" }); }
+  if (up(root.type) === "FUNC") { seen.add("FUNC:" + up(root.name)); called.add(up(root.name)); queue.push({ name: up(root.name), type: "FUNC" }); }
   else { seen.add(up(root.name)); queue.push({ name: up(root.name), type: up(root.type) }); }
   while (queue.length) {
     if (cancelled()) throw new Error("Transpiler run cancelled.");
@@ -72,8 +192,10 @@ async function collect(read, root, { progress = () => {}, cancelled = () => fals
       const read = await groups.read(group);
       for (const source of read.sources) {
         loaded.push({ name: group, type: "FUGR", include: source.name, kind: source.kind, text: source.text, signature: source.signature });
-        take(source.name, source.text, true);
+        // A module called (or run) is reached; the group's other modules wait to be called.
+        offer(source.name, "FUGR", source.text, true, false);
       }
+      settle();
       continue;
     }
     let data;
@@ -90,15 +212,27 @@ async function collect(read, root, { progress = () => {}, cancelled = () => fals
     const type = up(data.object_type);
     const text = data.source;
     loaded.push({ name: next.name, type, include: "main", text });
-    take(next.name, text);
+    // The object the run starts in: its routine at the entry line - or, with no line, every one of them.
+    const start = next.name === up(root.name) && up(root.type) !== "FUNC";
+    offer(next.name, type, text, false, start);
+    if (start && type === "CLAS" && !entryLine) waiting.forEach(w => { if (w.owner === next.name && w.routine) w.entry = true; });
     if (type === "CLAS") for (const include of Object.keys(CLASS_PARTS)) {
       if (!(data.includes || []).includes(include)) continue;
       let part;
       try { part = await read({ object_name: next.name, object_type: "CLAS", include }); }
       catch (error) { throw new Error(next.name + "." + include + ": " + error.message); }
       loaded.push({ name: next.name, type, include, text: part.source });
-      take(next.name, part.source);
+      // A class's local classes: their routines wait to be reached like its own methods.
+      offer(next.name, "CLAS", part.source, false, false);
     }
+    settle();
+  }
+  // What the run reaches is all that goes to the transpiler: a class keeps its definition and the bodies of its reached
+  // methods only.
+  for (const source of loaded) {
+    if (source.type !== "CLAS") continue;
+    const names = new Set([...reached].filter(key => key.startsWith(source.name + ":")).map(key => key.slice(source.name.length + 1)));
+    source.text = stubUnreached(source.text, names);
   }
   return loaded;
 }
@@ -222,7 +356,8 @@ function writeProject(system, sources, dictionary = [], folder = path.join(os.tm
     filters.push(...aliases.map(name => "(?:^|[/\\\\])" + name.toLowerCase() + "\\.dtel\\.xml$"));
   }
   fs.writeFileSync(path.join(folder, "abap_transpile.json"), JSON.stringify({ input_folder: inputs, input_filter: filters,
-    output_folder: "output", write_unit_tests: true, write_source_map: true, options: { addFilenames: true, addCommonJS: true } }));
+    // A type the run did not read compiles, and fails only if the run reaches it: only what is reached is read.
+    output_folder: "output", write_unit_tests: true, write_source_map: true, options: { addFilenames: true, addCommonJS: true, unknownTypes: "runtimeError" } }));
   return shown || written[0];
 }
 
@@ -286,4 +421,4 @@ function remapIncludes(root, outputRoot) {
   }
 }
 
-module.exports = { namedObjects, collect, fileName, copyPath, expandIncludes, writeProject, remapIncludes };
+module.exports = { partsOf, callsOf, stubUnreached, namedObjects, collect, fileName, copyPath, expandIncludes, writeProject, remapIncludes };

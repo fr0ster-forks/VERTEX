@@ -160,7 +160,10 @@ function plain(v) {
   return "<" + v.META_TYPE + (v.ACTUAL_TYPE_NAME ? " " + v.ACTUAL_TYPE_NAME : "") + ">";
 }
 
-function create({ connect, current, openUrl, ideId, terminalId }) {
+/* localOnly(): true while the active system has no ADT debugger here (it is reached through SAP's ADT extension).
+   Its breakpoints are then kept in this list alone - for the analysis between breakpoints and the transpiler's local
+   debugging - and none is sent to SAP or listened for. */
+function create({ connect, current, openUrl, ideId, terminalId, localOnly = () => false }) {
   let listening = false, stopListening = false;
   let session = null;          // { client, debuggee, busy }
   let stopped = null;          // the stop waiting for the assistant
@@ -266,7 +269,8 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
      Eclipse do - the line has to exist on the server before it can carry one. */
   async function sync(on) {
     const { listener, user } = on || await system();
-    const all = breakpoints.filter(b => b.active !== false);
+    // A point kept for a system with no ADT debugger here goes to no SAP.
+    const all = breakpoints.filter(b => b.active !== false && !b.local);
     for (const b of breakpoints) { if (b.active === false) { b.adt = null; } }
     const wanted = all.map(b => b.url + "#start=" + b.line);
     let answer = await listener.debuggerSetBreakpoints("user", terminalId, ideId, "vertex", wanted, user, "external");
@@ -316,11 +320,12 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
     return exclusive(async () => { if (session) { await scoped(breakpoints); } }).catch(() => {});
   }
 
-  async function setBreakpoint({ object_type, name, line, condition, mode, take_over, function_group }) {
+  async function setBreakpoint({ object_type, name, line, condition, mode, take_over, function_group, local: asked }) {
     if (!name || !(Number(line) > 0)) { throw new Error("A breakpoint needs the object's name and a line number."); }
     if (mode && mode !== "stop" && mode !== "log") { throw new Error('mode is "stop" or "log".'); }
     const url = sourceUrl(object_type, name, function_group);
-    await system();                  // the system is settled before the list changes
+    const local = asked === true || localOnly();
+    if (!local) await system();      // the system is settled before the list changes
     const existing = breakpoints.find(b => b.url === url && b.line === Number(line));
     const entry = existing || { id: "bp" + (++numbered), objectType: String(object_type || "PROG").toUpperCase(),
       name: String(name).toUpperCase(), url, line: Number(line) };
@@ -328,6 +333,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
     entry.mode = mode || "stop";
     entry.active = true;             // set again, a deactivated one is on again
     if (!existing) { breakpoints.push(entry); }
+    if (local) { entry.adt = null; entry.local = true; changed(); return entry; }
     const errors = await sync();
     if (!entry.adt) {
       breakpoints.splice(breakpoints.indexOf(entry), 1);
@@ -354,11 +360,11 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
   }
 
   /* The window sets a breakpoint by the source it shows. */
-  async function setBreakpointAt({ url, line, condition, mode, take_over }) {
+  async function setBreakpointAt({ url, line, condition, mode, take_over, local }) {
     const object = objectOf(url);
     if (!object) { throw new Error("A breakpoint cannot be set in this source from here: " + url); }
     return setBreakpoint({ object_type: object.objectType, name: object.name, function_group: object.group,
-      line, condition, mode, take_over });
+      line, condition, mode, take_over, local });
   }
 
   /* On or off without losing it: an inactive breakpoint keeps its line,
@@ -367,8 +373,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
     const list = id ? breakpoints.filter(b => b.id === id) : breakpoints;
     if (id && !list.length) { throw new Error("There is no breakpoint " + id + "."); }
     for (const b of list) { b.active = active !== false; }
-    await sync();
-    await rescope();
+    if (!localOnly()) { await sync(); await rescope(); }
     changed();
   }
 
@@ -380,8 +385,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
     } else {
       breakpoints.length = 0;
     }
-    await sync();
-    await rescope();
+    if (!localOnly()) { await sync(); await rescope(); }
     changed();
   }
 
@@ -1042,7 +1046,7 @@ function create({ connect, current, openUrl, ideId, terminalId }) {
         where: d.where || null, whyNoPlace: d.whyNoPlace || "",
         hasPage: !!d.page })) } : null,
       breakpoints: breakpoints.map(b => ({ id: b.id, objectType: b.objectType, name: b.name, url: b.url, line: b.line,
-        condition: b.condition || "", mode: b.mode, active: b.active !== false })),
+        condition: b.condition || "", mode: b.mode, active: b.active !== false, ...(b.local ? { local: true } : {}) })),
       stopped: stopped ? { at: stopped.at, breakpoint: stopped.breakpoint, problem: stopped.problem || "", frames } : null
     };
   }

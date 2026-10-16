@@ -44,6 +44,12 @@ test("names a source takes from the dictionary", () => {
   assert.deepEqual([...names].sort(), ["CHAR12", "ZCL_X", "ZINC", "ZJ", "ZR", "ZROW", "ZS", "ZSHIP", "ZTAB"]);
 });
 
+test("FROM and JOIN name a table only in Open SQL; TABLES only as its own statement", () => {
+  const names = dictionaryNames("SUBTRACT 1 FROM b.\nDELETE itab FROM idx.\nTABLES t001.\nOPEN CURSOR @c FOR SELECT * FROM t005.\n"
+    + "DATA(x) = 1. SELECT SINGLE f FROM zsel INTO @DATA(v).");
+  assert.deepEqual([...names].sort(), ["T001", "T005", "ZSEL"]);
+});
+
 test("reads the closure: an include, a table type, data elements and domains of the same name", async () => {
   const { query, asked } = queryOf(dictionary);
   const objects = await readDictionary(query, new Set(["ZSHIP_TT", "TY_LOCAL"]), new Set(["MANDT"]));
@@ -109,4 +115,11 @@ test("a step records the SY fields and the SELECTs of the statement before it", 
     const read = result.records.find(r => r.line === 7);
     assert.equal(read && read.sy && read.sy.SUBRC, 4, "READ TABLE without a hit set SY-SUBRC 4");
   } finally { run.setSelectorQuery(undefined); fs.rmSync(folder, { recursive: true, force: true }); }
+});
+
+test("the types a source declares with TYPES are its own, not its components", () => {
+  const { declaredTypes } = require("../sap-ddic");
+  const names = declaredTypes("INTERFACE zif_t PUBLIC.\n  TYPES: BEGIN OF ty_step, step_no TYPE zlog_pipeline-step_no, matnr TYPE matnr, END OF ty_step,\n"
+    + "    tt_steps TYPE STANDARD TABLE OF ty_step WITH EMPTY KEY.\n  TYPES ty_amount TYPE p LENGTH 15 DECIMALS 2.\n  DATA lv TYPE matnr.\nENDINTERFACE.");
+  assert.deepEqual([...names], ["TY_STEP", "TT_STEPS", "TY_AMOUNT"]);
 });

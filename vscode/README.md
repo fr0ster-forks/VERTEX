@@ -248,6 +248,53 @@ asked once per system and kept in the operating system's credential store.
 `allowInsecureCertificate` accepts a certificate that cannot be verified, which
 development systems often have; it is off by default on purpose.
 
+### Systems with SNC single sign-on
+
+A system that logs on with SNC single sign-on - SAP Logon's *Activate Secure Network
+Communication* without *SNC logon with user/password* - has no password VERTEX could use over HTTP.
+Such a system is reached **only with SAP ADT extension**: SAP's *ABAP Development Tools for VS Code*
+logs on to it by itself, SNC included, and VERTEX reads, writes and activates through it.
+
+- Install SAP ABAP Development Tools for VS Code and create its destination for the system there
+  (*ABAP: New ABAP Destination*, protocol RFC).
+- **VERTEX: Get Connections from SAP ADT for VS Code** - in the palette while SAP's extension is
+  installed, and a link under `vertex.systems` - lists that extension's destinations and adds the
+  picked ones to `vertex.systems`, with no url, user or password:
+
+  ```json
+  { "name": "A4H_001_DEVELOPER_EN", "connection": "sap-adt-extension",
+    "destination": "A4H_001_DEVELOPER_EN", "client": "001" }
+  ```
+
+- Log on to the destination in SAP's extension (*ABAP: Logon to Destination*) before VERTEX uses it.
+  **VERTEX: Test SAP Systems** says whether it is logged on. The system list and Switch System mark
+  such a system *only with SAP ADT extension*.
+- **VERTEX: Import SAP Systems** does not add an SNC single sign-on entry of SAP Logon for HTTP; it
+  names it and points to the command above.
+
+What works on such a system: reading and editing sources (a save writes, checks and activates through
+SAP's extension, and activates only when the check finds no error), VERTEX Tools - metrics, UML,
+Calls and Logic diagrams, package views -, Value Origin, the variables of a routine, breakpoints for
+the analysis between them, and **Run with ABAP Transpiler** with its debugging: classes, interfaces,
+function groups and the customer tables and structures it uses are read through SAP's extension,
+standard dictionary types from open-abap-core. What needs VERTEX's own HTTP connection says so
+instead: Run in SAP and the SAP debugger, SelecTor and Run Select, Versions, Where-used, ABAP Unit
+and ATC through VERTEX, element info on hover, and creating objects.
+
+The same commands work in SAP's own editor: in a source opened from its tree, the context menu has
+**VERTEX Tools**, **Visual Analysis / Debug** and **Run with ABAP Transpiler**, for the system of that
+source whichever is active; in its tree, **VERTEX Tools** on a package or an object opens the tools on
+it.
+
+**Finding objects by name.** SAP's extension finds no object by its name for anyone else, so VERTEX
+keeps an index of the system's objects. The first time a system is used, VERTEX offers to build it
+once, in the background, with its progress and Cancel; **VERTEX: Index SAP System** builds it again.
+The index covers every customer package (`Z*`, `Y*`, `/namespace/`) and the user's own `$TMP`, and is
+kept between sessions. Without it, or for an object made since, a name is looked for near the objects
+being worked on only - their package, then its neighbours up to their root package; standard SAP is
+never looked for. `packages` in the system's entry adds packages of its own to look in, for example
+`"packages": ["BASIS/SABAPDEMOS"]`.
+
 Code reviews are saved where `vertex.review.storage` says: `table` (default) - SAP's
 `ZAVE_REVIEW`, shared with AVE; `file` - one JSON file per request; `both` - the table is read
 first and every save writes both. A system without VERTEX's ABAP keeps reviews in files whatever

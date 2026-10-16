@@ -26,6 +26,13 @@ function sourceObject(document) {
   return /^[A-Z0-9_/$]+$/.test(name) ? { object_name: name, object_type: type } : null;
 }
 
+// A module's parameters, for a local file of a function group whose XML is beside it.
+function functionParams(uri) {
+  if (!uri || uri.scheme !== "file") return {};
+  const params = require("./sap-fugr").moduleParameters(uri.fsPath);
+  return params.length ? { functionParams: params } : {};
+}
+
 async function declaredVariables(document, request = {}, vscode) {
   const object = sourceObject(document);
   if (!object) throw new Error("Open a local ABAP program or class first.");
@@ -33,7 +40,7 @@ async function declaredVariables(document, request = {}, vscode) {
   try {
     const uri = document.uri.toString();
     const parsed = await parser.parse({ id: uri, name: object.object_name,
-      objectName: object.object_name, objectType: object.object_type, text: document.getText() });
+      objectName: object.object_name, objectType: object.object_type, text: document.getText(), ...functionParams(document.uri) });
     const sources = [parsed.source];
     if (vscode?.workspace?.findFiles && vscode.workspace.openTextDocument) {
       const session = create(vscode, document, object);
@@ -45,7 +52,7 @@ async function declaredVariables(document, request = {}, vscode) {
         try {
           const dependency = await session.find(name, type);
           const result = await parser.parse({ id: dependency.uri.toString(), name, objectName: name,
-            objectType: type, text: dependency.getText() });
+            objectType: type, text: dependency.getText(), ...functionParams(dependency.uri) });
           sources.push(result.source);
         } catch (_) { /* A missing dependency must not hide the report's own variables. */ }
       };
@@ -197,7 +204,7 @@ async function originSources(vscode, document, target, progress = () => {}, canc
     const id = current.uri.toString();
     if (parsed.has(id)) { return [parsed.get(id)]; }
     progress(name);
-    const result = await parser.parse({ id, name, objectName: name, objectType: type, text: current.getText() });
+    const result = await parser.parse({ id, name, objectName: name, objectType: type, text: current.getText(), ...functionParams(current.uri) });
     parsed.set(id, result.source);
     warnings.push(...result.warnings);
     onParsed(result.source);

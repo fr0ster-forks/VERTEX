@@ -37,7 +37,7 @@ test("UML method links navigate to their own class or interface in either source
   ]);
 });
 
-test("SAP source navigation reuses the editor group beside the UML view", async () => {
+test("SAP source navigation reuses the group the source already stands in, not a new one beside the UML view", async () => {
   const workbench = fs.readFileSync(path.join(__dirname, "../code-workbench.js"), "utf8");
   const source = workbench.slice(workbench.indexOf("async function revealSource("), workbench.indexOf("async function openToolSource("));
   const document = { uri: { scheme: "vertex-sap" } };
@@ -52,6 +52,6 @@ test("SAP source navigation reuses the editor group beside the UML view", async 
   });
   vm.runInContext(source, context);
   await context.revealSource(document, { line: 4 }, true, true);
-  assert.equal(options.viewColumn, -2);
+  assert.equal(options.viewColumn, 1);
   assert.equal(options.preserveFocus, true);
 });

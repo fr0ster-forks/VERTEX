@@ -69,10 +69,10 @@ function moduleSignature(text) {
       else if (key === "OPTIONAL") { param.optional = true; i++; }
       else break;
     }
-    // A type can be named with its component: TYPE zstruct-field reads as one name.
-    while (tokens[i] && tokens[i].value === "-" && tokens[i + 1]?.kind === "word" && i < end) {
-      const field = up(tokens[i + 1].value);
-      if (param.type) param.type += "-" + field; else if (param.like) param.like += "-" + field;
+    // A type can be named with its component or its owner: TYPE zstruct-field and TYPE zif_x=>ty_y each read as one name.
+    while (tokens[i] && (tokens[i].value === "-" || tokens[i].value === "=>") && tokens[i + 1]?.kind === "word" && i < end) {
+      const field = up(tokens[i + 1].value), joint = tokens[i].value;
+      if (param.type) param.type += joint + field; else if (param.like) param.like += joint + field;
       i += 2;
     }
     // A parameter with a DEFAULT is optional, as SAP has it and abapGit writes it.
@@ -92,7 +92,9 @@ function moduleBody(text, signature) {
 }
 
 /* Every source of the group: its main program, its includes (read through ADT, recursively) and its modules. */
-async function readFunctionGroup({ sourceAt, query }, group, progress = () => {}) {
+/* modules(group), when given, names the group's modules - a system reached through SAP's ADT extension lists them from its
+   tree; otherwise TFDIR is asked through the data preview. */
+async function readFunctionGroup({ sourceAt, query, modules: listModules }, group, progress = () => {}) {
   group = up(group);
   const base = groupUrl(group), main = mainProgram(group), sources = [], read = new Set();
   progress(group);
@@ -111,8 +113,9 @@ async function readFunctionGroup({ sourceAt, query }, group, progress = () => {}
     sources.push({ kind: "include", name: include, text });
     queue.push(...includesIn(text));
   }
-  const data = await query("SELECT funcname FROM tfdir WHERE pname = '" + main.replace(/'/g, "''") + "'", 1000);
-  const modules = (data.values || []).map(row => up(row.FUNCNAME || row.funcname)).filter(Boolean).sort();
+  const modules = listModules ? (await listModules(group)).map(up).sort()
+    : ((await query("SELECT funcname FROM tfdir WHERE pname = '" + main.replace(/'/g, "''") + "'", 1000)).values || [])
+      .map(row => up(row.FUNCNAME || row.funcname)).filter(Boolean).sort();
   for (const module of modules) {
     progress(module);
     let text;
@@ -127,6 +130,29 @@ async function readFunctionGroup({ sourceAt, query }, group, progress = () => {}
 
 const escape = value => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const tag = (name, value) => value === undefined || value === null || value === "" ? "" : "<" + name + ">" + escape(value) + "</" + name + ">";
+
+/* The parameters of a module of a local function group, from the <group>.fugr.xml beside its <group>.fugr.<module>.abap:
+   abapGit keeps a module's interface there, not in its source. [] when the file is no module or no XML is beside it. */
+function moduleParameters(file) {
+  const path = require("path"), base = path.basename(file);
+  const m = /^(.+?)\.fugr\.(.+)\.abap$/i.exec(base);
+  if (!m) return [];
+  const xmlFile = path.join(path.dirname(file), m[1] + ".fugr.xml");
+  let text;
+  try { text = require("fs").readFileSync(xmlFile, "utf8"); } catch (_) { return []; }
+  const xml = require("abap-adt-api/build/utilities");
+  const values = xml.xmlNode(xml.fullParse(text), "abapGit", "asx:abap", "asx:values") || {};
+  const items = [].concat((values.FUNCTIONS || {}).item || []);
+  const module = items.find(item => String(item.FUNCNAME || "").toUpperCase() === m[2].toUpperCase());
+  if (!module) return [];
+  const rows = (group, row) => [].concat((module[group] || {})[row] || []);
+  const typeOf = row => String(row.TYP || row.DBFIELD || row.DBSTRUCT || "");
+  return [...rows("IMPORT", "RSIMP").map(r => ({ name: r.PARAMETER, mode: "IMPORTING", type: typeOf(r) })),
+    ...rows("EXPORT", "RSEXP").map(r => ({ name: r.PARAMETER, mode: "EXPORTING", type: typeOf(r) })),
+    ...rows("CHANGING", "RSCHA").map(r => ({ name: r.PARAMETER, mode: "CHANGING", type: typeOf(r) })),
+    ...rows("TABLES", "RSTBL").map(r => ({ name: r.PARAMETER, mode: "TABLES", type: typeOf(r) }))]
+    .filter(p => p.name).map(p => ({ ...p, name: String(p.name).toUpperCase(), module: m[2].toUpperCase() }));
+}
 
 /* <group>.fugr.xml: the includes and every module's signature, as abapGit writes them. */
 function groupXml(group, sources) {
@@ -190,4 +216,4 @@ function applyModuleDefaults(outputRoot, defaults) {
   }
 }
 
-module.exports = { applyModuleDefaults, groupOf, includesIn, moduleSignature, moduleBody, readFunctionGroup, groupXml, mainProgram };
+module.exports = { moduleParameters, applyModuleDefaults, groupOf, includesIn, moduleSignature, moduleBody, readFunctionGroup, groupXml, mainProgram };

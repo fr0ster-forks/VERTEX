@@ -81,6 +81,7 @@ function host(savedState = {}) {
       },
       registerTextDocumentContentProvider: () => ({ dispose() {} }),
       registerFileSystemProvider: (scheme, provider) => { fileProvider = provider; return { dispose() {} }; },
+      onDidOpenTextDocument: () => ({ dispose() {} }), onDidCloseTextDocument: () => ({ dispose() {} }),
       async openTextDocument(value) {
         const content = value.scheme === 'vertex-sap' ? (await fileProvider.readFile(value)).toString() : value.content || '';
         const doc = { uri: value.content === undefined ? value : vscode.Uri.parse("untitled:" + documents.length),

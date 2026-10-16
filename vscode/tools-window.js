@@ -40,6 +40,7 @@ function debugHtml(initial) {
       if(event.data.type==="origin")sdeOriginReady(event.data.payload);
       if(event.data.type==="originProgress")sdeOriginProgress(event.data.payload);
       if(event.data.type==="cursor"&&typeof sdeCursor==="function")sdeCursor(event.data.payload);
+      if(event.data.type==="runFailed"&&typeof sdeRunFailed==="function")sdeRunFailed(event.data.payload);
     });
     document.addEventListener("DOMContentLoaded",()=>document.querySelectorAll(
       "#visual,#rec,#zonly,#fclasses,#fmethods,#initials,#globals,#locals,#params,[data-pane]"

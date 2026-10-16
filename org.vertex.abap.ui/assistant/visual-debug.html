@@ -2840,7 +2840,7 @@ function askVariables(request){
 }
 function autoVariables(){
   if(picture.stopped||series)return Promise.resolve();
-  var f=cursorFocus||pointFocus||(typeof object!=="undefined"&&object&&object.name?{object_name:object.name,object_type:object.type}:null);
+  var f=cursorFocus||pointFocus||(typeof object!=="undefined"&&object&&object.name?{object_name:object.name,object_type:object.type,line:typeof INITIAL!=="undefined"&&INITIAL&&INITIAL.line||undefined}:null);
   if(!f)return Promise.resolve();
   return askVariables({object_name:f.object_name,object_type:f.object_type,line:f.line}).catch(function(e){
     var message=e&&e.message||String(e);notice(message);
@@ -2878,7 +2878,14 @@ function drawStaticVars(box){
     if($("params").classList.contains("on"))group("Params · "+sv.name,sv.params.map(function(x){return {name:x.name,type:x.mode+(x.type?" "+x.type:""),components:x.components,unresolved:x.unresolved};}));
     if($("locals").classList.contains("on"))group("Locals · "+sv.name,sv.locals);
   }
-  if(!table.rows.length){box.innerHTML='<div class="empty">Nothing to show: Globals, Locals and Params are switched off, or the filter matches nothing.</div>';return;}
+  if(!table.rows.length){
+    // Said as it is: switched off, filtered out, or nothing declared where the cursor stands.
+    var off=["globals","locals","params"].filter(function(id){return !$(id).classList.contains("on");});
+    var why=filter?"nothing matches the filter "+filter
+      :off.length===3?"Globals, Locals and Params are switched off"
+      :!sv.name?"line "+(sv.line||"?")+" of "+sv.object_name+" is in no method, form or function module, and "+sv.object_name+" declares no globals"
+      :sv.name+" declares no "+["params","locals"].filter(function(id){return $(id).classList.contains("on");}).join(" and ")+(off.length?" ("+off.join(", ")+" switched off)":"");
+    box.innerHTML='';var empty=document.createElement("div");empty.className="empty";empty.textContent="Nothing to show: "+why+".";box.appendChild(empty);return;}
   box.appendChild(table);
   var note=document.createElement("div");note.className="empty";note.textContent="Declared names and types from the analysis; the values come when the program stops.";box.appendChild(note);
 }
