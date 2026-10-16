@@ -488,8 +488,10 @@ Every client built anywhere goes through `makeClient`. A `grep` for `new ADTClie
     SDK).
 - **The SAP NW RFC SDK** is never shipped. The README tells SNC users to install it and put its
   `lib` on `PATH` (Windows) or `DYLD_LIBRARY_PATH` (macOS) before starting VS Code.
-- **`engines.vscode`** is raised to the first release whose extension host runs Node 22 or later,
-  as measured at feasibility gate 2.
+- **`engines.vscode`** stays `^1.85.0`, as upstream (owner's decision after gate 2, recorded in
+  `GATES.md`). The auth stack declares Node 22+, so its use on the older extension hosts this
+  admits (Node 18 from 1.85) is verified for `basic`; where it does not work, VERTEX refuses with
+  a message rather than crashing.
 - **Licences:** the auth packages' LGPL-3.0-only texts ship in `node_modules`, and the VSIX's
   third-party notice lists them.
 

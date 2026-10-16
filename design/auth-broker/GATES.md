@@ -66,11 +66,29 @@ Report (verbatim, contains nothing secret):
 Node ≥ 22: yes (24.21.0). sap-rfc-lite loads in the extension host: yes,
 in-process, so SPEC §8 runs in the extension host.
 
-For the engines.vscode floor (SPEC §13), the measured, verified release is
-1.142.0, so the floor becomes `^1.142.0` (`vscode/package.json` today says
-`^1.85.0`). Earlier releases also run Node 22 or later in the extension host,
-but sap-rfc-lite was not verified in any of them; lowering the floor is the
-owner's call and needs its own measurement.
+Gate 2 itself passed in VS Code 1.142.0. The engines.vscode floor (SPEC §13)
+is the owner's decision below.
+
+## Owner decision — engines.vscode stays ^1.85.0
+
+Decision (2026-10-16): `engines.vscode` stays `^1.85.0`, as in upstream VERTEX.
+VS Code 1.85 runs extensions on Node 18 (Electron 25), while the auth stack's
+packages declare engines node `^22 || ^24 || ^26`.
+
+Consequence: VERTEX must show that the stack works on the older Node versions
+it then admits; where it does not, VERTEX refuses with a message instead of
+crashing.
+
+First measurement (2026-10-16, Windows x64, `vscode/node_modules` at this
+branch): under Node 18.20.8 and Node 20.20.2, `require` of
+`@mcp-abap-adt/auth-broker`, `@mcp-abap-adt/auth-providers`,
+`@mcp-abap-adt/auth-stores`, `@mcp-abap-adt/auth-errors` and
+`@mcp-abap-adt/connection` all load.
+
+Still to measure: the `basic` path end to end (broker → provider → HTTP wire)
+under Node 18. Once Task 5 lands, run its unit tests (broker, http-wire, the
+`abap-adt-api` table) under Node 18 and 20. Record the result here; if anything
+fails, take it to the owner.
 
 ## Gate 3 — CSRF over RFC
 
@@ -113,4 +131,4 @@ Both runs agree. For Task 9, `LISTENER_STOP_MS` = ceil(0.828 s) + 5 s =
 - Gate 4: shutdown deletes through the probe wire and awaits the poll,
   bounded by `LISTENER_STOP_MS = 6000`.
 - Gate 1: SPEC §8 is feasible.
-- Gate 2: PASS; engines.vscode floor ^1.142.0 (Task 11/12 applies it).
+- Gate 2: PASS in VS Code 1.142.0; engines.vscode stays ^1.85.0 (owner), with Node 18/20 verified for basic after Task 5.
