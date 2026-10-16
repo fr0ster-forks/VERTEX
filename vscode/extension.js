@@ -15,8 +15,6 @@ const selector = require("./selector");
 const versions = require("./versions");
 const assistant = require("./assistant");
 const anthropic = require("./anthropic");
-const https = require("https");
-const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
@@ -29,10 +27,15 @@ const PAGES = fs.existsSync(PACKAGED)
   ? PACKAGED
   : path.join(__dirname, "..", "org.vertex.abap.ui", "resources");
 
-/** Passwords are filed per system: two systems are two users often enough. */
-function secretKey(system) {
-  return "vertex.password." + system.name;
-}
+let auth;
+let output;
+const outputLogger = {};
+["debug", "info", "warn", "error"].forEach(function (level) {
+  outputLogger[level] = function (message) {
+    if (!output) { output = vscode.window.createOutputChannel("VERTEX"); }
+    output.appendLine("[" + level + "] " + message);
+  };
+});
 
 /* ---------- what each service asks for ----------
 
@@ -163,7 +166,7 @@ function active() {
   const pinned = pinnedSystem.getStore();
   const wanted = pinned || (vscode.workspace.getConfiguration("vertex").get("active") || "").trim();
   if (!wanted) {
-    return { system: all[0] };
+    return auth.systemOf(all[0]);
   }
   const found = all.filter(function (s) { return s.name === wanted; });
   if (found.length === 0) {
@@ -173,32 +176,13 @@ function active() {
            + " in vertex.systems. There is " + all.map(function (s) { return s.name; }).join(", ") + "."
     };
   }
-  return { system: found[0] };
+  return auth.systemOf(found[0]);
 }
 
-function missing(system) {
-  const gaps = [];
-  if (!system.url) { gaps.push("url"); }
-  if (!system.user) { gaps.push("user"); }
-  return gaps;
-}
-
-// Asked once per system, then kept by VS Code in the OS credential store. This
-// extension never writes it to a file and never puts it in a URL.
-async function password(context, system) {
-  const stored = await context.secrets.get(secretKey(system));
-  if (stored) {
-    return stored;
-  }
-  const entered = await vscode.window.showInputBox({
-    prompt: "SAP password for " + system.user + " on " + system.name,
-    password: true,
-    ignoreFocusOut: true
-  });
-  if (entered) {
-    await context.secrets.store(secretKey(system), entered);
-  }
-  return entered;
+// Temporary password adapter, removed in Task 10.
+function password(_context, system) {
+  const r = auth.systemOf(system);
+  return r.system ? auth.password(r.system) : Promise.resolve(undefined);
 }
 
 /** The client belongs to every request, not to one of them. */
@@ -210,64 +194,32 @@ function withClient(system, requestPath) {
        + "sap-client=" + encodeURIComponent(system.client);
 }
 
-function request(system, pw, requestPath, extra) {
+async function request(system, requestPath, extra) {
   const settings = extra || {};
-  return new Promise(function (resolve, reject) {
-    let base;
-    try {
-      base = new URL(system.url);
-    } catch (e) {
-      reject(new Error("The url of " + system.name + " is not a valid one: " + system.url));
-      return;
-    }
-
-    const secure = base.protocol === "https:";
-    const headers = {
-      Authorization: "Basic " + Buffer.from(system.user + ":" + pw).toString("base64"),
-      Accept: requestPath.split("?")[0] === "/sap/bc/adt/discovery"
-        ? "application/atomsvc+xml" : "application/json"
-    };
-    Object.keys(settings.headers || {}).forEach(function (name) {
-      headers[name] = settings.headers[name];
-    });
-    if (settings.body) {
-      headers["Content-Type"] = "application/json; charset=utf-8";
-      headers["Content-Length"] = Buffer.byteLength(settings.body, "utf8");
-    }
-
-    const options = {
-      hostname: base.hostname,
-      port: base.port || (secure ? 443 : 80),
-      path: requestPath,
-      method: settings.method || "GET",
-      headers: headers
-    };
-    if (secure) {
-      options.rejectUnauthorized = system.allowInsecureCertificate !== true;
-    }
-
-    const req = (secure ? https : http).request(options, function (res) {
-      let body = "";
-      res.setEncoding("utf8");
-      res.on("data", function (chunk) { body += chunk; });
-      res.on("end", function () {
-        resolve({ status: res.statusCode, headers: res.headers, body: body });
-      });
-    });
-    req.on("error", reject);
-    if (settings.body) {
-      req.write(settings.body, "utf8");
-    }
-    req.end();
+  const headers = {
+    Accept: requestPath.split("?")[0] === "/sap/bc/adt/discovery"
+      ? "application/atomsvc+xml" : "application/json"
+  };
+  Object.keys(settings.headers || {}).forEach(function (name) {
+    headers[name] = settings.headers[name];
   });
+  if (settings.body) {
+    headers["Content-Type"] = "application/json; charset=utf-8";
+    headers["Content-Length"] = Buffer.byteLength(settings.body, "utf8");
+  }
+  const wire = await auth.commandWire(system);
+  const res = await wire.request({ url: withClient(system, requestPath),
+    method: settings.method || "GET", headers: headers, body: settings.body });
+  return { status: res.status, headers: res.headers, body: res.body };
 }
 
 /* A write needs a CSRF token, and the token belongs to the session that was
    given it - so the cookies of that response have to travel with it. Eclipse
    never needed this: its ADT communication layer holds a destination and does
    the same dance out of sight. */
-async function csrf(system, pw) {
-  const res = await request(system, pw, withClient(system, "/sap/bc/adt/discovery"), {
+async function csrf(system) {
+  if (system.authType === "snc") { return { token: "", cookies: "" }; }
+  const res = await request(system, "/sap/bc/adt/discovery", {
     headers: { "x-csrf-token": "fetch" }
   });
   const token = res.headers["x-csrf-token"];
@@ -288,6 +240,10 @@ function describeFailure(status, body) {
   return "HTTP " + status + (detail ? ": " + detail : "");
 }
 
+function reasonAndHint(r) {
+  return r ? r.reason + (r.hint ? " " + r.hint : "") : "";
+}
+
 function describeConnection(error) {
   const code = String(error.code || "");
   let text = "Cannot reach the system: " + (error.message || String(error));
@@ -299,6 +255,14 @@ function describeConnection(error) {
           + "entirely.";
   }
   return text;
+}
+
+function failureText(system, error, sentence) {
+  if (/^No password was entered/.test(error && error.message)) {
+    return "No password was entered, so the request was not sent.";
+  }
+  if (error && typeof error.code === "string") return describeConnection(error);
+  return sentence && error && error.message ? error.message : auth.explain(system, error);
 }
 
 /**
@@ -343,29 +307,19 @@ async function fetch(context, requestPath, body, progress, cancelled) {
     return "ERROR:" + chosen.error;
   }
   const system = chosen.system;
-  const gaps = missing(system);
-  if (gaps.length) {
-    return "ERROR:System " + system.name + " has no " + gaps.join(" and ") + ".";
-  }
-
-  const pw = await password(context, system);
-  if (!pw) {
-    return "ERROR:No password was entered, so the request was not sent.";
-  }
-
   let extra;
   if (body) {
     try {
-      const ticket = await csrf(system, pw);
+      const ticket = await csrf(system);
       extra = {
         method: "POST",
         body: body,
-        headers: { "x-csrf-token": ticket.token, Cookie: ticket.cookies }
+        headers: system.authType === "snc" ? {} : { "x-csrf-token": ticket.token, Cookie: ticket.cookies }
       };
     } catch (e) {
       // CSRF already says what went wrong in a sentence; a connection failure
       // does not, and describeConnection is what turns one into words.
-      return "ERROR:" + (e && e.message ? e.message : describeConnection(e));
+      return "ERROR:" + failureText(system, e, true);
     }
   }
 
@@ -376,17 +330,15 @@ async function fetch(context, requestPath, body, progress, cancelled) {
 
   let response;
   try {
-    response = await request(system, pw, withClient(system, requestPath), extra);
+    response = await request(system, requestPath, extra);
   } catch (e) {
-    return "ERROR:" + describeConnection(e);
+    return "ERROR:" + failureText(system, e);
   }
 
   if (response.status === 401) {
-    // A wrong password kept in the store would block every later attempt with no
-    // way out, so drop it and say that it was dropped.
-    await context.secrets.delete(secretKey(system));
     return "ERROR:HTTP 401: " + system.name + " rejected user " + system.user
-         + ". The stored password has been discarded; loading again will ask for it.";
+         + ". " + reasonAndHint(auth.lastRefusal(system))
+         + (system.authType === "basic" ? " The stored password has been discarded; loading again will ask for it." : "");
   }
   if (response.status === 404) {
     // A resource that is not there is a setup state, not a failure: the
@@ -820,6 +772,7 @@ function withDebugger(sapCode, debugTools) {
 }
 
 function activate(context) {
+  auth = require("./auth/clients").createAuth({ vscode, context, logger: outputLogger });
   const sapCode = require("./code-workbench").register(vscode, context, { active, password, pin: pinTo,
     pinned: () => pinnedSystem.getStore() || "", systems });
   require("./local-navigation").register(vscode, context);
@@ -1271,19 +1224,17 @@ function activate(context) {
       const all = systems();
       if (!all.length) { vscode.window.showWarningMessage("VERTEX: vertex.systems is empty. VERTEX: Import SAP Systems fills it from SAP Logon."); return; }
       const results = [];
-      for (const system of all) {
-        const gaps = missing(system);
-        if (gaps.length) { results.push(system.name + ": no " + gaps.join(" and ") + " in the setting."); continue; }
-        const pw = await password(context, system);
-        if (!pw) { results.push(system.name + ": not tested - no password given."); continue; }
+      for (const entry of all) {
+        const chosen = auth.systemOf(entry);
+        if (chosen.error) { results.push(entry.name + ": " + chosen.error); continue; }
+        const system = chosen.system;
         try {
-          const res = await request(system, pw, withClient(system, "/sap/bc/adt/discovery"));
-          // A refused password is not kept: the next test or read asks for it again.
-          if (res.status === 401) { await context.secrets.delete(secretKey(system)); }
+          const res = await request(system, "/sap/bc/adt/discovery");
           results.push(system.name + ": " + (res.status === 200 ? "OK - ADT answers for " + system.user + (system.client ? " in client " + system.client : "")
-            : res.status === 401 ? "HTTP 401 - user or password refused; the stored password is dropped, the next test asks again"
+            : res.status === 401 ? "HTTP 401 - " + reasonAndHint(auth.lastRefusal(system))
+              + (system.authType === "basic" ? "; the stored password is dropped, the next test asks again" : "")
             : describeFailure(res.status, res.body)));
-        } catch (error) { results.push(system.name + ": " + describeConnection(error)); }
+        } catch (error) { results.push(system.name + ": " + failureText(system, error)); }
       }
       const failed = results.filter(r => !/: OK - /.test(r)).length;
       vscode.window[failed ? "showWarningMessage" : "showInformationMessage"]("VERTEX: " + results.join("  |  "), { modal: failed > 0 });
@@ -1321,9 +1272,9 @@ function activate(context) {
         vscode.window.showWarningMessage("VERTEX: " + chosen.error);
         return;
       }
-      await context.secrets.delete(secretKey(chosen.system));
+      await auth.forget(chosen.system);
       vscode.window.showInformationMessage(
-        "VERTEX: the stored password for " + chosen.system.name + " was removed.");
+        "VERTEX: the stored credentials for " + chosen.system.name + " were removed.");
     }),
     vscode.commands.registerCommand("vertex.configureApiKey", async function () {
       const api = require("./openai-compatible");
@@ -1368,8 +1319,10 @@ function activate(context) {
   return { sapCode };
 }
 
-function deactivate() {
+async function deactivate() {
   if (tools) { tools.stop(); tools = null; }
+  if (auth) { await auth.disposeAll(); }
+  if (output) { output.dispose(); output = null; }
 }
 
 exports.activate = activate;
