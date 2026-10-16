@@ -177,5 +177,16 @@ Packaging logic lives in `vscode/package.js`, with `vscode/package.ps1` and `vsc
   vendored open-abap-core subset. Notices and auth licence files are required.
 - Step 4 changes nothing in `package.json`: `engines.vscode` stays `^1.85.0`.
 - Packaging restores the developer install with plain `npm ci` in `finally`,
-  unless `-KeepNodeModules` is supplied. Owner packaging and integration checks
-  (Steps 5 and 6) remain pending; no VSIX was built for this task.
+  unless `-KeepNodeModules` is supplied.
+
+Verified 2026-10-17 on Windows x64 (PLAN Task 12, Step 5):
+`package.ps1` (universal) and `package.ps1 -Target win32-x64` both succeeded
+with all archive checks; the developer install was restored afterwards. The
+universal package has no sap-rfc-lite and no `.node` binding; win32-x64 carries
+only `prebuilds/win32-x64` and `TargetPlatform win32-x64`. Both carry
+`THIRD-PARTY-NOTICES.md`; neither carries an SDK library. Each was installed
+into a clean VS Code profile: with the universal package an `snc` system was
+refused with "This VERTEX package has no SNC support; install the Windows or macOS package of VERTEX.";
+with the win32-x64 package, Test SAP Systems on the `snc` system answered OK
+without a password prompt. `darwin-arm64`: built on demand, SNC not verified
+on macOS (Apple silicon).
