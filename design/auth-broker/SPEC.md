@@ -102,12 +102,18 @@ The connection key replaces:
 
 A changed RFC address, SNC setting or certificate policy is therefore a different client.
 
-**Saved editors** store the connection key's fields in full, `snc` and `rfc` included. The
-repository is rebuilt from them, as `code-workbench.js` does today:
+**Saved editors are restored against the current settings, never from a snapshot.**
 
-- a saved key without `authType` is read as `basic`;
-- a saved key without `snc` or `rfc` cannot restore an `snc` system, and is reopened against the
-  current settings of the system with that name.
+- A saved editor stores the system's `name` and the connection key it was opened with.
+- On restore, VERTEX looks up the system of that name in the current `vertex.systems` and builds
+  the repository from that definition. The credential then comes from the current login identity,
+  which is the only one the store answers (§5.1).
+- If no system has that name, the editor shows "‹name› is no longer in vertex.systems" instead of
+  content.
+- If the current definition's connection key differs from the saved one, the editor re-reads its
+  object from the current system, because the source may differ.
+
+This replaces `code-workbench.js`'s rebuild of a system from the saved key (`:362–366`).
 
 ## 5. Stores
 
@@ -118,7 +124,7 @@ to `context.secrets`; nothing goes to settings, `globalState` or a file.
 
 | Method | Answer |
 |---|---|
-| `getConnectionConfig(identity)` | The record described below, composed from two sources. `null` when no system in settings has that identity. |
+| `getConnectionConfig(identity)` | The record described below, composed from two sources. `null` when no system in the current settings has that identity. |
 | `getServiceKey(identity)` | The same record as `getConnectionConfig`. |
 | `getAuthorizationConfig(identity)` | `null` — no OAuth client in this landing. |
 | `getClientCertificate` | not implemented |
@@ -160,8 +166,10 @@ The methods:
 | `deleteSession` | delete the key |
 | `getConnectionConfig` | the secret's fields as `IConnectionConfig`: token or cookies, `expiresAt`, `issuedFor`, `issuedBy` |
 | `setConnectionConfig` | like `saveSession` |
-| `getAuthorizationConfig` | `refreshToken` only, never a client |
-| `setAuthorizationConfig` | `refreshToken` only; a client in the write is refused |
+| `getAuthorizationConfig` | `null`, as the reference `SecretSessionStore` answers (`SecretSessionStore.ts:156–177`) |
+| `setAuthorizationConfig` | refused, as the reference store refuses it |
+
+The refresh token is written and read through `saveSession` and `loadSession` only.
 
 Writes to one identity are serialized inside the extension host. Coordination across windows is
 the second landing's.
@@ -234,21 +242,18 @@ produces.
 
 **What the library does with a 401 the wire returns.**
 
-- `_request` turns the response into an `AdtErrorException` with status 401 (`AdtHTTP.js:225–226`,
-  `AdtException.js:115–123`).
-- `isLoginError` matches it, because it matches HTTP 401 or a CSRF refusal (`AdtException.js:110`).
-- `request()` then logs in again once, but only when the request was not itself the auto-login and
-  the client is stateless (`AdtHTTP.js:157–170`). That login clears the library's cookies.
-- So a refused stateless request costs, in total:
-  - the request and the wire's own retry, if the provider answered Ok;
-  - one library login, a `GET /sap/bc/adt/compatibility/graph`;
-  - one more attempt at the request.
+- `_request` turns a returned 401 response into an ADT-type exception: through `fromResponse`, or
+  `simpleError` when there is no body (`AdtHTTP.js:225–226`, `AdtException.js:112`, `:115–123`,
+  `:179`).
+- `isLoginError` matches only an HTTP-type exception with status 401, or a CSRF refusal
+  (`AdtException.js:110`, `:113–114`). A 401 the wire returns is therefore not a login error to the
+  library, and `request()` does not log in again (`AdtHTTP.js:157–173`).
+- So a refused request costs one send, plus the wire's single retry when the provider answered Ok,
+  in either session mode. The caller receives the 401 as an ADT error.
 
-  A stateful request costs only the first item.
-
-For `basic` the provider answers `rejected` with Oops, so the wire never retries, and the
-remaining cost is today's. The test suite runs the real `AdtHTTP` and `AdtException` against a
-fake wire endpoint, to pin this count (§14).
+For `basic` the provider answers `rejected` with Oops, so the wire never retries: one send, and
+the caller receives the 401. VERTEX reports it and discards the refused password (§12). The test
+suite pins this count with the real `AdtHTTP` and `AdtException` (§14).
 
 `dispose()` destroys the keep-alive agent.
 
@@ -278,8 +283,10 @@ as §7.
 
 ### 8.2 Request mapping
 
-- **In:** `url` and `qs` become `{ url, params }`, `body` becomes `data`, `headers` pass on, and
-  `timeout` passes on.
+- **In:** `method` becomes `options.method || "GET"`. `AdtHTTP.login()` and `dropSession()` pass
+  no method (`AdtHTTP.js:121–123`, `:146`), and the connector upper-cases it at once
+  (`AbstractAbapConnection.ts:1299`). `url` and `qs` become `{ url, params }`, `body` becomes
+  `data`, `headers` pass on, and `timeout` passes on.
 - **Out:** `{ data, status, statusText, headers }` becomes `{ body, status, statusText, headers }`.
 - **Failures:**
   - A connector error that carries a response becomes that response, so `abap-adt-api` reads it
@@ -385,8 +392,7 @@ For every legacy key `vertex.password.<name>`:
    of those systems first needs a password, VERTEX asks for it, as for any system without one.
    Once no system of that name lacks its own login, the legacy key is deleted.
 
-Why this satisfies GOAL criterion 6 ("migrates only when it belongs to that system
-unambiguously"):
+This is GOAL criterion 6 as decided:
 
 - The legacy key records nothing but the name.
 - At the moment of migration, the system of that name is the definition the password has been
@@ -395,7 +401,8 @@ unambiguously"):
   type or user is a different identity and asks.
 
 The one case this cannot see is a definition edited and never used again before the upgrade.
-There the password is attributed to the edited definition, which is what VERTEX does today.
+There the password is attributed to the edited definition, which is what VERTEX does today. The
+GOAL accepts this limit.
 
 ## 11. Integration points in `vscode/`
 
@@ -407,8 +414,9 @@ There the password is attributed to the edited definition, which is what VERTEX 
 | `extension.js` `debuggerFor` → `connect` / `make` / `open` | `makeClient(system, "listener")`, `makeClient(system, "probe")`, and per stopped program `makeClient(system, "debuggee")` with `stateful` + `login()` as today |
 | `debugger.js` operations that use `listener` besides the poll — breakpoint sync (`:268`), source reads (`:1147`), class-component reads (`:1161`), listener takeover delete (`:620`) | move to `probe`, for every authentication type. Over RFC the listener's queue is held by the poll (§8.3); over HTTP the move changes nothing. |
 | `debugger.js` release paths (`:237`, `:729`, `:986`) | each ends its clients' sessions (`logout`, or `dispose()` for a client that is dropped) |
+| failure paths: the debuggee's failed `login()` in `open` (`extension.js:790–794`), a failed attach or first snapshot (`debugger.js:642`, `:653–677`), a listener/probe pair replaced on a system switch (`debugger.js:220`) | each calls `dispose()` on every client it built and does not keep, before rethrowing or replacing it. A client that is dropped without `dispose()` would hold its RFC conversation until deactivate. |
 | `extension.js` test-connection, forget-password commands | test sends a discovery GET through the system's wire; forget becomes "Forget credentials" (§5.3) |
-| `code-workbench.js` `repository()` and saved-editor keys | `makeClient(system, "repository")`; keys per §4.2 |
+| `code-workbench.js` `repository()` and saved-editor keys | `makeClient(system, "repository")`; restore per §4.2 against current settings |
 | `sap-code.js` `logout()` calls | unchanged; the wire handles the logoff (§8.4) |
 | `system-setup.js` import probes | unchanged; they probe HTTP reachability without credentials and never claim authentication |
 | `package.json` `vertex.systems` schema | §3 fields; `user` description updated; no `password` |
@@ -475,13 +483,15 @@ Every client built anywhere goes through `makeClient`. A `grep` for `new ADTClie
   - `options.auth` dropped;
   - a new provider instance after the means change.
 - **The wire under the real `abap-adt-api`:** an `ADTClient` on `http-wire.js` against the local
-  server, pinning the request count of §7 for a refused stateless and a refused stateful request.
+  server, pinning §7's count: one send for a refused `basic` request, stateless and stateful, and
+  no library re-login.
 - **`rfc-wire.js`**, with a fake connector:
   - mapping;
   - stripped headers;
   - mode `stateful` → `keep` → `stateless`;
   - two overlapping requests with different modes, serialized;
   - logoff ends the session, and the next request opens a new one;
+  - a request without `method` goes as GET;
   - a failed open, retried on the next request;
   - read, apply (logoff), read, apply on one cached client.
 - **`hosts.js`:** every row of §9.
@@ -494,6 +504,7 @@ Every client built anywhere goes through `makeClient`. A `grep` for `new ADTClie
 | edit: lock, write, unlock, activate — twice on one cached client | ✓ | ✓ |
 | ABAP Unit, ATC, data preview | ✓ | ✓ |
 | debugger: attach, step, stack, variables, detach, attach again | ✓ | ✓ |
+| debugger: a failed attach leaves no RFC conversation open (SM04 / SMGW) | — | ✓ |
 | breakpoint change and source read while the listener polls | ✓ | ✓ |
 | listener shutdown time | ✓ | ✓ (gate 4) |
 | password changed in window A is used by window B | ✓ | — |

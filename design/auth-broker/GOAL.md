@@ -79,10 +79,14 @@ Each landing is complete on its own: its authentication types meet every criteri
    - **`basic`:** nothing to renew.
    - Whenever a SAP session ends under work in progress, VERTEX reports what was lost and does not
      silently start over. That includes a held lock and an attached debugger.
-6. **Existing Basic users keep working without re-entering anything.** A stored password migrates
-   to the system's new login only when it belongs to that system unambiguously. Where it does not
-   (the URL, client or user changed, or names collide), VERTEX asks once rather than guessing. The
-   spec states the mapping rules.
+6. **Existing Basic users keep working without re-entering anything.**
+   - A stored password is filed today under the system's name alone. It migrates once, at the
+     upgrade, to the system that has that name then. That is the attribution VERTEX already makes.
+   - When names collide, nothing migrates and VERTEX asks once.
+   - From the migration on, a password belongs to the system's URL, client, type and user. Any
+     later change to one of them asks.
+   - A definition edited before the upgrade cannot be told apart from the original, because the
+     old key records only the name. That limit is accepted.
 7. **Unsupported hosts get a clear refusal, not a crash.**
    - `snc` runs only in a local extension host on Windows or macOS. On Linux, or in a remote
      extension host, selecting an `snc` system is refused with a message saying why. This happens
