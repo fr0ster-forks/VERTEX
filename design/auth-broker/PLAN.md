@@ -567,7 +567,7 @@ module.exports = { applySecret };
 ```
 
   Before committing, diff the rules once more against
-  `/home/okyslytsia/prj/mcp-abap-adt-auth-stores/src/session/sessionSecret.ts` (or the published
+  `src/session/sessionSecret.ts` in the `@mcp-abap-adt/auth-stores` repository (or the published
   `node_modules/@mcp-abap-adt/auth-stores/dist/session/sessionSecret.js`) and align any difference
   in favour of the reference; add a test for it.
 
