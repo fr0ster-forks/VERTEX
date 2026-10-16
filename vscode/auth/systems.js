@@ -16,6 +16,10 @@ function readSystem(entry) {
   if (Object.prototype.hasOwnProperty.call(e, "password")) {
     return { error: "System " + name + " has a password in settings. Remove it: VERTEX keeps passwords in the OS credential store and asks for them." };
   }
+  if (e.connection === "sap-adt-extension") {
+    if (!e.destination) return { error: "System " + name + " has no destination." };
+    return { system: { ...e, name } };
+  }
   const authType = e.authType === undefined || e.authType === "" ? "basic" : e.authType;
   if (!TYPES.includes(authType)) return { error: "System " + name + " has authType " + JSON.stringify(e.authType) + "; this VERTEX knows " + TYPES.join(" and ") + "." };
   const gaps = [];
@@ -49,8 +53,26 @@ function loginIdentity(system) {
 }
 
 function connectionKey(system) {
+  if (system.connection === "sap-adt-extension") return JSON.stringify([system.name, system.connection, system.destination, system.client || "", system.packages || []]);
   return JSON.stringify([system.name, canonicalOrigin(system.url), system.client || "", String(system.user).toUpperCase(),
     system.authType, system.allowInsecureCertificate === true, system.snc || null, system.rfc || null]);
 }
 
-module.exports = { readSystem, canonicalOrigin, loginIdentity, connectionKey };
+/** Read current broker keys and the URL-first keys retained by older saved editors.
+ * Plain system names are also accepted (for search result labels).
+ */
+function keyInfo(key) {
+  let parts = key;
+  if (typeof parts === "string") {
+    try { parts = JSON.parse(parts); } catch (_) { return { name: key, viaExtension: false, destination: "" }; }
+  }
+  if (!Array.isArray(parts)) return { name: "", viaExtension: false, destination: "" };
+  const currentExtension = parts[1] === "sap-adt-extension";
+  const legacyExtension = parts[5] === "sap-adt-extension";
+  const current = currentExtension || parts[4] === "basic" || parts[4] === "snc";
+  return { name: String(parts[current ? 0 : 3] || ""),
+    viaExtension: currentExtension || legacyExtension,
+    destination: String((currentExtension ? parts[2] : legacyExtension ? parts[6] : "") || "") };
+}
+
+module.exports = { readSystem, canonicalOrigin, loginIdentity, connectionKey, keyInfo };

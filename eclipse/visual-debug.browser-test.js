@@ -26,7 +26,7 @@ const html=read('vscode/pages/visual-debug.html').replace('/*INIT*/null/*INIT*/'
   for(const colorScheme of ['light','dark']){
    const page=await browser.newPage({viewport:{width:900,height:950},colorScheme});const errors=[];page.on('pageerror',e=>errors.push(e.message));
    let stop=1,line=4;
-   const picture=()=>({system:'ALC',ended:0,listening:true,breakpoints:[{id:'bp1',name:'ZVERTEX_DEBUG_LAB',objectType:'PROG',url,line:6,mode:'stop',active:true}],
+   const picture=()=>({system:'A4H',ended:0,listening:true,breakpoints:[{id:'bp1',name:'ZVERTEX_DEBUG_LAB',objectType:'PROG',url,line:6,mode:'stop',active:true}],
     stopped:{at:'stop '+stop,frames:[{n:0,label:'ZVERTEX_DEBUG_LAB:'+line+' EVENT START-OF-SELECTION',url,line,program:'ZVERTEX_DEBUG_LAB',include:'ZVERTEX_DEBUG_LAB',unit:'START-OF-SELECTION',unitType:'EVENT',current:true,system:false}]}});
    await page.exposeFunction('nativeFixture',async(command,raw)=>{
     const a=JSON.parse(raw);let value;

@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
-function host(savedState = {}, authOverride) {
+function host(savedState = {}, authOverride, extensionRoute = false, repositoryRead) {
   const baseSystem = { name: "DEV", url: "https://sap.invalid", user: "USER", client: "100", authType: "basic" };
   let current = [baseSystem];
   const clients = [], explained = [], repositoryApis = [];
@@ -85,6 +85,7 @@ function host(savedState = {}, authOverride) {
       },
       registerTextDocumentContentProvider: () => ({ dispose() {} }),
       registerFileSystemProvider: (scheme, provider) => { fileProvider = provider; return { dispose() {} }; },
+      onDidOpenTextDocument: () => ({ dispose() {} }), onDidCloseTextDocument: () => ({ dispose() {} }),
       async openTextDocument(value) {
         const content = value.scheme === 'vertex-sap' ? (await fileProvider.readFile(value)).toString() : value.content || '';
         const doc = { uri: value.content === undefined ? value : vscode.Uri.parse("untitled:" + documents.length),
@@ -122,7 +123,12 @@ function host(savedState = {}, authOverride) {
     globalState: { get: (key, fallback) => memory.get(key) || fallback, update: async (key, value) => { memory.set(key, value); } }, workspaceState: { get: (key, fallback) => savedState[key] || fallback,
     async update(key, value) { savedState[key] = value; } } };
   const sandbox = { Buffer, module: { exports: {} }, __dirname: path.join(__dirname, ".."), require: id => {
-    if (id === "./sap-code") { return { createRepository: () => { repositoryApis.push(api); return api; }, revision: require('../sap-code').revision, TYPES: { PROG: "PROG/P" } }; }
+    if (extensionRoute && id === "./sap-adt-extension") return { ...require("../sap-adt-extension"),
+      state: async () => ({ ok: true }), host: () => ({}) };
+    if (extensionRoute && id === "./sap-adt-extension-repository") return { createExtensionRepository: () => ({ ...api, indexKept: () => true }) };
+    if (id === "./sap-code") { return { createRepository: ({ systemId }) => { repositoryApis.push(api); return repositoryRead ? { ...api,
+      execute: (tool, args) => { repositoryRead(systemId, tool, args); return api.execute(tool, args); },
+      analysisReader: () => args => api.execute("read_sap_object", args) } : api; }, revision: require('../sap-code').revision, TYPES: { PROG: "PROG/P" } }; }
     return id.startsWith(".") ? require(path.join(__dirname, "..", id)) : require(id);
   } };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../code-workbench.js"), "utf8"), sandbox);
@@ -1150,4 +1156,34 @@ for (const review of [false, true]) test(review
   assert.equal(reloaded.savedState.sapEditors[uri].reread, undefined);
   await reloaded.writeFile(doc.uri, "REPORT ztest.\nWRITE 'new system edit'.");
   assert.equal(reloaded.writes.length, 1);
+});
+
+test("extension-route tab breakpoints stay local with a broker system active", async () => {
+  const ext = { name: "EXT", connection: "sap-adt-extension", destination: "DEST" };
+  const saved = savedEditor(ext), h = host(saved.state, undefined, true);
+  h.setSystems([h.baseSystem, ext]);
+  await h.restoreDocument({ scheme: "vertex-sap", toString: () => saved.uri });
+  const placed = [];
+  h.tools.attachDebugger({ picture: () => ({ system: "DEV", breakpoints: [] }),
+    watch: () => ({ dispose() {} }), async setBreakpointAt(args) { placed.push(args); return "local-point"; } });
+  h.fireBreakpoints({ added: [{ id: "extension-point", location: { uri: h.documents[0].uri, range: { start: { line: 0 } } } }] });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(placed.length, 1);
+  assert.equal(placed[0].local, true);
+  assert.equal(h.tools.documentObject(h.documents[0]).system_name, "EXT");
+});
+
+test("variable analysis selects the named system repository among open repositories", async () => {
+  const reads = [];
+  const h = host({}, undefined, false, (key, tool, args) => reads.push({ key, tool, args }));
+  for (const name of ["OTHER", "DEV", "THIRD"]) {
+    h.switchSystem(name);
+    await h.tools.execute("open_sap_object", { object_name: "ZTEST", object_type: "PROG" });
+  }
+  h.switchSystem("DEV");
+  h.setActive(null);
+  await h.tools.originVariables({ object_name: "ZVARIABLES", object_type: "PROG", line: 1 });
+  const read = reads.find(read => read.tool === "read_sap_object" && read.args.object_name === "ZVARIABLES");
+  assert.ok(read);
+  assert.equal(require("../auth/systems").keyInfo(read.key).name, "DEV");
 });

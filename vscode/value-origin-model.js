@@ -129,6 +129,20 @@ function callsIn(ts, withTokens = false) {
   return found;
 }
 // The parameters a FORM takes: USING, CHANGING and TABLES, each name with the type written after it.
+/* The interface a FUNCTION statement writes - IMPORTING, EXPORTING, CHANGING, TABLES - read by the transpiler's own reader of it
+   (sap-fugr.js moduleSignature, over the statement's tokens). A module whose source has no interface there has none here. */
+function functionParameters(p) {
+  if (!p.functionStatement) return [];
+  let parts;
+  // The statement as the source writes it: tokens joined again would part ZIF_X=>TY_Y into three names.
+  const first = p.functionStatement[0], last = p.functionStatement[p.functionStatement.length - 1];
+  const text = Number.isInteger(first && first.offset) && Number.isInteger(last && last.endOffset)
+    ? p.source.text.slice(first.offset, last.endOffset) : p.functionStatement.map(t => t.value).join('');
+  try { parts = require('./sap-fugr').moduleSignature(text + '.').parts; }
+  catch (_) { return []; }
+  return ['IMPORTING', 'EXPORTING', 'CHANGING', 'TABLES'].flatMap(mode => (parts[mode] || []).map(x =>
+    ({ name: U(x.name), mode, type: x.refClass ? 'REF TO ' + x.type : x.type || x.structure || x.like || '' })));
+}
 function formParameters(ts) {
   const out = []; let mode = '';
   for (let i = 2; i < ts.length; i++) {
@@ -141,6 +155,10 @@ function formParameters(ts) {
   return out;
 }
 function parameters(ts) {
+  // !name marks a name as no keyword (IMPORTING !is_x TYPE ...), as SAP's generator and ADT's formatter write it.
+  // abaplint gives it as one token (!is_x), the source tokenizer as a symbol before the name: both are taken as the name.
+  ts = ts.filter(t => !(t.kind === 'symbol' && t.value === '!'))
+    .map(t => typeof t.value === 'string' && t.value.length > 1 && t.value[0] === '!' ? { ...t, value: t.value.slice(1), kind: 'word' } : t);
   const result = []; let mode = '';
   for (let i = 0; i < ts.length; i++) {
     if (modes.has(val(ts, i))) { mode = val(ts, i); continue; }
@@ -329,9 +347,11 @@ function buildIndex(sources) {
           procedures.push(current);
         }
         if (first === 'FORM') current.declaration = ts;
+        // A function module as ADT and SAP's ADT extension show it carries its interface in the FUNCTION statement itself.
+        if (first === 'FUNCTION') current.functionStatement = ts;
         conditions = []; continue;
       }
-      if (isProcedureEnd(first)) { current.end = s.offset; current = global; conditions = []; continue; }
+      if (isProcedureEnd(first)) { current.end = s.offset; current.endLine = s.line; current = global; conditions = []; continue; }
       if (['ENDIF', 'ENDCASE', 'ENDLOOP', 'ENDDO', 'ENDWHILE', 'ENDTRY'].includes(first)) conditions.pop();
       if (['ELSE', 'ELSEIF', 'WHEN', 'CATCH'].includes(first) && conditions.length) {
         const group = conditions[conditions.length - 1]; conditions[conditions.length - 1] = { ...group, branch: s };
@@ -349,6 +369,12 @@ function buildIndex(sources) {
         if (call.class && !call.class.includes('(')) dependencies.set(U(call.class), 'CLAS');
         if (U(call.event) === 'FUNCTION' && call.name && !call.name.includes('(')) dependencies.set(U(call.name), 'FUNC');
       }
+    }
+    // A module of a local function group: its interface comes from the group's XML (sap-fugr.js moduleParameters).
+    for (const param of source.functionParams || []) {
+      const key = '~' + U(param.module), params = signatures.get(key) || [];
+      if (!params.some(p => p.name === U(param.name))) params.push({ name: U(param.name), mode: param.mode, type: param.type || '' });
+      signatures.set(key, params);
     }
     for (const param of source.aceParams || []) {
       // ACE ts_params names the method in EVENT; NAME is the class/unit name
@@ -833,8 +859,9 @@ function analyze(sources, target, options = {}) {
   }
   // What each routine declares and takes, for a panel that shows the variables before anything has run.
   const declarations = index.procedures.map(p => ({ source: p.source.id, owner: p.owner || p.source.objectName || '', name: p.name,
-    first: p.line, last: (p.body.length ? p.body[p.body.length - 1].line : p.line) + 1,
-    params: (p.declaration ? formParameters(p.declaration) : (index.signature(p) || [])).map(x => {
+    // The routine ends at its ENDMETHOD, ENDFORM or ENDFUNCTION; without one, after the last line of its last statement.
+    first: p.line, last: p.endLine || (p.body.length ? (p.body[p.body.length - 1].tokens?.at(-1)?.line || p.body[p.body.length - 1].line) : p.line) + 1,
+    params: (p.declaration ? formParameters(p.declaration) : (index.signature(p) || []).length ? index.signature(p) : functionParameters(p)).map(x => {
       const type = x.type || '', components = type && !/^(REF TO|STANDARD|SORTED|HASHED|TABLE)/i.test(type) ? typeComponents(sources, type) : null;
       return components ? { name: x.name, mode: x.mode, type, components } : { name: x.name, mode: x.mode, type };
     }),

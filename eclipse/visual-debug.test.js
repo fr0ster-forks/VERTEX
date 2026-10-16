@@ -34,7 +34,7 @@ test('bridge reports native command failures through the shared page queue',asyn
   await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(b.answers,['ERROR:Session ended']);
 });
 test('a native stop reaches shared recording without reopening the ADT editor',()=>{
-  const b=bridge();const p={system:'ALC',ended:0,breakpoints:[],stopped:{at:'stop 1',frames:[{current:true,url:'/sap/bc/adt/oo/classes/zcl_calc/source/main',line:27}]}};
+  const b=bridge();const p={system:'A4H',ended:0,breakpoints:[],stopped:{at:'stop 1',frames:[{current:true,url:'/sap/bc/adt/oo/classes/zcl_calc/source/main',line:27}]}};
   b.context.vertexNativeEvent(JSON.stringify(p));
   assert.deepEqual(b.events,[p]);assert.deepEqual(b.reveals,[]);
 });

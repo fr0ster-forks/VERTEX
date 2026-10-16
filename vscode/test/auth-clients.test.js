@@ -195,3 +195,20 @@ for (const stored of [false, true]) test("CSRF refusal suppresses auto-login pro
   assert.equal(v.prompts.length, after + 1);
   assert.equal(sends, before + 2);
 });
+
+test("extension destinations coexist with broker systems without credentials or an HTTP client", async t => {
+  const ext = { name: "EXT", connection: "sap-adt-extension", destination: "D" };
+  const basic = { name: "B", url: "http://localhost:9", user: "u" };
+  const vscode = fakeVscode([ext, basic]), context = fakeContext();
+  const auth = createAuth({ vscode, context, logger: null });
+  t.after(() => auth.disposeAll());
+  assert.equal(auth.currentSystems().length, 2);
+  await assert.rejects(auth.makeClient(auth.systemOf(ext).system, "repository"), /only with SAP ADT extension/);
+  await assert.rejects(auth.commandWire(ext), /only with SAP ADT extension/);
+  assert.equal(vscode.prompts.length, 0);
+  const client = await auth.makeClient(auth.systemOf(basic).system, "repository");
+  assert.equal(vscode.prompts.length, 1);
+  assert.equal(auth.explain(ext, new Error("failure")), "failure");
+  await auth.forget(ext);
+  await client.dispose();
+});

@@ -10,7 +10,8 @@ test("vertex.systems declares authType, snc and rfc, and no password", () => {
   assert.ok(item.properties.snc.properties.partnerName);
   assert.ok(item.properties.rfc.properties.ashost && item.properties.rfc.properties.sysnr);
   assert.equal(item.properties.password, undefined);
-  assert.deepEqual(item.required, ["name", "url", "user"]);
+  assert.deepEqual(item.required, ["name"]);
+  assert.deepEqual(item.anyOf.map(choice => choice.required), [["url", "user"], ["connection", "destination"]]);
 });
 test("the auth packages are registry dependencies", () => {
   for (const p of ["@mcp-abap-adt/auth-broker", "@mcp-abap-adt/auth-providers", "@mcp-abap-adt/auth-stores", "@mcp-abap-adt/auth-errors", "@mcp-abap-adt/connection"]) {

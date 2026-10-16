@@ -65,16 +65,41 @@ For calculation code that can run without SAP services, use the transpiler and
 runtime bundled with VERTEX. Open a saved local `.abap` file and choose
 **VERTEX: Run with ABAP Transpiler**, which runs it at once - the selection screen first, then to the first
 breakpoint, or to the end with the output when there is none - or **VERTEX: Visual Analysis / Debug**, which opens the
-panel without running. An SAP program runs the same way from **VERTEX: Run with ABAP Transpiler** in the editor's context menu of its tab, or
+panel without running. An SAP program, or the method of an SAP class the cursor stands in, runs the same way from **VERTEX: Run with ABAP
+Transpiler** in the editor's context menu of its tab, or
 from **Run with ABAP Transpiler** beside Run in SAP in its Visual Debug panel, which reads it, its includes and the classes and interfaces it uses from SAP first. The panel is shared with SAP runs;
 for local files its title is **Visual Transpiler Debug** and its Run button is **Run with ABAP Transpiler**. Run
-asks the selection screen in a window of its own - the radio buttons, the other PARAMETERS (a value field with its
-DEFAULT, AS CHECKBOX as a checkbox; a value is upper-cased as SAP does unless LOWER CASE), Execute (F8) - so it takes
-no room in the panel. SELECT-OPTIONS are not asked. The panel counts the breakpoints of its own object and the sources it uses - a point in another object's file
+asks the selection screen in a window of its own, laid out as SAP lays out screen 1000: blocks with their frame and
+title, lines of several elements, comments, SKIP and ULINE; radio buttons, checkboxes and value fields with their
+DEFAULT (a value is upper-cased as SAP does unless LOWER CASE, and its LENGTH holds); SELECT-OPTIONS as rows of sign,
+option, low and high, with + row unless NO-EXTENSION and without high under NO INTERVALS. Each element is named by
+its selection text - from the abapGit text pool beside a local file, from SAP for an SAP program; if SAP's texts cannot
+be read the window says so and shows the technical names. A field marked OBLIGATORY must be filled before Execute (F8)
+runs. A pushbutton, a tabbed block or a function key is named in the window as not drawn, and another screen
+(BEGIN OF SCREEN) is not asked.
+
+**A program runs in a window of its own, as SAP GUI shows a report.** VERTEX: Run with ABAP Transpiler on a program
+opens it in an editor tab, in the colours of the VS Code theme: a title bar, a toolbar, the selection screen, and a
+status bar. **Execute (F8)** runs it and shows the list it wrote; **Back (F3)** returns to the screen with the values
+given, to run again. A program without a selection screen runs at once. A local file is transpiled again only when a
+source of its folder changed - an edit, a new file, a removed one; otherwise the last build runs at once. Each run is recorded, and Visual Debug always shows the latest one -
+without an Output of its own, as the list is in the window: **See flow history**
+brings it to the front - its steps, values and flow - and a run that reaches a breakpoint opens it there by
+itself, to step on - the source it follows opens beside the window, which stays in sight; Run in that Visual Debug
+brings the window to the front again. A transpiler run has no session
+to leave, so its panel has no Detach: Exit program ends a stopped run. For an SAP program the toolbar has **Recompile** too. A method or a function module opens the same window on the
+screen of its parameters, with its variants; its results follow the list - a value as a line, a structure as a tree
+and a table as a grid, both opening and closing (in Visual Debug's Output, as indented text). The panel counts the breakpoints of its own object and the sources it uses - a point in another object's file
 neither shows nor stops it, and Clear all leaves it; **All BP** in the Breakpoints header counts every ABAP breakpoint
 in VS Code instead. Opened by Run with ABAP Transpiler and with none of those set, the panel is a run: the Run button and the
 Output, nothing else; set a breakpoint and it is the debugger, and back when the last one is removed. A transpiler run
-always records every step with its values: it is fast enough that there is no record switch.
+always records every step with its values: it is fast enough that there is no record switch. Beside the routine's
+variables a step shows **SY** - the fields the run has set (SY-SUBRC, SY-TABIX, SY-INDEX, SY-DBCNT, SY-FDPOS) - and
+**SQL**, each SELECT the statement before it ran with the rows it brought or why it failed. A run that fails says
+where in the ABAP: the error, then the object and line it happened on and each call that led there; Node's own text
+is in the VERTEX Local ABAP channel. A run stays alive while
+the panel is closed: opened again, the panel shows it as it stands - the steps, where it stopped, the output - and
+**Clear** starts a new one.
 
 **A method or a function module runs too.** With the cursor inside a method of a local class
 (`zcl_x.clas.abap`) or inside a function module of a local function group (`zfg.fugr.z_fm.abap`, abapGit
@@ -273,6 +298,53 @@ By hand, the entries look like this; the HTTP(S) port is in SMICM > Goto > Servi
 The `url` is the ICM port, not the one SAP GUI connects to.
 `allowInsecureCertificate` accepts a certificate that cannot be verified, which
 development systems often have; it is off by default on purpose.
+
+### Systems with SNC single sign-on
+
+A system that logs on with SNC single sign-on - SAP Logon's *Activate Secure Network
+Communication* without *SNC logon with user/password* - has no password VERTEX could use over HTTP.
+Use VERTEX's own SNC connection described above, or configure the system **only with SAP ADT extension**: SAP's *ABAP Development Tools for VS Code*
+logs on to it by itself, SNC included, and VERTEX reads, writes and activates through it.
+
+- Install SAP ABAP Development Tools for VS Code and create its destination for the system there
+  (*ABAP: New ABAP Destination*, protocol RFC).
+- **VERTEX: Get Connections from SAP ADT for VS Code** - in the palette while SAP's extension is
+  installed, and a link under `vertex.systems` - lists that extension's destinations and adds the
+  picked ones to `vertex.systems`, with no url, user or password:
+
+  ```json
+  { "name": "A4H_001_DEVELOPER_EN", "connection": "sap-adt-extension",
+    "destination": "A4H_001_DEVELOPER_EN", "client": "001" }
+  ```
+
+- Log on to the destination in SAP's extension (*ABAP: Logon to Destination*) before VERTEX uses it.
+  **VERTEX: Test SAP Systems** says whether it is logged on. The system list and Switch System mark
+  such a system *only with SAP ADT extension*.
+- **VERTEX: Import SAP Systems** does not add an SNC single sign-on entry of SAP Logon for HTTP; it
+  names it and points to the command above.
+
+What works on such a system: reading and editing sources (a save writes, checks and activates through
+SAP's extension, and activates only when the check finds no error), VERTEX Tools - metrics, UML,
+Calls and Logic diagrams, package views -, Value Origin, the variables of a routine, breakpoints for
+the analysis between them, and **Run with ABAP Transpiler** with its debugging: classes, interfaces,
+function groups and the customer tables and structures it uses are read through SAP's extension,
+standard dictionary types from open-abap-core. What needs VERTEX's own HTTP connection says so
+instead: Run in SAP and the SAP debugger, SelecTor and Run Select, Versions, Where-used, ABAP Unit
+and ATC through VERTEX, element info on hover, and creating objects.
+
+The same commands work in SAP's own editor: in a source opened from its tree, the context menu has
+**VERTEX Tools**, **Visual Analysis / Debug** and **Run with ABAP Transpiler**, for the system of that
+source whichever is active; in its tree, **VERTEX Tools** on a package or an object opens the tools on
+it.
+
+**Finding objects by name.** SAP's extension finds no object by its name for anyone else, so VERTEX
+keeps an index of the system's objects. The first time a system is used, VERTEX offers to build it
+once, in the background, with its progress and Cancel; **VERTEX: Index SAP System** builds it again.
+The index covers every customer package (`Z*`, `Y*`, `/namespace/`) and the user's own `$TMP`, and is
+kept between sessions. Without it, or for an object made since, a name is looked for near the objects
+being worked on only - their package, then its neighbours up to their root package; standard SAP is
+never looked for. `packages` in the system's entry adds packages of its own to look in, for example
+`"packages": ["BASIS/SABAPDEMOS"]`.
 
 Code reviews are saved where `vertex.review.storage` says: `table` (default) - SAP's
 `ZAVE_REVIEW`, shared with AVE; `file` - one JSON file per request; `both` - the table is read
@@ -1127,17 +1199,31 @@ debugger the assistant drives - one session, not a second one:
 - **Run in SAP** (first in the header, with the SAP execute clock) starts the program in WebGUI, as `debug_run` does. A program runs itself. For a class
   or a function module, name the program that calls it in the field - or leave it empty for the
   object's test screen, SE24 or SE37 with the name filled in, and start the test there with F8.
-- **Run with ABAP Transpiler** (beside Run in SAP, for a program) runs the SAP program on your machine instead. It reads
+- **Run with ABAP Transpiler** (beside Run in SAP, for a program, a class or a function module) runs the SAP program on
+  your machine instead - or, for a class, the method the cursor stands in, in the tab of the class's source; or the
+  function module: the panel asks the parameters, with their DEFAULTs, as for a local one (see
+  [Local ABAP execution](#local-abap-execution)). A customer function module the code calls brings its whole function
+  group - main program, includes and every module - and a step goes into the module's VERTEX tab; the group's other
+  includes open as copies, having no tab of their own. It reads
   the program's active version, its includes and every customer class and interface it names - their local definitions
   and implementations too, not their test classes - into a temporary folder, and the panel turns to Visual Transpiler
   Debug on it (see [Local ABAP execution](#local-abap-execution)); SELECTs still read SAP. The dictionary types the code
   uses - tables and structures, data elements, domains and table types, and what they are built of - are read from
   SAP's DD tables too. A step into an include stands in the include, as in SAP, and a breakpoint can be set there. An
   open tab of the program with changes not activated stops it. So does anything that cannot be read, a dictionary type
-  whose definition names one the dictionary does not have, an `INCLUDE` sharing its line with another statement, and,
-  for now, a call of a customer function module: the reason names the object. A name the dictionary does not have
+  whose definition names one the dictionary does not have, an `INCLUDE` sharing its line with another statement, and a
+  function module parameter whose DEFAULT is no literal: the reason names the object. What the transpiler itself cannot
+  run, `FORMAT` for one, stops the run at its line. A name the dictionary does not have
   either is left to the transpiler, which names what it cannot resolve.
-  Breakpoints and steps then belong to the copies in the temporary folder, not to the SAP source.
+  SAP's own classes the code uses - `CX_SY_*`, `CL_ABAP_CHAR_UTILITIES`, RTTI and the rest of open-abap-core,
+  bundled with VERTEX - run with it; they are not recorded and a step does not go into them.
+  As SAP runs a program's load and not its text, a run takes the last build of the object - what was read and
+  transpiled - without asking SAP again; **Recompile** beside the Run button reads the object and what it uses again
+  and transpiles it, and its tooltip says when the current build was read. A method or a function module is
+  transpiled again at each run, as the program that calls it carries the values given, but is not read again.
+  The run works on those copies, but you stay in the SAP tabs: a step opens and marks the program, include or class
+  in its VERTEX tab, F5-F8 there step the run, and a breakpoint set in a tab stops the run - the same breakpoint is
+  set in SAP for Run in SAP too.
 - **Detach** lets the program go and stops listening, but keeps the breakpoints in the list:
   **Run in SAP** sets them in SAP again and listens before it starts the next run.
 - **Exit program** ends the stopped program where it stands, as the debugger's Exit does; the

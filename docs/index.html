@@ -215,6 +215,16 @@
 </p>
 
 <p>
+  In VS Code, an SNC system is reached in one of two ways. VERTEX's own RFC connection (<code>authType: "snc"</code>, with Secure Login
+  Client and the SAP NW RFC SDK; see the VS Code README) offers everything, Run in SAP and the debugger included. Or a system configured <em>only with SAP ADT extension</em>: SAP's ABAP Development Tools for VS Code logs on to it, SNC
+  included, and VERTEX reads, writes and activates through that extension. VERTEX: Get Connections from
+  SAP ADT for VS Code adds its destinations as systems; VERTEX: Index SAP System builds, once, the index
+  by which objects are found by name there. Sources, VERTEX Tools, Value Origin and the ABAP transpiler's
+  run work on such a system, also from SAP's own editor and tree; Run in SAP, the SAP debugger,
+  SelecTor, Versions, where-used, ABAP Unit and ATC need VERTEX's own connection and say so.
+</p>
+
+<p>
   The ABAP editor and the AI-driven debugger
   remain VS Code only by design, while the explorer pages are shared between
   the two hosts. The VS Code extension also runs ABAP tests and ATC checks from chat, integrates

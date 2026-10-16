@@ -16,7 +16,7 @@ function attributes(tag) {
   return found;
 }
 function landscape(files) {
-  const systems = [], skipped = [], texts = files.map(file => { try { return fs.readFileSync(file, "utf8"); } catch (_) { return ""; } });
+  const systems = [], skipped = [], snc = [], texts = files.map(file => { try { return fs.readFileSync(file, "utf8"); } catch (_) { return ""; } });
   // A logon group's entry names no application server, only its message server (msid) - described by a <Messageserver>
   // element, in this file or the global one. Its host usually runs an ICM too, so that host is the one tried; the
   // instance comes from a message server port 36NN, when the port is written as a number.
@@ -29,6 +29,9 @@ function landscape(files) {
       const a = attributes(tag);
       if (a.type !== "SAPGUI" || !a.systemid) { continue; }
       const title = a.name || a.systemid;
+      // SNC with single sign-on (sncname set, "SNC logon with user/password" not ticked): the user logs on without a
+      // password, which VERTEX's HTTP connection cannot do. Such a system is reached through SAP's ADT extension.
+      if (a.sncname && a.sncnosso !== "1") { snc.push(title); continue; }
       if (a.msid) {
         const ms = messageServers[a.msid], port = ms && /^36(\d\d)$/.exec(ms.port || "");
         if (!ms || !ms.host) { skipped.push(title + " (logon group, message server not described)"); continue; }
@@ -40,7 +43,7 @@ function landscape(files) {
       systems.push({ id: a.systemid, title, host: server[1], instance: server[2] });
     }
   }
-  return { systems, skipped };
+  return { systems, skipped, snc };
 }
 function landscapeFiles() {
   const common = path.join(process.env.APPDATA || "", "SAP", "Common");
@@ -207,11 +210,14 @@ async function importSystems(vscode, context) {
   const config = vscode.workspace.getConfiguration("vertex");
   const existing = (config.get("systems") || []).filter(s => s && s.name);
   const known = new Set(existing.map(s => String(s.name).toUpperCase()));
-  const { systems: logon, skipped } = landscape(landscapeFiles());
+  const { systems: logon, skipped, snc } = landscape(landscapeFiles());
+  const sncNote = snc.length ? snc.join(", ") + " log on with SNC single sign-on, which VERTEX's own connection cannot do;"
+    + " connect them with VERTEX: Get Connections from SAP ADT for VS Code." : "";
   if (!logon.length) {
     throw new Error("No SAP Logon systems with a host and instance were found in " + landscapeFiles().join(" or ")
-      + (skipped.length ? ". Skipped: " + skipped.join(", ") : "") + ".");
+      + (skipped.length ? ". Skipped: " + skipped.join(", ") : "") + "." + (sncNote ? " " + sncNote : ""));
   }
+  if (sncNote) { vscode.window.showInformationMessage("VERTEX: " + sncNote); }
   // Client and user from an Eclipse workspace: the ones Eclipse lists as recent are found and offered with the systems
   // they know; another folder can still be chosen.
   let workspace = context.globalState.get("vertex.eclipseWorkspace") || "";

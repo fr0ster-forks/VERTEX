@@ -92,7 +92,7 @@ test("the call program sets the values, passes an optional parameter only when g
   assert.match(source, /zvx_object = NEW zcl_calc\( iv_rate = c_IV_RATE \)\./);
   assert.doesNotMatch(source, /iv_flag =/, "IV_FLAG was not given");
   assert.match(source, /RECEIVING rv_sum = RV_SUM/);
-  assert.match(source, /WRITE: \/ 'RV_SUM =', RV_SUM\./);
+  assert.match(source, /WRITE \/ \|VERTEX:S\\tRV_SUM\\t\{ RV_SUM \}\|\./, "a result in VERTEX's form, for the window to draw");
 });
 
 test("a function module is called with CALL FUNCTION, its DEFAULT set where nothing was given", () => {
@@ -152,5 +152,6 @@ test("a generated file of several sources records each one's lines with its own 
   assert.equal(require("../local-trace").instrumentProject(dir, false), 1);
   const code = fs.readFileSync(path.join(dir, "zfg.fugr.mjs"), "utf8");
   assert.doesNotMatch(code, /lzfgtop\.abap",1/, "FUNCTION-POOL is no step");
-  assert.match(code, /z_add\.abap",3,\{[^}]*"iv_a"[^}]*\},"ZFG","Z_ADD"\);\nabap\.add\(\);/);
+  // The record stands on the statement's own line, so the generated lines keep their numbers.
+  assert.match(code, /z_add\.abap",3,\{"iv_a":[^\n]*\},"ZFG","Z_ADD"\); abap\.add\(\);/);
 });

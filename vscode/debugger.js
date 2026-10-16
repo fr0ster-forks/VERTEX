@@ -33,7 +33,7 @@ const LISTENER_STOP_MS = 6000; // design/auth-broker/GATES.md gate 4: measured p
 const STEPS = { over: "stepOver", into: "stepInto", out: "stepReturn", continue: "stepContinue" };
 
 /* A step and the stack after it in one request: ADT's debugger batch, a
-   multipart POST of both. Measured on ALC (2026-10-14): about 62 ms against
+   multipart POST of both. Measured on A4H (2026-10-14): about 62 ms against
    110 for the two apart. Each part needs its own Accept, or SAP answers it
    400. The answers are read as abap-adt-api reads the separate requests. */
 const { fullParse, xmlNodeAttr, xmlArray, encodeEntity, numberParseOptions, toInt } = require("abap-adt-api/build/utilities");
@@ -51,7 +51,7 @@ function variablesBody(names) {
 }
 const CHILDREN_TYPE = "application/vnd.sap.as+xml;charset=UTF-8;dataname=com.sap.adt.debugger.ChildVariables";
 /* Every scope SAP may have at a stop, with @ROOT among them: its answer says which scopes this stop really has, and SAP
-   answers nothing for one it does not have. Seen on ALC (2026-10-14): @ROOT -> @GLOBALS in a report event; ME,
+   answers nothing for one it does not have. Seen on A4H (2026-10-14): @ROOT -> @GLOBALS in a report event; ME,
    @PARAMETERS, @LOCALS in a method; one request of all four took 55-80 ms. */
 const SCOPES = ["@ROOT", "@GLOBALS", "@PARAMETERS", "@LOCALS"];
 function childrenBody(parents) {
@@ -167,7 +167,7 @@ function plain(v) {
   return "<" + v.META_TYPE + (v.ACTUAL_TYPE_NAME ? " " + v.ACTUAL_TYPE_NAME : "") + ">";
 }
 
-function create({ connect, current, openUrl, ideId, terminalId, listenerStopMs = LISTENER_STOP_MS, setTimeout: stopSetTimeout = global.setTimeout, clearTimeout: stopClearTimeout = global.clearTimeout, explain = error => error && error.message || String(error) }) {
+function create({ connect, current, openUrl, ideId, terminalId, localOnly = () => false, listenerStopMs = LISTENER_STOP_MS, setTimeout: stopSetTimeout = global.setTimeout, clearTimeout: stopClearTimeout = global.clearTimeout, explain = error => error && error.message || String(error) }) {
   let listening = false, stopListening = false;
   let listenLoop = null, generation = 0, pendingStops = 0;
   let session = null;          // { client, debuggee, busy }
@@ -284,7 +284,7 @@ function create({ connect, current, openUrl, ideId, terminalId, listenerStopMs =
     const target = on || await systemNow();
     const { probe, user } = target, launched = generation;
     const current = () => sap === target && sap.probe === probe && generation === launched;
-    const all = breakpoints.filter(b => b.active !== false);
+    const all = breakpoints.filter(b => b.active !== false && !b.local);
     for (const b of breakpoints) { if (b.active === false) { b.adt = null; } }
     const wanted = all.map(b => b.url + "#start=" + b.line);
     let answer = await probe.debuggerSetBreakpoints("user", terminalId, ideId, "vertex", wanted, user, "external");
@@ -338,11 +338,12 @@ function create({ connect, current, openUrl, ideId, terminalId, listenerStopMs =
 
   function setBreakpoint(options) { return lifecycle(() => placeBreakpoint(options)); }
 
-  async function placeBreakpoint({ object_type, name, line, condition, mode, take_over, function_group }) {
+  async function placeBreakpoint({ object_type, name, line, condition, mode, take_over, function_group, local: asked }) {
     if (!name || !(Number(line) > 0)) { throw new Error("A breakpoint needs the object's name and a line number."); }
     if (mode && mode !== "stop" && mode !== "log") { throw new Error('mode is "stop" or "log".'); }
     const url = sourceUrl(object_type, name, function_group);
-    await systemNow();                  // the system is settled before the list changes
+    const local = asked === true || localOnly();
+    if (!local) await systemNow();
     const existing = breakpoints.find(b => b.url === url && b.line === Number(line));
     const entry = existing || { id: "bp" + (++numbered), objectType: String(object_type || "PROG").toUpperCase(),
       name: String(name).toUpperCase(), url, line: Number(line) };
@@ -350,6 +351,7 @@ function create({ connect, current, openUrl, ideId, terminalId, listenerStopMs =
     entry.mode = mode || "stop";
     entry.active = true;             // set again, a deactivated one is on again
     if (!existing) { breakpoints.push(entry); }
+    if (local) { entry.adt = null; entry.local = true; changed(); return entry; }
     const errors = await sync();
     if (!entry.adt) {
       breakpoints.splice(breakpoints.indexOf(entry), 1);
@@ -376,11 +378,11 @@ function create({ connect, current, openUrl, ideId, terminalId, listenerStopMs =
   }
 
   /* The window sets a breakpoint by the source it shows. */
-  async function setBreakpointAt({ url, line, condition, mode, take_over }) {
+  async function setBreakpointAt({ url, line, condition, mode, take_over, local }) {
     const object = objectOf(url);
     if (!object) { throw new Error("A breakpoint cannot be set in this source from here: " + url); }
     return setBreakpoint({ object_type: object.objectType, name: object.name, function_group: object.group,
-      line, condition, mode, take_over });
+      line, condition, mode, take_over, local });
   }
 
   /* On or off without losing it: an inactive breakpoint keeps its line,
@@ -390,8 +392,7 @@ function create({ connect, current, openUrl, ideId, terminalId, listenerStopMs =
     const list = id ? breakpoints.filter(b => b.id === id) : breakpoints;
     if (id && !list.length) { throw new Error("There is no breakpoint " + id + "."); }
     for (const b of list) { b.active = active !== false; }
-    await sync();
-    await rescope();
+    if (!localOnly()) { await sync(); await rescope(); }
     changed();
   }
 
@@ -404,8 +405,7 @@ function create({ connect, current, openUrl, ideId, terminalId, listenerStopMs =
     } else {
       breakpoints.length = 0;
     }
-    await sync();
-    await rescope();
+    if (!localOnly()) { await sync(); await rescope(); }
     changed();
   }
 
@@ -1163,7 +1163,7 @@ function create({ connect, current, openUrl, ideId, terminalId, listenerStopMs =
         where: d.where || null, whyNoPlace: d.whyNoPlace || "",
         hasPage: !!d.page })) } : null,
       breakpoints: breakpoints.map(b => ({ id: b.id, objectType: b.objectType, name: b.name, url: b.url, line: b.line,
-        condition: b.condition || "", mode: b.mode, active: b.active !== false })),
+        condition: b.condition || "", mode: b.mode, active: b.active !== false, ...(b.local ? { local: true } : {}) })),
       stopped: stopped ? { at: stopped.at, breakpoint: stopped.breakpoint, problem: stopped.problem || "", frames } : null
     };
   }

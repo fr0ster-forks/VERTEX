@@ -52,3 +52,31 @@ test("url and webgui embedded credentials are refused", () => {
     assert.equal(result.error, "System DEV has a user or password in its " + field + ". Remove it: VERTEX keeps passwords in the OS credential store and asks for them.");
   }
 });
+
+ test("SAP ADT extension systems validate without HTTP credentials and key their destination", () => {
+  const entry = { name: "EXT", connection: "sap-adt-extension", destination: "D", packages: ["ZROOT"] };
+  const system = readSystem(entry).system;
+  assert.deepEqual(system, entry);
+  assert.match(readSystem({ ...entry, destination: "" }).error, /destination/);
+  assert.match(readSystem({ ...entry, password: "secret" }).error, /password in settings/);
+  assert.notEqual(connectionKey(system), connectionKey({ ...system, destination: "OTHER" }));
+  assert.notEqual(connectionKey(system), connectionKey({ ...system, packages: ["YROOT"] }));
+});
+
+test("keyInfo reads basic, SNC, extension and legacy saved connection keys", () => {
+  const { keyInfo } = require("../auth/systems");
+  for (const authType of ["basic", "snc"]) {
+    assert.deepEqual(keyInfo(connectionKey({ ...base, authType })), { name: base.name, viaExtension: false, destination: "" });
+  }
+  const extension = { name: "EXT", connection: "sap-adt-extension", destination: "DEST" };
+  const expected = { name: "EXT", viaExtension: true, destination: "DEST" };
+  assert.deepEqual(keyInfo(connectionKey(extension)), expected);
+  for (const key of [[base.url, base.client, base.user, base.name, false],
+    ["", "100", "", "EXT", false, extension.connection, extension.destination]]) {
+    const info = key.length === 5 ? { name: base.name, viaExtension: false, destination: "" } : expected;
+    assert.deepEqual(keyInfo(key), info);
+    assert.deepEqual(keyInfo(JSON.stringify(key)), info);
+  }
+  assert.deepEqual(keyInfo("DEV"), { name: "DEV", viaExtension: false, destination: "" });
+  for (const invalid of [null, undefined, {}, "null", "{}"]) assert.equal(keyInfo(invalid).name, "");
+});

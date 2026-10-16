@@ -40,6 +40,7 @@ function debugHtml(initial) {
       if(event.data.type==="origin")sdeOriginReady(event.data.payload);
       if(event.data.type==="originProgress")sdeOriginProgress(event.data.payload);
       if(event.data.type==="cursor"&&typeof sdeCursor==="function")sdeCursor(event.data.payload);
+      if(event.data.type==="runFailed"&&typeof sdeRunFailed==="function")sdeRunFailed(event.data.payload);
     });
     document.addEventListener("DOMContentLoaded",()=>document.querySelectorAll(
       "#visual,#rec,#zonly,#fclasses,#fmethods,#initials,#globals,#locals,#params,[data-pane]"
@@ -48,6 +49,7 @@ function debugHtml(initial) {
   return fs.readFileSync(path.join(__dirname, "pages", "visual-debug.html"), "utf8")
     .replace("</head>", "<style>" + controls + "</style></head>")
     .replace("/*INIT*/null/*INIT*/", () => JSON.stringify(initial || null).replace(/</g, "\\u003c"))
+    .replace("/*SELECTION-SCREEN-UI*/", () => fs.readFileSync(path.join(__dirname, "pages", "selection-screen-ui.js"), "utf8"))
     .replace("<body>", "<body class=\"vertex-docked-debug\">")
     .replace("<script>", bridge + "<script>");
 }

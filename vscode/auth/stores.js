@@ -6,7 +6,7 @@ const FIELDS = ["authorizationToken", "sessionCookies", "expiresAt", "refreshTok
 function createStores({ secrets, currentSystems }) {
   const chains = new Map();
   const serial = (id, work) => { const run = (chains.get(id) || Promise.resolve()).then(work, work); chains.set(id, run.catch(() => {})); return run; };
-  const systemOf = id => currentSystems().find(s => loginIdentity(s) === id);
+  const systemOf = id => currentSystems().find(s => s.connection !== "sap-adt-extension" && loginIdentity(s) === id);
   // Mirrors the reference takeSecret (auth-stores src/session/sessionSecret.ts): strings are
   // strings, expiresAt a non-negative safe integer, one credential kind at most, no other field.
   function validSecret(v) {

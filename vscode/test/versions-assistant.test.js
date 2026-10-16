@@ -21,7 +21,7 @@ function sap(paths) {
             part_type: "meth", table: true, saved: true, ddic: false, saved_at: "20260913150000",
             versno_old: "00011", versno_new: "00012", added: 1, deleted: 0,
             blocks: [{ hunk_key: "h1", hunk_no: 1, start_line: 2, change_count: 1,
-                       change_kind: "inserted", author: "SYCHOV", author_name: "Yurii Sychov",
+                       change_kind: "inserted", author: "DEVELOPER", author_name: "Test User",
                        op_from: 2, op_to: 2, action: "", reviewer: "", reviewer_name: "",
                        changed_at: "", note: "", messages: [] }],
             ops: [{ op: "=", text: "METHOD build_layout." }, { op: "+", text: "  SORT lt_fields." },
@@ -32,10 +32,10 @@ function sap(paths) {
                                   reviewers: [], history: [] });
         }
         return JSON.stringify({ request: "devk900578", remote: "", table: true, saved: true,
-          saved_at: "20260913150000", saved_by: "SYCHOV",
+          saved_at: "20260913150000", saved_by: "DEVELOPER",
           objects: [{ objtype: "METH", obj_name: METHOD, class_name: "ZCL_AVE_POPUP", group: "",
-                      display_name: "ZCL_AVE_POPUP=>BUILD_LAYOUT", author: "SYCHOV",
-                      author_name: "Yurii Sychov", is_created: false, hunks: 2, inserted: 3,
+                      display_name: "ZCL_AVE_POPUP=>BUILD_LAYOUT", author: "DEVELOPER",
+                      author_name: "Test User", is_created: false, hunks: 2, inserted: 3,
                       deleted: 1, modified: 1, approved: 0, declined: 0, open: 2 }],
           reviewers: [], history: [] });
       }
@@ -64,10 +64,10 @@ function sap(paths) {
       if (q.get("part")) {
         return JSON.stringify({ object: "zcl_ave_popup", type: "clas", part: q.get("part").toLowerCase(),
           part_type: "meth", versions: [
-            { version: "99998", date: "20260913", time: "101500", author: "SYCHOV",
-              author_name: "Yurii Sychov", request: "", task: "" },
-            { version: "00012", date: "20260912", time: "170000", author: "SYCHOV",
-              author_name: "Yurii Sychov", request: "DEVK900578", task: "DEVK900579" },
+            { version: "99998", date: "20260913", time: "101500", author: "DEVELOPER",
+              author_name: "Test User", request: "", task: "" },
+            { version: "00012", date: "20260912", time: "170000", author: "DEVELOPER",
+              author_name: "Test User", request: "DEVK900578", task: "DEVK900579" },
             { version: "00011", date: "20260901", time: "090000", author: "MUELLER",
               author_name: "Anna Mueller", request: "DEVK900500", task: "DEVK900501" }
           ] });

@@ -4,7 +4,7 @@ const assert = require("node:assert");
 const { request, hunkRanges, reportObjects, parsePayload } = require("../review-front");
 
 // A review of one request as /ui2/cl_json stores it: one method with two blocks, one approved, one declined with a note.
-const PAYLOAD = '{"SCHEMA_VERSION":1,"TRKORR":"ALCK900001","LAST_SAVED_AT":20261009123456.1234567,"LAST_SAVED_BY":"REVIEWER",'
+const PAYLOAD = '{"SCHEMA_VERSION":1,"TRKORR":"A4HK900001","LAST_SAVED_AT":20261009123456.1234567,"LAST_SAVED_BY":"REVIEWER",'
   + '"OBJ_STATS":[{"OBJTYPE":"METH","CLASS_NAME":"ZCL_X","OBJ_NAME":"ZCL_X                         RUN","INS_COUNT":2,"DEL_COUNT":1,"MOD_COUNT":0,'
   + '"HUNK_COUNT":2,"DISPLAY_NAME":"RUN","AUTHOR":"DEV","AUTHOR_NAME":"Dev One","IS_CREATED":false},'
   + '{"OBJTYPE":"TABD","CLASS_NAME":"","OBJ_NAME":"ZTAB","INS_COUNT":0,"DEL_COUNT":0,"MOD_COUNT":0,"HUNK_COUNT":0}],'
@@ -44,8 +44,8 @@ test("blocks are cut as AVE cuts them: an open statement takes the line that clo
 
 test("the summary lists changed objects in AVE's order, with the verdicts on their blocks", async () => {
   const { api, asked } = session();
-  const answer = await request(api, "/sap/bc/adt/vertex/review/ALCK900001");
-  assert.ok(asked.some(sql => sql === "SELECT payload FROM zave_review WHERE trkorr = 'ALCK900001' AND remote = ' '"));
+  const answer = await request(api, "/sap/bc/adt/vertex/review/A4HK900001");
+  assert.ok(asked.some(sql => sql === "SELECT payload FROM zave_review WHERE trkorr = 'A4HK900001' AND remote = ' '"));
   assert.strictEqual(answer.saved, true);
   assert.strictEqual(answer.saved_at, "20261009123456.1234567");
   assert.deepStrictEqual(answer.objects.map(o => [o.objtype, o.class_name, o.hunks, o.approved, o.declined, o.open]), [["METH", "ZCL_X", 2, 1, 1, 0]]);
@@ -56,15 +56,15 @@ test("the summary lists changed objects in AVE's order, with the verdicts on the
 test("a part's blocks carry their verdicts, notes and threads, and where they sit in the stored diff", async () => {
   const { api } = session();
   const part = encodeURIComponent("ZCL_X                         RUN");
-  const answer = await request(api, "/sap/bc/adt/vertex/review/ALCK900001?part=" + part + "&ptype=METH");
+  const answer = await request(api, "/sap/bc/adt/vertex/review/A4HK900001?part=" + part + "&ptype=METH");
   assert.deepStrictEqual(answer.blocks.map(b => [b.hunk_no, b.action, b.op_from, b.op_to, b.note, b.messages.length]),
     [[1, "A", 2, 4, "", 0], [2, "D", 6, 6, "Why c?", 1]]);
   assert.deepStrictEqual([answer.versno_old, answer.versno_new, answer.added, answer.deleted, answer.ops.length], ["00001", "00002", 2, 1, 6]);
 });
 
 test("with nothing saved - or no table at all - the review is built from ADT, live", async () => {
-  const empty = { query: async sql => /FROM e070 WHERE trkorr/.test(sql) ? { values: [{ TRKORR: "ALCK900001", TRSTATUS: "R" }] } : { values: [] } };
-  const answer = await request(empty, "/sap/bc/adt/vertex/review/ALCK900001");
+  const empty = { query: async sql => /FROM e070 WHERE trkorr/.test(sql) ? { values: [{ TRKORR: "A4HK900001", TRSTATUS: "R" }] } : { values: [] } };
+  const answer = await request(empty, "/sap/bc/adt/vertex/review/A4HK900001");
   assert.deepStrictEqual([answer.table, answer.live, answer.saved, answer.objects.length], [false, true, true, 0]);
 });
 

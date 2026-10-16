@@ -230,11 +230,11 @@ test("a name pattern with one result opens it without asking again", async () =>
   const direct = require("../direct-search");
   const opened = [];
   const text = await direct.answer("ZVERTEX*LAB", {
-    system: "ALC",
+    system: "A4H",
     search: async () => ({ objects: [{ object_type: "PROG", object_name: "ZVERTEX_DEBUG_LAB", package: "Z_RIG" }] }),
     open: async object => { opened.push(object); }
   });
-  assert.match(text, /Opened PROG \*\*ZVERTEX_DEBUG_LAB\*\*.*ALC/);
+  assert.match(text, /Opened PROG \*\*ZVERTEX_DEBUG_LAB\*\*.*A4H/);
   assert.deepEqual(opened, [{ object_type: "PROG", object_name: "ZVERTEX_DEBUG_LAB" }]);
 });
 

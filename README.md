@@ -45,7 +45,7 @@ GitHub Copilot model or API keys for Anthropic, OpenAI, Mistral, Gemini, Groq,
 Cerebras, OpenRouter and NVIDIA. Provider model lists can be collapsed independently.
 Each list has a Clear all / Select all control for its model checkboxes.
 The VS Code chat can explain an active local `.abap` file using its current editor text, even without a SAP connection.
-Local ABAP programs and classes support VERTEX Outline, definition navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis. VERTEX bundles the abaplint transpiler and runtime. **VERTEX: Run with ABAP Transpiler** on a local file asks the selection screen in a popup and shows what the program wrote (Output); with a breakpoint set the same panel is the debugger, which stops there and steps on. **Visual Analysis / Debug** opens that panel whole, for analysis with or without a run. Project configuration is generated automatically when absent. After a run, Formula and Expression of a chosen value keep only the path the run took and carry the recorded values in brackets; with no path analysed they are written out from the record. An SAP program runs with the transpiler too, from **VERTEX: Run with ABAP Transpiler** in its editor's context menu or beside Run in SAP: its active version, its includes, the customer classes and interfaces it uses and the dictionary types they use are read from SAP first, and a step goes into an include as in SAP; a customer function module stops it with the reason. See [local execution setup](vscode/README.md#local-abap-execution). SAP execution and version history still require a system.
+Local ABAP programs and classes support VERTEX Outline, definition navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis. VERTEX bundles the abaplint transpiler and runtime. **VERTEX: Run with ABAP Transpiler** on a local file asks the selection screen in a popup - blocks, PARAMETERS, SELECT-OPTIONS and the program's selection texts, laid out as SAP does - and shows what the program wrote (Output); with a breakpoint set the same panel is the debugger, which stops there and steps on. **Visual Analysis / Debug** opens that panel whole, for analysis with or without a run. Project configuration is generated automatically when absent. After a run, Formula and Expression of a chosen value keep only the path the run took and carry the recorded values in brackets; with no path analysed they are written out from the record. An SAP program, a method of an SAP class or a function module runs with the transpiler too, from **VERTEX: Run with ABAP Transpiler** in its editor's context menu or beside Run in SAP: its active version, its includes, the customer classes and interfaces it uses and the dictionary types they use are read from SAP first, and a step goes into an include as in SAP; a function module the code calls brings its function group. See [local execution setup](vscode/README.md#local-abap-execution). SAP execution and version history still require a system.
 
 
 | Tool | Grew out of | What it does | VS Code | Eclipse | ABAP backend |
@@ -180,6 +180,15 @@ By hand, the entries look like this; the HTTP(S) port is in SMICM > Goto > Servi
 
 The url is the ICM port, not the one SAP GUI connects to. An empty `vertex.active` means the
 first. **VERTEX: Switch System** picks another one from a list.
+
+SNC single sign-on can use VERTEX's own RFC connection as described above. An alternative is a system configured *only with
+SAP ADT extension*: SAP's ABAP Development Tools for VS Code logs on to it, SNC included, and VERTEX
+reads, writes and activates through that extension. **VERTEX: Get Connections from SAP ADT for VS
+Code** adds its destinations to `vertex.systems` (`"connection": "sap-adt-extension"`, `"destination"`),
+and **VERTEX: Index SAP System** builds, once, the index by which VERTEX finds objects by name there.
+Sources, VERTEX Tools, Value Origin and the ABAP transpiler's run work on such a system; Run in SAP,
+the SAP debugger, SelecTor, Versions, where-used, ABAP Unit and ATC need VERTEX's own connection and
+say so. Details: [vscode/README.md](vscode/README.md#systems-with-snc-single-sign-on).
 
 ### Eclipse
 

@@ -52,6 +52,7 @@ function createAuth({ vscode, context, logger }) {
   }
   async function newWire(system) {
     if (closed) throw shutdownError();
+    if (system.connection === "sap-adt-extension") throw new Error(require("../sap-adt-extension").httpRefusal(system));
     const refused = hostRefusal(system);
     if (refused) throw new Error(refused);
     const pw = system.authType === "basic" ? await password(system) : undefined;
@@ -102,6 +103,7 @@ function createAuth({ vscode, context, logger }) {
   }
   function explain(system, error) {
     const text = (error && error.message) || String(error);
+    if (!system || system.connection === "sap-adt-extension") return text;
     const r = refusals.get(loginIdentity(system));
     const is401 = (error && error.status === 401) || /\b401\b/.test(text);
     return is401 && r ? text + " — " + r.reason + (r.hint ? " " + r.hint : "") : text;
@@ -109,7 +111,7 @@ function createAuth({ vscode, context, logger }) {
   return {
     systemOf: readSystem, currentSystems, makeClient, commandWire, password, hostRefusal, explain,
     lastRefusal: system => refusals.get(loginIdentity(system)),
-    async forget(system) { await migrated; await means.forget(loginIdentity(system)); },
+    async forget(system) { if (system.connection === "sap-adt-extension") return; await migrated; await means.forget(loginIdentity(system)); },
     disposeAll() {
       closed = true;
       if (!disposing) disposing = (async () => {

@@ -91,14 +91,13 @@
   .totals.hidden { display: none; }
   .section { margin: 12px 10px 0; border: 1px solid var(--border); }
   .section h3 { margin: 0; padding: 6px 8px; font-size: 12px;
-                background: var(--surface); border-bottom: 1px solid var(--border); }
+                border-bottom: 1px solid var(--border); }
   .section h3.package-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .section .scroll { overflow: auto; }
-  tr.total, tr.total:nth-child(even) { background: var(--surface); font-weight: 600; }
+  tr.total { font-weight: 600; }
   details.class-group { border-top: 1px solid var(--line); }
   details.class-group:first-of-type { border-top: 0; }
-  details.class-group summary { cursor: pointer; padding: 6px 8px; color: var(--fg);
-                                background: var(--surface); }
+  details.class-group summary { cursor: pointer; padding: 6px 8px; color: var(--fg); }
   details.class-group summary:hover { background: var(--hover); }
   details.class-group .class-caption { color: var(--muted); margin-left: 10px; }
 
@@ -119,12 +118,12 @@
   body.flow #list.folded .uml-parts-head .title { margin: 0; writing-mode: vertical-rl; }
   table { border-collapse: collapse; white-space: nowrap; }
   th, td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
-  th { position: sticky; top: 0; background: var(--th-bg); font-weight: 600;
+  /* The header keeps the page's own background: it is sticky, and rows scrolled under it must not show through. */
+  th { position: sticky; top: 0; background: var(--bg); font-weight: 600;
        cursor: pointer; z-index: 1; }
   th:hover { background: var(--th-sorted-bg); }
   th.sorted { background: var(--th-sorted-bg); }
   td.num { text-align: right; font-family: Consolas, monospace; }
-  tbody tr:nth-child(even) { background: var(--row-alt); }
   tbody tr:hover { background: var(--hover); }
   .message { padding: 12px; white-space: pre-wrap; font-family: Consolas, monospace;
              color: var(--danger); }
@@ -180,7 +179,7 @@
   .uml-parts th:nth-child(2),.uml-parts td:nth-child(2) { width: 52px; }
   .uml-parts td.method { font-family: Consolas, monospace; overflow: hidden;
     text-overflow: ellipsis; }
-  .uml-parts tr.group td { background: var(--surface); font-weight: 600; }
+  .uml-parts tr.group td { font-weight: 600; }
   .vis { display:inline-block; width:8px; height:8px; }
   .vis.public { background:#2e9e44; }
   .vis.protected { background:#d9a400; width:7px; height:7px; transform:rotate(45deg); }
@@ -1614,7 +1613,7 @@ function plainLabels(svg) {
   });
 }
 function linkUmlMethods(svg) {
-  if (!svg || !umlDiagram || typeof sdeOpenToolSource !== "function") return;
+  if (!svg || !umlDiagram || !umlSourceOpener()) return;
   svg.querySelectorAll("g.classGroup, g.node").forEach(function (group) {
     var id = /^classId-n(\d+)-/.exec(group.id || "");
     var owner = id && umlDiagram.nodes[Number(id[1])];
@@ -1643,6 +1642,11 @@ function linkUmlMethods(svg) {
       entry.style.fill = "var(--vscode-textLink-foreground, #0a66c2)";
     });
   });
+}
+/* What opens a UML method's source: the window's own source opener where it has one, else the one every Tools window
+   gives for UML (tools.html sdeOpenUmlSource). */
+function umlSourceOpener() {
+  return typeof sdeOpenToolSource === "function" ? sdeOpenToolSource : typeof sdeOpenUmlSource === "function" ? sdeOpenUmlSource : null;
 }
 function draw(preserveViewport) {
   var diagramText=mode==="scheme"&&logicOnly&&lastLogicMermaid?lastLogicMermaid:lastMermaid;
@@ -1896,9 +1900,9 @@ function naturalSize(svg) {
 
 function onDiagramClick(e) {
   var umlLink=e.target.closest&&e.target.closest('[data-uml-method]');
-  if(mode==='class'&&umlLink&&typeof sdeOpenToolSource==='function'){
+  if(mode==='class'&&umlLink&&umlSourceOpener()){
     e.preventDefault();e.stopPropagation();
-    sdeOpenToolSource({name:umlLink.dataset.umlOwner,type:umlLink.dataset.umlType,method:umlLink.dataset.umlMethod,beside:true,preserveFocus:true});return;
+    umlSourceOpener()({name:umlLink.dataset.umlOwner,type:umlLink.dataset.umlType,method:umlLink.dataset.umlMethod,beside:true,preserveFocus:true});return;
   }
   var callLink=e.target.closest&&e.target.closest('a[data-call-method]');
   if(callLink&&typeof sdeOpenToolSource==='function'){e.preventDefault();e.stopPropagation();if(callLink.dataset.callOwner)sdeOpenToolSource({name:callLink.dataset.callOwner,type:'CLAS',method:callLink.dataset.callMethod});else sdeOpenToolSource({name:loadedObject,type:loadedType,line:Number(callLink.dataset.callLine)});return;}
