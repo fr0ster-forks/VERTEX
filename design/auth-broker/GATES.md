@@ -161,3 +161,21 @@ Both runs agree. For Task 9, `LISTENER_STOP_MS` = ceil(0.828 s) + 5 s =
 
 sap-rfc-lite 0.2.3 (prebuilt) was re-run against gate 1 on Windows with the same result:
 connect, discovery, read, CSRF absent, LOCK/UNLOCK all ok.
+
+## Packaging (Task 12)
+
+Packaging logic lives in `vscode/package.js`, with `vscode/package.ps1` and `vscode/package.sh` as wrappers.
+
+- Step 1 decision: no `win32-arm64`; `darwin-x64` is not supported.
+- Targets: `win32-x64` and `darwin-arm64` each carry only their own prebuilt
+  sap-rfc-lite binding. Universal uses `npm ci --omit=optional` without sap-rfc-lite.
+- Archive verification lists entries and rejects missing target bindings, other
+  platforms' bindings, local `sapnwrfc.node` builds, and SAP SDK libraries. Existing
+  archive, content and Scheme navigation checks remain in place.
+- `THIRD-PARTY-NOTICES.md` lists installed runtime versions, licence identifiers
+  and actual licence paths, including separate, replaceable LGPL modules and the
+  vendored open-abap-core subset. Notices and auth licence files are required.
+- Step 4 changes nothing in `package.json`: `engines.vscode` stays `^1.85.0`.
+- Packaging restores the developer install with plain `npm ci` in `finally`,
+  unless `-KeepNodeModules` is supplied. Owner packaging and integration checks
+  (Steps 5 and 6) remain pending; no VSIX was built for this task.
