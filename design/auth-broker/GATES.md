@@ -190,5 +190,4 @@ only `prebuilds/win32-x64` and `TargetPlatform win32-x64`. Both carry
 into a clean VS Code profile: with the universal package an `snc` system was
 refused with "This VERTEX package has no SNC support; install the Windows or macOS package of VERTEX.";
 with the win32-x64 package, Test SAP Systems on the `snc` system answered OK
-without a password prompt. `darwin-arm64`: built on demand, SNC not verified
-on macOS (Apple silicon).
+without a password prompt. darwin-arm64 built on Windows x64 on 2026-10-17 with `package.ps1 -Target darwin-arm64`: all archive checks passed; it carries only prebuilds/darwin-arm64 and TargetPlatform darwin-arm64. Not installed on macOS; SNC on macOS (Apple silicon) is not verified.
