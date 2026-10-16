@@ -418,7 +418,7 @@
         },
         {
           "command": "vertex.runTranspiler",
-          "when": "editorLangId == abap && (resourceScheme == file || resourceScheme == vertex-sap && resourcePath =~ /^\/[^/]+\/PROG\//)",
+          "when": "editorLangId == abap && (resourceScheme == file || resourceScheme == vertex-sap && resourcePath =~ /^/[^/]+/PROG//)",
           "group": "navigation@8"
         },
         {
@@ -793,6 +793,11 @@
     "@abaplint/core": "2.120.68",
     "@abaplint/runtime": "2.14.3",
     "@abaplint/transpiler-cli": "2.14.3",
+    "@mcp-abap-adt/auth-broker": "^5.0.6",
+    "@mcp-abap-adt/auth-errors": "^2.2.1",
+    "@mcp-abap-adt/auth-providers": "^6.0.2",
+    "@mcp-abap-adt/auth-stores": "^5.0.1",
+    "@mcp-abap-adt/connection": "^17.1.0",
     "abap-adt-api": "8.4.3"
   }
 }
