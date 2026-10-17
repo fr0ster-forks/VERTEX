@@ -215,8 +215,8 @@
 </p>
 
 <p>
-  A system that logs on with SNC single sign-on, and so has no password for HTTP, is reached in VS Code
-  <em>only with SAP ADT extension</em>: SAP's ABAP Development Tools for VS Code logs on to it, SNC
+  In VS Code, an SNC system is reached in one of two ways. VERTEX's own RFC connection (<code>authType: "snc"</code>, with Secure Login
+  Client and the SAP NW RFC SDK; see the VS Code README) offers everything, Run in SAP and the debugger included. Or a system configured <em>only with SAP ADT extension</em>: SAP's ABAP Development Tools for VS Code logs on to it, SNC
   included, and VERTEX reads, writes and activates through that extension. VERTEX: Get Connections from
   SAP ADT for VS Code adds its destinations as systems; VERTEX: Index SAP System builds, once, the index
   by which objects are found by name there. Sources, VERTEX Tools, Value Origin and the ABAP transpiler's

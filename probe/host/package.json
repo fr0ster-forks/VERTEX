@@ -1,0 +1,11 @@
+{
+  "name": "vertex-host-probe",
+  "version": "0.0.0",
+  "private": true,
+  "publisher": "vertex-probe",
+  "engines": { "vscode": "^1.85.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onCommand:vertexProbe.report"],
+  "contributes": { "commands": [{ "command": "vertexProbe.report", "title": "VERTEX Probe: Report Host" }] },
+  "dependencies": { "@mcp-abap-adt/connection": "^17.1.0", "@mcp-abap-adt/auth-broker": "^5.0.6" }
+}

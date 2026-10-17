@@ -102,6 +102,58 @@ Codex also detects a standalone native CLI, including the native executable in
 a global npm installation found through PATH. Restart VS Code after installing it.
 On Windows, Codex detection also checks `%APPDATA%/npm`.
 
+### Connecting
+
+Configure `vertex.systems` in VS Code settings. `authType` defaults to `basic`: use
+your SAP user and password. VERTEX asks for the password once per system and keeps it in the
+OS credential store through VS Code SecretStorage, never in settings. A refused
+password is discarded; the next operation asks again. Basic also works on remote
+extension hosts. **VERTEX: Forget Credentials** clears the active system's stored
+credentials.
+
+For `snc`, install the **win32-x64** VSIX on Windows x64 or the **darwin-arm64**
+VSIX on macOS on Apple silicon. These packages carry their own prebuilt
+`@mcp-abap-adt/sap-rfc-lite` binding. The **universal**
+package has no SNC support; use it otherwise. SNC requires local VS Code,
+Secure Login Client, and the SAP NW RFC SDK installed by you. Put the SDK's `lib`
+directory on `PATH` (Windows) or `DYLD_LIBRARY_PATH` (macOS) before starting
+VS Code. Your SAP account needs RFC authorization for `SADT_REST_RFC_ENDPOINT`.
+
+```json
+"vertex.systems": [
+  {
+    "name": "<display name>",
+    "url": "https://<ADT address>:<ICM port>",
+    "client": "<client>",
+    "user": "<ABAP user>",
+    "authType": "snc",
+    "snc": { "partnerName": "p:CN=SID, O=ACME", "qop": "9" },
+    "rfc": { "ashost": "<application server>", "sysnr": "00" }
+  }
+]
+```
+
+For SNC, `user` identifies the ABAP user the debugger targets; no password is
+prompted for. Secure Login Client supplies the logon. `snc.partnerName` and
+`rfc.ashost`/`rfc.sysnr` are required; the RFC address is never derived from `url`.
+Optional SNC settings are `qop` (`"1"`, `"2"`, `"3"`, `"8"`, `"9"`), `library`
+(the SNC library path, discovered when omitted), and `myName` (the local SNC
+name). `rfc.saprouter` is optional. `url` remains required for identity and WebGUI.
+
+SNC can be refused before connecting:
+
+- "SNC needs the local VS Code on Windows or macOS; this window runs on a remote host (‹remoteName›)."
+- "SNC runs on Windows x64 and macOS on Apple silicon only."
+- "This VERTEX package has no SNC support; install the Windows or macOS package of VERTEX."
+
+If the binding cannot load, VERTEX asks you to install the SAP NW RFC SDK, put
+its `lib` directory on `PATH` or `DYLD_LIBRARY_PATH`, and restart VS Code, with
+the load failure included.
+
+Running a program under the debugger opens WebGUI. ADT breakpoints do not catch
+a SAP GUI (SAP Logon) session. For SNC systems too, browser logon for WebGUI is
+SAP's (SSO certificate/SPNego or password), independent of SNC.
+
 Install the extension from the Marketplace, then give it the connection Eclipse would take from the
 ABAP project. There is no project here, so the systems are a list and one of them is active.
 They live in VS Code's settings: **Ctrl+Shift+P → Preferences: Open User Settings (JSON)**, and
@@ -111,23 +163,25 @@ A first install opens **Get started with VERTEX** (VS Code's Get Started page; l
 system's host and instance from SAP Logon (for a logon group, its message server's host), the client and user from an Eclipse ADT workspace - the recent workspaces of the Eclipse installations it finds are offered, another folder can be chosen - and
 looks for ADT on the usual ports - 443NN and 80NN for the instance, then 44300, 8000, 50001, 50000, 443, 80, 8443,
 8080 - offering only addresses that answer. **VERTEX: Test SAP Systems** then logs on to each configured system and
-says what is wrong, if anything; the password it asks for is kept in the OS credential store, never in settings. The import also checks where the debugger can open WebGUI (`/sap/bc/gui/sap/its/webgui`): on the system's `url` it needs nothing; served on another address that answered - say `url` on HTTP 8000, WebGUI on HTTPS 44300 - or behind a redirect to a host this computer resolves, it writes that as `webgui`; found nowhere, it says so, and `webgui` is set by hand.
+says what is wrong, if anything; for basic, the password it asks for is kept in the OS credential store, never in settings. The import also checks where the debugger can open WebGUI (`/sap/bc/gui/sap/its/webgui`): on the system's `url` it needs nothing; served on another address that answered - say `url` on HTTP 8000, WebGUI on HTTPS 44300 - or behind a redirect to a host this computer resolves, it writes that as `webgui`; found nowhere, it says so, and `webgui` is set by hand.
 By hand, the entries look like this; the HTTP(S) port is in SMICM > Goto > Services.
 
 ```json
 "vertex.systems": [
-  { "name": "A4H", "url": "https://host:44300", "client": "001", "user": "DEVELOPER",
-    "allowInsecureCertificate": true },
-  { "name": "EXX", "url": "http://host:8XXX", "client": "100", "user": "DEVELOPER" }
+  {
+    "name": "DEV",
+    "url": "https://host.example.com:44300",
+    "client": "100",
+    "user": "DEVELOPER"
+  }
 ],
-"vertex.active": "A4H"
+"vertex.active": "DEV"
 ```
 
 The url is the ICM port, not the one SAP GUI connects to. An empty `vertex.active` means the
-first. **VERTEX: Switch System** picks another one from a list, and the password is asked once per
-system - two systems are two users often enough.
+first. **VERTEX: Switch System** picks another one from a list.
 
-A system that logs on with **SNC single sign-on** has no password for HTTP. It is reached *only with
+SNC single sign-on can use VERTEX's own RFC connection as described above. An alternative is a system configured *only with
 SAP ADT extension*: SAP's ABAP Development Tools for VS Code logs on to it, SNC included, and VERTEX
 reads, writes and activates through that extension. **VERTEX: Get Connections from SAP ADT for VS
 Code** adds its destinations to `vertex.systems` (`"connection": "sap-adt-extension"`, `"destination"`),

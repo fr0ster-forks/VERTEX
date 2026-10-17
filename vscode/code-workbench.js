@@ -55,8 +55,9 @@ async function originStep(log, label, work) {
   }
 }
 
-function register(vscode, context, { active, password, pin, pinned, systems }) {
+function register(vscode, context, { active, auth, pin, pinned, systems }) {
   const events = require("./agent-events").createEmitter();
+  const pendingRepositories = new Map();
   const repositories = new Map(), texts = new Map(), opened = new Map(), drafts = new Map();
   // Who waits on a walk of an extension system's tree now - a transpiler run - and is told what is walked.
   const indexWatchers = new Set();
@@ -191,7 +192,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const front = vscode.window.activeTextEditor && opened.get(vscode.window.activeTextEditor.document.uri.toString());
     const chosen = active();
     const from = front && front.repo ? front
-      : [...opened.values()].find(item => item.repo && !chosen.error && JSON.parse(item.repo.key)[3] === chosen.system.name)
+      : [...opened.values()].find(item => item.repo && !chosen.error && keyInfo(item.repo.key).name === chosen.system.name)
       || [...opened.values()].find(item => item.repo);
     if (!from || !from.repo) { throw new Error('Open a VERTEX ABAP source tab so the analysis knows which system to read.'); }
     const type = object_type || 'PROG', entry = await sourceDocument(from.repo, { object_type: type, object_name });
@@ -228,7 +229,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       const starts = up(type) !== 'CLAS' ? null : Object.fromEntries(declared.filter(item => item.source === loaded.target.source
         && item.name !== 'GLOBAL' && up(item.owner) === up(object_name)).map(item => [up(item.name), item.first]));
       const missing = starts && declared.some(item => item.name !== 'GLOBAL' && up(item.owner) === up(object_name) && !(up(item.name) in starts));
-      if (missing && JSON.parse(from.repo.key)[5] !== adtExtension.CONNECTION && debuggerApi && typeof debuggerApi.classMethods === 'function') {
+      if (missing && !keyInfo(from.repo.key).viaExtension && debuggerApi && typeof debuggerApi.classMethods === 'function') {
         const fromAdt = await debuggerApi.classMethods('/sap/bc/adt/oo/classes/' + encodeURIComponent(String(object_name).toLowerCase()) + '/source/main');
         for (const [method, line] of Object.entries(fromAdt || {})) { if (!(method in starts)) { starts[method] = line; } }
       }
@@ -254,7 +255,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   /* The object and kind of an open VERTEX tab, for whoever follows the reader's cursor. */
   function documentObject(document) {
     const entry = document && (opened.get(document.uri.toString()) || readOnly.get(document.uri.toString()));
-    return entry ? { object_name: entry.data.object_name, object_type: entry.data.object_type, system_name: JSON.parse(entry.repo.key)[3] } : null;
+    return entry ? { object_name: entry.data.object_name, object_type: entry.data.object_type, system_name: keyInfo(entry.repo.key).name } : null;
   }
   /* The analysis reads SAP through the same session as everything else here, and that session takes one request at a time: a
      second one is refused as busy. The analysis requests - the points, the variables, a link's source - therefore go one after
@@ -424,25 +425,41 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   let sequence = 0;
   const provider = { provideTextDocumentContent: uri => texts.get(uri.toString()) || "" };
   context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider("vertex-source", provider));
-  async function repository(savedKey) {
-    const chosen = active();
-    if (savedKey) {
-      const [url, client, user, name, allowInsecureCertificate, connection, destination] = JSON.parse(savedKey);
-      chosen.system = connection ? { name, client, connection, destination, ...(systems().find(s => s.name === name && s.destination === destination) || {}) }
-        : { url, client, user, name, allowInsecureCertificate };
-      chosen.error = undefined;
+  const { connectionKey, keyInfo } = require("./auth/systems");
+  async function repository(saved) {
+    const current = auth.currentSystems();
+    for (const [key, repo] of repositories) {
+      if (!current.some(system => connectionKey(system) === key)) {
+        repositories.delete(key);
+        for (const [uri, entry] of opened) { if (entry.repo === repo) opened.delete(uri); }
+        for (const [id, entry] of drafts) { if (entry.repo === repo) drafts.delete(id); }
+        await repo.client?.dispose();
+      }
     }
-    if (chosen.error) { throw new Error(chosen.error); }
-    const system = { ...chosen.system };
+    let system;
+    if (saved) {
+      const name = saved.name || keyInfo(saved.key).name;
+      system = current.find(system => connectionKey(system) === saved.key);
+      if (!system) {
+        const matches = current.filter(system => system.name === name);
+        if (matches.length > 1) { throw new Error("several systems are named " + name + "; this tab cannot tell which one it belongs to"); }
+        if (!matches.length) { throw new Error(name + " is no longer in vertex.systems"); }
+        system = matches[0];
+      }
+    } else {
+      const chosen = active();
+      if (chosen.error) { throw new Error(chosen.error); }
+      system = current.find(system => connectionKey(system) === connectionKey(chosen.system));
+      if (!system) { throw new Error(chosen.system.name + " is no longer in vertex.systems"); }
+    }
+    const key = connectionKey(system);
     const viaExtension = adtExtension.viaExtension(system);
-    const key = JSON.stringify([system.url || "", system.client || "", system.user || "", system.name,
-      system.allowInsecureCertificate === true, ...(viaExtension ? [system.connection, system.destination] : [])]);
     // A system reached through SAP's ADT extension: read and written through its abap: file system, no password here.
     if (viaExtension && !repositories.has(key)) {
       const state = await adtExtension.state(vscode, system);
       if (!state.ok) { throw new Error("System " + system.name + ": " + state.text + "."); }
       const progress = text => { vscode.window.setStatusBarMessage("VERTEX: " + text, 3000); indexWatchers.forEach(watch => watch(text)); };
-      repositories.set(key, { key, label: system.name + " / " + adtExtension.LABEL,
+      repositories.set(key, { key, system, label: system.name + " / " + adtExtension.LABEL,
         api: require("./sap-adt-extension-repository").createExtensionRepository({ system,
           host: adtExtension.host(vscode, system.destination, progress), store: indexStore(system.destination),
           emit: event => events.emit({ ...event, system: system.name }) }) });
@@ -459,19 +476,41 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       }
     }
     if (!repositories.has(key)) {
-      const pw = await password(context, system);
-      if (!pw) { throw new Error("SAP password was not supplied."); }
-      const { ADTClient } = require("abap-adt-api");
-      const client = new ADTClient(system.url, system.user, pw, system.client || "", "EN", { timeout: 60000 });
-      client.httpClient.httpclient = require("./sap-http").create(system);
-      repositories.set(key, { key, label: `${system.name} / ${system.user} / ${system.client || "default"}`,
-        api: createRepository({ client, systemId: key,
-          emit: event => events.emit({ ...event, system: system.name }) }) });
-      const api = repositories.get(key).api, apply = api.apply;
-      api.apply = async (...args) => {
-        try { return await apply(...args); }
-        finally { require('./frontend-analysis').invalidate(api); }
-      };
+      if (pendingRepositories.has(key)) return pendingRepositories.get(key);
+      const pending = (async () => {
+        const client = await auth.makeClient(system, "repository");
+        const api = createRepository({ client, systemId: key,
+          emit: event => events.emit({ ...event, system: system.name }) });
+        // Returned readers use the same error boundary as repository methods.
+        const wrap = method => (...args) => {
+          const explain = error => {
+            if (error && typeof error === "object") {
+              error.message = auth.explain(system, error);
+              throw error;
+            }
+            throw new Error(auth.explain(system, error), { cause: error });
+          };
+          const resultOf = result => typeof result === "function" ? wrap(result) : result;
+          try {
+            const result = method(...args);
+            return result && typeof result.then === "function" ? result.then(resultOf, explain) : resultOf(result);
+          } catch (error) { return explain(error); }
+        };
+        for (const name of Object.keys(api)) {
+          if (typeof api[name] === "function") api[name] = wrap(api[name]);
+        }
+        repositories.set(key, { key, system, client,
+          label: `${system.name} / ${system.user} / ${system.client || "default"}`, api });
+        const apply = api.apply;
+        api.apply = async (...args) => {
+          try { return await apply(...args); }
+          finally { require('./frontend-analysis').invalidate(api); }
+        };
+        return repositories.get(key);
+      })();
+      pendingRepositories.set(key, pending);
+      try { return await pending; }
+      finally { if (pendingRepositories.get(key) === pending) pendingRepositories.delete(key); }
     }
     return repositories.get(key);
   }
@@ -501,17 +540,17 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     }
     return { system, segments, info: require("./sap-adt-extension-repository").objectAt(segments) };
   }
-  const repositoryOf = system => repository(JSON.stringify(["", system.client || "", "", system.name, false, system.connection, system.destination]));
+  const repositoryOf = system => repository({ name: system.name, key: connectionKey(system) });
   /* An open abap: document taken in as a VERTEX tab of its system, so what works on a VERTEX tab - Tools, the analysis,
      the transpiler, breakpoints - works on it. Saving, activating and SAP's navigation stay the extension's. */
   async function adopt(document) {
     if (!document || !document.uri || document.uri.scheme !== "abap") { return null; }
     const key = document.uri.toString();
     if (opened.has(key)) { return opened.get(key); }
-    
+
     const target = abapTarget(document.uri);
     const info = target && target.info;
-    
+
     if (!info || info.kind !== "object" || !["PROG", "INCL", "CLAS", "INTF", "FUNC"].includes(info.type)) {
       throw new Error(document.uri.path.split("/").pop() + " is no ABAP source VERTEX works on (a program, include, class, interface or function module).");
     }
@@ -520,7 +559,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const data = await repo.api.execute("read_sap_object", { object_type: info.type, object_name: info.name, include: info.include });
     const entry = { repo, data, document };
     opened.set(key, entry);
-    
+
     return entry;
   }
   // Taken in as they open; one that cannot be - not logged on, no such system - is said when a command is asked for it.
@@ -538,16 +577,41 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   // the first time it is asked for.
   const fromLastSession = new Set(Object.keys(savedEntries));
   async function rememberEditor(uri, entry) {
-    savedEntries[uri.toString()] = { key: entry.repo.key, data: entry.data };
+    savedEntries[uri.toString()] = { ...savedEntries[uri.toString()], key: entry.repo.key, name: entry.repo.system.name, data: entry.data,
+      ...(entry.needsRead ? { reread: true } : {}) };
     await context.workspaceState.update("sapEditors", savedEntries);
   }
   async function fileEntry(uri) {
     const key = uri.toString();
+    const existing = opened.get(key);
+    if (existing && !auth.currentSystems().some(system => connectionKey(system) === existing.repo.key)) {
+      await repository(savedEntries[key] || { key: existing.repo.key, name: existing.repo.system.name });
+    }
     if (!opened.has(key)) {
       const saved = savedEntries[key];
       if (!saved) { throw vscode.FileSystemError.FileNotFound(uri); }
-      const repo = await repository(saved.key);
+      const repo = await repository(saved);
       let data = saved.data && { ...saved.data };
+      const needsRead = saved.reread || saved.key !== repo.key;
+      if (needsRead) {
+        const object = saved.object || data;
+        saved.reread = true;
+        saved.object = { object_name: object.object_name, object_type: object.object_type, include: object.include || "main" };
+        await context.workspaceState.update("sapEditors", savedEntries);
+        try {
+          data = await repo.api.execute("read_sap_object", {
+            ...saved.object
+          });
+          saved.data = data;
+          await context.workspaceState.update("sapEditors", savedEntries);
+          fromLastSession.delete(key);
+        } catch (error) {
+          delete saved.data;
+          fromLastSession.delete(key);
+          await context.workspaceState.update("sapEditors", savedEntries);
+          throw vscode.FileSystemError.Unavailable(error.message);
+        }
+      }
       // A tab can outlive an extension reload, including an upgrade from a
       // version which stored only its object metadata.  Do not let that stale
       // entry make VS Code show its generic "editor could not be opened" page:
@@ -560,7 +624,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
           object_name: data.object_name, object_type: data.object_type,
           include: data.include || "main"
         });
-        savedEntries[key] = { key: repo.key, data };
+        savedEntries[key] = { ...savedEntries[key], key: repo.key, name: repo.system.name, data };
         await context.workspaceState.update("sapEditors", savedEntries);
       }
       if (fromLastSession.delete(key) && data.object_name && data.object_type) {
@@ -569,7 +633,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
             object_name: data.object_name, object_type: data.object_type,
             include: data.include || "main"
           });
-          savedEntries[key] = { key: repo.key, data };
+          savedEntries[key] = { ...savedEntries[key], key: repo.key, name: repo.system.name, data };
           await context.workspaceState.update("sapEditors", savedEntries);
         } catch (error) {
           // Kept rather than lost, and said rather than hidden: the tab is the
@@ -579,7 +643,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
             + (error && error.message || error));
         }
       }
-      opened.set(key, { repo, data });
+      opened.set(key, { repo, data, needsRead });
     }
     return opened.get(key);
   }
@@ -591,9 +655,20 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       return { type: vscode.FileType.File, ctime: 0, mtime: entry.mtime || 0,
         size: Buffer.byteLength(entry.data.source) };
     },
-    async readFile(uri) { return Buffer.from((await fileEntry(uri)).data.source); },
+    async readFile(uri) {
+      const entry = await fileEntry(uri);
+      const content = Buffer.from(entry.data.source);
+      if (entry.needsRead) {
+        await rememberEditor(uri, entry);
+        delete savedEntries[uri.toString()].reread;
+        await context.workspaceState.update("sapEditors", savedEntries);
+        entry.needsRead = false;
+      }
+      return content;
+    },
     async writeFile(uri, content) {
       const entry = await fileEntry(uri), source = Buffer.from(content).toString("utf8");
+      await guardSourceWrite(entry, uri);
       // Review has already activated exactly these bytes. Let VS Code mark
       // the document clean without writing SAP again or saving declined hunks.
       if (entry.acknowledged) {
@@ -1114,7 +1189,23 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     }
     return null;
   }
+  async function guardSourceWrite(entry, uri) {
+    uri = uri || entry.document && entry.document.uri
+      || [...opened].find(([, value]) => value === entry)?.[0];
+    if (typeof uri === "string") { uri = vscode.Uri.parse(uri); }
+    if (!uri || uri.scheme !== "vertex-sap") { return; }
+    const current = await fileEntry(uri);
+    if (current !== entry || current.needsRead || savedEntries[uri.toString()]?.reread) {
+      fileEvents.fire([{ type: vscode.FileChangeType.Changed, uri }]);
+      throw vscode.FileSystemError.Unavailable("This tab's system changed and it was re-read. Read the tab again before saving.");
+    }
+  }
+  async function applySource(entry, id, payload) {
+    await guardSourceWrite(entry);
+    return entry.repo.api.apply(id, payload);
+  }
   async function saveSource(entry, source) {
+    await guardSourceWrite(entry);
     if (entry.saving) { throw new Error("This SAP object is already being saved."); }
     entry.saving = true;
     let draft;
@@ -1125,9 +1216,10 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       const yes = await vscode.window.showWarningMessage(`Save & Activate ${entry.data.object_name} in ${entry.repo.label}?`,
         { modal: true, detail: "SAP will check syntax, save and activate the editor contents." }, "Save & Activate");
       if (yes !== "Save & Activate") { throw new Error("Save & Activate cancelled."); }
+      await guardSourceWrite(entry);
       draft = await entry.repo.api.execute("modify_sap_object", { ...entry.data,
         base_revision: entry.data.revision, source });
-      const result = await entry.repo.api.apply(draft.change_id, { source, transport: transport.trim().toUpperCase() });
+      const result = await applySource(entry, draft.change_id, { source, transport: transport.trim().toUpperCase() });
       entry.data = { ...entry.data, source, revision: result.revision, active_revision: result.revision };
       entry.transport = transport;
       vscode.window.showInformationMessage(entry.data.object_name + " saved and activated.");
@@ -1186,7 +1278,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     if (!entry || !['PROG', 'CLAS', 'FUNC'].includes(entry.data.object_type)) return null;
     // A system reached through SAP's ADT extension has no ADT debugger here: its points stay VS Code's, for the
     // analysis between breakpoints and the transpiler's local debugging, and go to no SAP.
-    const local = JSON.parse(entry.repo.key)[5] === adtExtension.CONNECTION ? JSON.parse(entry.repo.key)[3] : "";
+    const local = keyInfo(entry.repo.key).viaExtension ? keyInfo(entry.repo.key).name : "";
     const line = location.range.start.line + 1;
     if (entry.data.object_type !== 'CLAS' || entry.data.include === 'main') {
       return { url: entry.data.source_url, line, local };
@@ -1248,7 +1340,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const natives = vscode.debug.breakpoints || [];
     const visibleUris = new Set((vscode.window.visibleTextEditors || []).map(e => e.document.uri.toString()));
     const entryFor = point => [...opened.values()].filter(e => e.document && !e.document.isClosed
-      && (!picture.system || JSON.parse(e.repo.key)[3] === picture.system)
+      && (!picture.system || e.repo.system.name === picture.system)
       && String(e.data.source_url || '').split('#')[0].toLowerCase() === String(point.url || '').split('#')[0].toLowerCase())
       .sort((a, b) => Number(visibleUris.has(b.document.uri.toString())) - Number(visibleUris.has(a.document.uri.toString())))[0];
     for (const [nativeId, sapId] of [...nativeBreakpoints]) {
@@ -2038,6 +2130,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       applying = true;
       let draft;
       try {
+      await guardSourceWrite(entry);
       if (entry.saving || entry.data.revision !== baseRevision) { throw new Error("SAP editor base changed. Open a new review before applying."); }
       const approved = Array.isArray(message.approved) ? [...new Set(message.approved.filter(i => Number.isInteger(i) && i >= 0 && i < parts.length))] : [];
       if (!approved.length) { throw new Error("Approve at least one block."); }
@@ -2054,7 +2147,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
         { modal: true, detail: "SAP will check syntax, save and activate." }, "Apply");
       if (yes !== "Apply") { await panel.webview.postMessage({ action: "cancelled" }); return; }
       if (entry.saving || entry.data.revision !== baseRevision) { throw new Error("SAP editor base changed. Open a new review before applying."); }
-      const result = await entry.repo.api.apply(draft.change_id, { source, transport: transport.trim().toUpperCase() });
+      const result = await applySource(entry, draft.change_id, { source, transport: transport.trim().toUpperCase() });
       finished = true;
       // The open editor may still contain declined hunks. Move its SAP base
       // forward only to the reviewed source, so a later review shows exactly
@@ -2107,6 +2200,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const editor = vscode.window.activeTextEditor;
     const current = editor && opened.get(editor.document.uri.toString());
     if (!current) { throw new Error("Open an object with VERTEX: Search SAP Code or Read SAP Code first."); }
+    await guardSourceWrite(current, editor.document.uri);
     const draft = await current.repo.api.execute("modify_sap_object", {
       ...current.data, base_revision: current.data.revision, source: current.data.source
     });
@@ -2568,7 +2662,10 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       { modal: true, detail: "SAP will check syntax, save and activate. A failed creation may leave an inactive object to inspect." }, "Apply");
     if (approved !== "Apply") { return; }
     if (document.version !== version || document.isClosed) { throw new Error("Draft changed during confirmation. Review it again."); }
-    const result = await repo.api.apply(draft.change_id, { source, transport: transport.trim().toUpperCase() });
+    const entry = [...opened.values()].find(entry => entry.repo === repo
+      && entry.data.object_name === draft.object_name && entry.data.object_type === draft.object_type
+      && (entry.data.include || "main") === (draft.include || "main")) || { repo, document };
+    const result = await applySource(entry, draft.change_id, { source, transport: transport.trim().toUpperCase() });
     drafts.delete(draft.change_id);
     repo.api.discard(draft.change_id);
     vscode.window.showInformationMessage(`${draft.object_name} saved and activated in ${repo.label}.`);
@@ -2579,7 +2676,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     if (selected) { selected.repo.api.discard(selected.draft.change_id); drafts.delete(selected.draft.change_id); }
   });
   context.subscriptions.push({ dispose() {
-    for (const repo of repositories.values()) { void repo.api.dispose().catch(() => {}); }
+    for (const repo of repositories.values()) { void repo.client?.dispose().catch(() => {}); }
     repositories.clear(); texts.clear(); opened.clear(); drafts.clear();
   } });
   // Where reviews are kept: vertex.review.storage, and the folder of the files. A system without VERTEX's ABAP keeps
@@ -2738,7 +2835,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       // explicit selection is nevertheless exactly what the user asked chat
       // about and is safe, useful context to hand over.
       if (!entry) { return selected_fragment ? { selected_fragment } : null; }
-      return { system: entry.repo.label, system_name: JSON.parse(entry.repo.key)[3], object_name: entry.data.object_name,
+      return { system: entry.repo.label, system_name: entry.repo.system.name, object_name: entry.data.object_name,
         object_type: entry.data.object_type, include: entry.data.include,
         base_revision: entry.data.revision, source: editor.document.getText(), selected_fragment };
     },
