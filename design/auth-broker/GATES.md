@@ -1,5 +1,7 @@
 # Feasibility gates — recorded results
 
+> Historical implementation record. For the current 0.9.11 connection and packaging instructions, see [README.md](../../README.md). The SAP ADT for VS Code bridge and its object index were removed in 0.9.11; the current universal VSIX includes Windows x64 and macOS Apple silicon RFC bindings.
+
 Results of the gates from GOAL.md / SPEC.md §16, recorded per PLAN.md Tasks 1 and 2.
 No secrets, system IDs, hosts or user IDs are recorded.
 The owner chose to record measured values (statuses, durations and flags) instead of copying JSON reports because the reports contain the destination service URL.

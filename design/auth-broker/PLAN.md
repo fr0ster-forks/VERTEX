@@ -1,5 +1,7 @@
 # Auth broker in VERTEX — first landing (`basic` + `snc`) Implementation Plan
 
+> Historical implementation record. For the current 0.9.11 connection and packaging instructions, see [README.md](../../README.md). The SAP ADT for VS Code bridge and its object index were removed in 0.9.11; the current universal VSIX includes Windows x64 and macOS Apple silicon RFC bindings.
+
 > **For agentic workers:** this plan is executed one task at a time by codex (the `codex:codex-rescue`
 > subagent), each task reviewed before the next starts. Tasks marked **OWNER** are run by the owner
 > on the Windows machine with SNC. A task marked **STOP** is a gate: no later task that depends on

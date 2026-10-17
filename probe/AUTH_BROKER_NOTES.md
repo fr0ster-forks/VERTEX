@@ -1,5 +1,7 @@
 # Auth broker in VERTEX — working notes
 
+> Historical implementation record. For the current 0.9.11 connection and packaging instructions, see [README.md](../README.md). The SAP ADT for VS Code bridge and its object index were removed in 0.9.11; the current universal VSIX includes Windows x64 and macOS Apple silicon RFC bindings.
+
 Working notes for the `feat/auth-broker` branch: what was read from the code so far, what is
 decided, and what still needs measuring. Not user documentation; it goes once the work lands.
 

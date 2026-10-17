@@ -118,7 +118,7 @@ RFC library installed on your computer. On Windows, VERTEX looks for
 put the SDK's `lib` directory on `DYLD_LIBRARY_PATH` before starting VS Code.
 Your SAP account needs RFC authorization for `SADT_REST_RFC_ENDPOINT`.
 
-VERTEX's direct SNC connection builds on [fr0ster-forks' auth-broker PR #1](https://github.com/ysichov/VERTEX/pull/1): it carries ADT requests over RFC through `sap-rfc-lite` and `SADT_REST_RFC_ENDPOINT`, without using the SAP ADT for VS Code extension. VERTEX 0.9.10 adds the Windows and macOS native bindings to one VSIX, searches for an installed `sapnwrfc.dll` on Windows, and imports SNC/RFC settings from SAP Logon. The SAP RFC library itself is not bundled. A separate SDK installation may be unnecessary when a compatible library is already present, but that library is still required at runtime.
+VERTEX's direct SNC connection builds on [fr0ster-forks' auth-broker PR #1](https://github.com/ysichov/VERTEX/pull/1): it carries ADT requests over RFC through `sap-rfc-lite` and `SADT_REST_RFC_ENDPOINT`, without using the SAP ADT for VS Code extension. The 0.9.11 VSIX includes Windows and macOS native bindings, searches for an installed `sapnwrfc.dll` on Windows, and imports SNC/RFC settings from SAP Logon. The SAP RFC library itself is not bundled. A separate SDK installation may be unnecessary when a compatible library is already present, but that library is still required at runtime.
 
 ```json
 "vertex.systems": [
@@ -181,15 +181,6 @@ By hand, the entries look like this; the HTTP(S) port is in SMICM > Goto > Servi
 
 The url is the ICM port, not the one SAP GUI connects to. An empty `vertex.active` means the
 first. **VERTEX: Switch System** picks another one from a list.
-
-SNC single sign-on can use VERTEX's own RFC connection as described above. An alternative is a system configured *only with
-SAP ADT extension*: SAP's ABAP Development Tools for VS Code logs on to it, SNC included, and VERTEX
-reads, writes and activates through that extension. **VERTEX: Get Connections from SAP ADT for VS
-Code** adds its destinations to `vertex.systems` (`"connection": "sap-adt-extension"`, `"destination"`),
-and **VERTEX: Index SAP System** builds, once, the index by which VERTEX finds objects by name there.
-Sources, VERTEX Tools, Value Origin and the ABAP transpiler's run work on such a system; Run in SAP,
-the SAP debugger, SelecTor, Versions, where-used, ABAP Unit and ATC need VERTEX's own connection and
-say so. Details: [vscode/README.md](vscode/README.md#systems-with-snc-single-sign-on).
 
 ### Eclipse
 

@@ -1,7 +1,6 @@
 "use strict";
 
-const { createRepository, TYPES, revision } = require("./sap-code");
-const adtExtension = require("./sap-adt-extension");
+const { createRepository, revision } = require("./sap-code");
 const { hunks, reviewedSource, askPrompt } = require("./code-review");
 // Every tool that reaches SAP takes the system by name: the main chat can read
 // in one and prepare a change for another. review_sap_changes works on the
@@ -59,25 +58,6 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
   const events = require("./agent-events").createEmitter();
   const pendingRepositories = new Map();
   const repositories = new Map(), texts = new Map(), opened = new Map(), drafts = new Map();
-  // Who waits on a walk of an extension system's tree now - a transpiler run - and is told what is walked.
-  const indexWatchers = new Set();
-  const indexOffered = new Set();
-  /* The full index of a system reached through SAP's ADT extension, with progress and Cancel; kept when done. */
-  async function indexSystem(system) {
-    const repo = await repositoryOf(system), started = Date.now();
-    const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, cancellable: true,
-      title: "VERTEX: indexing " + system.name }, (progress, token) => repo.api.indexAll({
-        onProgress: (walked, known, name) => progress.report({ message: walked + " / " + known + " packages - " + name }),
-        cancelled: () => token.isCancellationRequested }));
-    const seconds = Math.round((Date.now() - started) / 1000);
-    if (result.cancelled) {
-      vscode.window.showWarningMessage("VERTEX: indexing " + system.name + " was cancelled after " + result.walked + " packages; nothing was kept. VERTEX: Index SAP System starts it again.");
-    } else {
-      vscode.window.showInformationMessage("VERTEX: " + system.name + " indexed - " + result.walked + " packages, " + result.objects + " objects in " + seconds + " s."
-        + (result.problems.length ? " Not read: " + result.problems.slice(0, 5).join("; ") + (result.problems.length > 5 ? " ..." : "") : ""));
-    }
-    return result;
-  }
   let debuggerApi, breakpointQueue = Promise.resolve(), breakpointListenerAttached = false;
   const nativeBreakpoints = new Map();
   let stopFollow = 0;
@@ -229,7 +209,7 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
       const starts = up(type) !== 'CLAS' ? null : Object.fromEntries(declared.filter(item => item.source === loaded.target.source
         && item.name !== 'GLOBAL' && up(item.owner) === up(object_name)).map(item => [up(item.name), item.first]));
       const missing = starts && declared.some(item => item.name !== 'GLOBAL' && up(item.owner) === up(object_name) && !(up(item.name) in starts));
-      if (missing && !keyInfo(from.repo.key).viaExtension && debuggerApi && typeof debuggerApi.classMethods === 'function') {
+      if (missing && debuggerApi && typeof debuggerApi.classMethods === 'function') {
         const fromAdt = await debuggerApi.classMethods('/sap/bc/adt/oo/classes/' + encodeURIComponent(String(object_name).toLowerCase()) + '/source/main');
         for (const [method, line] of Object.entries(fromAdt || {})) { if (!(method in starts)) { starts[method] = line; } }
       }
@@ -453,28 +433,6 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
       if (!system) { throw new Error(chosen.system.name + " is no longer in vertex.systems"); }
     }
     const key = connectionKey(system);
-    const viaExtension = adtExtension.viaExtension(system);
-    // A system reached through SAP's ADT extension: read and written through its abap: file system, no password here.
-    if (viaExtension && !repositories.has(key)) {
-      const state = await adtExtension.state(vscode, system);
-      if (!state.ok) { throw new Error("System " + system.name + ": " + state.text + "."); }
-      const progress = text => { vscode.window.setStatusBarMessage("VERTEX: " + text, 3000); indexWatchers.forEach(watch => watch(text)); };
-      repositories.set(key, { key, system, label: system.name + " / " + adtExtension.LABEL,
-        api: require("./sap-adt-extension-repository").createExtensionRepository({ system,
-          host: adtExtension.host(vscode, system.destination, progress), store: indexStore(system.destination),
-          emit: event => events.emit({ ...event, system: system.name }) }) });
-      const api = repositories.get(key).api, apply = api.apply;
-      api.apply = async (...args) => {
-        try { return await apply(...args); }
-        finally { require('./frontend-analysis').invalidate(api); }
-      };
-      // No index kept for this destination yet: the reader is asked, once a session, whether to build it now.
-      if (!api.indexKept() && !indexOffered.has(system.destination)) {
-        indexOffered.add(system.destination);
-        void vscode.window.showInformationMessage("VERTEX: " + system.name + " has no index of its objects yet. Without one an object is found by name only near the objects you work on. Index every customer package now - once, in the background?",
-          "Index now", "Later").then(answer => { if (answer === "Index now") void indexSystem(system); });
-      }
-    }
     if (!repositories.has(key)) {
       if (pendingRepositories.has(key)) return pendingRepositories.get(key);
       const pending = (async () => {
@@ -514,60 +472,6 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
     }
     return repositories.get(key);
   }
-  /* Where the index of an extension system's objects is kept between sessions. Not readable is no index; not writable
-     is said - the next session would walk the packages again without saying why. */
-  function indexStore(destination) {
-    const folder = context.globalStorageUri && context.globalStorageUri.fsPath;
-    if (!folder) { return null; }
-    const file = require("path").join(folder, "sap-adt-index", encodeURIComponent(destination) + ".json");
-    return {
-      load: () => { try { return JSON.parse(require("fs").readFileSync(file, "utf8")); } catch (_) { return null; } },
-      save: value => {
-        try { require("fs").mkdirSync(require("path").dirname(file), { recursive: true }); require("fs").writeFileSync(file, JSON.stringify(value)); }
-        catch (error) { vscode.window.showWarningMessage("VERTEX: the index of " + destination + " could not be kept in " + file + ": " + error.message); }
-      }
-    };
-  }
-  /* A document or folder of SAP's ADT extension (abap:/repotree-v1/<destination>/...): the system of vertex.systems with
-     that destination, and what the path stands for. */
-  function abapTarget(uri) {
-    const parts = String(uri.path || "").split("/").filter(Boolean);
-    if (uri.scheme !== "abap" || parts[0] !== "repotree-v1" || !parts[1]) { return null; }
-    const segments = parts.slice(1).map(part => { try { return decodeURIComponent(part); } catch (_) { return part; } });
-    const system = systems().find(s => adtExtension.viaExtension(s) && s.destination === segments[0]);
-    if (!system) {
-      throw new Error("Destination " + segments[0] + " of SAP ADT extension is not in vertex.systems. Add it with VERTEX: Get Connections from SAP ADT for VS Code.");
-    }
-    return { system, segments, info: require("./sap-adt-extension-repository").objectAt(segments) };
-  }
-  const repositoryOf = system => repository({ name: system.name, key: connectionKey(system) });
-  /* An open abap: document taken in as a VERTEX tab of its system, so what works on a VERTEX tab - Tools, the analysis,
-     the transpiler, breakpoints - works on it. Saving, activating and SAP's navigation stay the extension's. */
-  async function adopt(document) {
-    if (!document || !document.uri || document.uri.scheme !== "abap") { return null; }
-    const key = document.uri.toString();
-    if (opened.has(key)) { return opened.get(key); }
-
-    const target = abapTarget(document.uri);
-    const info = target && target.info;
-
-    if (!info || info.kind !== "object" || !["PROG", "INCL", "CLAS", "INTF", "FUNC"].includes(info.type)) {
-      throw new Error(document.uri.path.split("/").pop() + " is no ABAP source VERTEX works on (a program, include, class, interface or function module).");
-    }
-    const repo = await repositoryOf(target.system);
-    repo.api.seed(info);
-    const data = await repo.api.execute("read_sap_object", { object_type: info.type, object_name: info.name, include: info.include });
-    const entry = { repo, data, document };
-    opened.set(key, entry);
-
-    return entry;
-  }
-  // Taken in as they open; one that cannot be - not logged on, no such system - is said when a command is asked for it.
-  context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(document => { void adopt(document).catch(e => {  }); }));
-  for (const document of vscode.workspace.textDocuments || []) { void adopt(document).catch(() => {}); }
-  context.subscriptions.push(vscode.workspace.onDidCloseTextDocument(document => {
-    if (document.uri.scheme === "abap") { opened.delete(document.uri.toString()); }
-  }));
   const fileEvents = new vscode.EventEmitter();
   const savedEntries = context.workspaceState.get("sapEditors", {});
   // Those keys come from a previous window: their text is what SAP had when the
@@ -1268,35 +1172,25 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
   }
   async function breakpointTarget(point) {
     const location = point && point.location;
-    if (!location || !['vertex-sap', 'abap'].includes(location.uri.scheme)) return null;
-    if (location.uri.scheme === 'abap') { await adopt(await vscode.workspace.openTextDocument(location.uri)); }
+    if (!location || location.uri.scheme !== 'vertex-sap') return null;
     // VS Code retains native points across an extension reload, while our
     // in-memory map is new. Rehydrate the editor entry from workspace state
     // so those existing points can be sent back to SAP without a manual
     // remove/add click.
     const entry = opened.get(location.uri.toString()) || await fileEntry(location.uri).catch(() => null);
     if (!entry || !['PROG', 'CLAS', 'FUNC'].includes(entry.data.object_type)) return null;
-    // A system reached through SAP's ADT extension has no ADT debugger here: its points stay VS Code's, for the
-    // analysis between breakpoints and the transpiler's local debugging, and go to no SAP.
-    const local = keyInfo(entry.repo.key).viaExtension ? keyInfo(entry.repo.key).name : "";
     const line = location.range.start.line + 1;
     if (entry.data.object_type !== 'CLAS' || entry.data.include === 'main') {
-      return { url: entry.data.source_url, line, local };
+      return { url: entry.data.source_url, line };
     }
     // The normal class editor can show definitions/implementations, whereas
     // ADT debugger points are anchored in the class main source.  Locate the
     // same source line there before handing it to SAP.
     const main = await sourceDocument(entry.repo, { object_type: 'CLAS', object_name: entry.data.object_name });
-    return { url: main.data.source_url, line: sourceLineIn(entry.document.getText(), line, main.document.getText()), local };
+    return { url: main.data.source_url, line: sourceLineIn(entry.document.getText(), line, main.document.getText()) };
   }
-  const toldLocalPoints = new Set();
   async function addNativeBreakpoint(point) {
     const target = await breakpointTarget(point); if (!target || !debuggerApi) return;
-    if (target.local && !toldLocalPoints.has(target.local)) {
-      toldLocalPoints.add(target.local);
-      vscode.window.showInformationMessage('VERTEX: ' + target.local + ' is connected only with SAP ADT extension, so breakpoints are not set in SAP and Run in SAP does not stop at them.'
-        + ' They serve the analysis between breakpoints and debugging with the ABAP transpiler.');
-    }
     const old = nativeBreakpoints.get(point.id);
     if (old) { nativeBreakpoints.delete(point.id); await debuggerApi.clearBreakpoints(old); }
     let placed;
@@ -2744,21 +2638,13 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
     known.domains = core.domains;
     // The selection texts and text symbols of each program, for its selection screen - read at every run, as a text pool
     // changes without its source; why they could not be read, if so.
-    // Through SAP's ADT extension the dictionary comes from its DDIC sources, not from the data preview.
     const dictionary = await ddic.readDictionary(repo.api.dictionaryQuery || query, named, known);
     // The build is named by when it was read: a project written from another build is written again.
     const builtAt = new Date().toISOString();
     cache.keep(folder, { sources, dictionary, fingerprint: builtAt, builtAt, entryLine: options.entryLine || 0 });
     return { system: repo.label, sources, texts: await textsOf(sources), dictionary, folder, fingerprint: builtAt, builtAt, cached: false };
   }
-  return { // ADT's quick search, for a system whose repository answers it from its own index (SAP's ADT extension).
-    quickSearch: async (adtType, query, limit) => {
-      const repo = await repository();
-      const objectType = Object.keys(TYPES).find(key => TYPES[key] === adtType);
-      if (!objectType) { throw new Error("Searching " + adtType + " is not available: only " + Object.values(TYPES).join(", ") + " are indexed."); }
-      return (await repo.api.execute("search_sap_objects", { query, object_type: objectType, limit })).objects
-        .map(o => ({ name: o.object_name, type: adtType, uri: o.object_url, packageName: o.package, description: o.description }));
-    },
+  return {
     frontendRequest: async (resource, progress, cancelled) => require('./frontend-analysis').request((await repository()).api, resource, progress, cancelled),
     selectorQuery: async (sql, rows) => (await repository()).api.query(sql, rows),
     // SelecTor's table and join (the pivot not yet) answered over ADT's data preview; null for what is not theirs.
@@ -2773,12 +2659,7 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
     // the active version stops it, as the run would not be of the code the reader sees.
     // As SAP runs a program's load, not its text, a run takes what the last build of this object read (sap-cache.js);
     // only Recompile (options.recompile), or no build yet, reads it from SAP again.
-    // A run waiting on a walk of the extension's tree hears what is walked, where it reports its own progress.
-    transpileSources: async (object, progress, options = {}) => {
-      indexWatchers.add(progress);
-      try { return await transpileSourcesOf(object, progress, options); }
-      finally { indexWatchers.delete(progress); }
-    },
+    transpileSources: (object, progress, options = {}) => transpileSourcesOf(object, progress, options),
     // The address of an object's VERTEX tab, open or not, as sourceDocument makes it; and that tab's document.
     sourceUri: async ({ object_name, object_type, include = 'main' }) => {
       const system = require('crypto').createHash('sha256').update((await repository()).key).digest('hex').slice(0, 16);
@@ -2787,35 +2668,6 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
     },
     sourceOf: async args => (await sourceDocument(await repository(), args)).document,
     schemas, onEvent: events.on, runUnitTests: unitTestsOf, runAtc: atcOf, attachDebugger, revealFrame, originPath, forgetOrigin: () => { lastOriginGraph = null; }, openToolSource, originPoints, originOpen, originVariables, documentObject,
-    adopt, abapTarget,
-    /* VERTEX: Index SAP System - the active system, or the one picked, of those reached through SAP's ADT extension. */
-    async indexCommand() {
-      const all = systems().filter(adtExtension.viaExtension);
-      if (!all.length) { throw new Error("No system in vertex.systems is connected through SAP ADT extension."); }
-      const chosen = active();
-      let system = !chosen.error && adtExtension.viaExtension(chosen.system) ? chosen.system : null;
-      if (!system) {
-        const picked = all.length === 1 ? { system: all[0] } : await vscode.window.showQuickPick(all.map(s => ({ label: s.name, description: s.destination, system: s })),
-          { title: "VERTEX: index which system?" });
-        if (!picked) { return; }
-        system = picked.system;
-      }
-      await indexSystem(system);
-    },
-    /* A folder or file of the extension's tree, for a VERTEX Tools window: its object, or its package with the package's
-       objects indexed from the tree alone. */
-    async abapTools(uri) {
-      const target = abapTarget(uri);
-      if (!target || !target.info) { throw new Error("Pick a package or an ABAP object in the tree of SAP ADT extension."); }
-      const repo = await repositoryOf(target.system), info = target.info;
-      if (info.kind === "package") {
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: "VERTEX: reading package " + info.name },
-          () => repo.api.addPackage(info.path, info.name));
-        return { object_name: info.name, object_type: "DEVC", system_name: target.system.name };
-      }
-      repo.api.seed(info);
-      return { object_name: info.name, object_type: info.type, system_name: target.system.name };
-    },
     editorContext() {
       const editor = vscode.window.activeTextEditor;
       if (!editor || !editor.document) { return null; }

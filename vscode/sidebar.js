@@ -1,5 +1,4 @@
 "use strict";
-const adtExtension = require("./sap-adt-extension");
 
 // The sidebar is deliberately one free-prompt surface. Tools remain internal to
 // the orchestrator; it decides which SAP operation is needed.
@@ -33,7 +32,7 @@ function register(vscode, context, active, ask, systems, toolContext) {
           system: chosen.error ? "" : chosen.system.name,
           systems: systems().map(item => item.name),
           // What the list shows: a system reached through SAP's extension says so beside its name.
-          labels: systems().map(item => adtExtension.viaExtension(item) ? item.name + " (" + adtExtension.LABEL + ")" : item.name),
+          labels: systems().map(item => item.name),
           ai: ask.state()
         }).then(async () => {
           // The model list comes after: it may have to ask the provider.

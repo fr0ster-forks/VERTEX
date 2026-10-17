@@ -1,5 +1,7 @@
 # Handoff — read this first
 
+> Historical implementation record. For the current 0.9.11 connection and packaging instructions, see [README.md](../../README.md). The SAP ADT for VS Code bridge and its object index were removed in 0.9.11; the current universal VSIX includes Windows x64 and macOS Apple silicon RFC bindings.
+
 You are continuing the integration of the `@mcp-abap-adt` auth stack into the VERTEX VS Code
 extension, on branch `feat/auth-broker` of `fr0ster-forks/VERTEX`. The earlier session ran on a
 Linux machine that cannot run SNC. You run on the owner's Windows machine, where SNC, Secure Login

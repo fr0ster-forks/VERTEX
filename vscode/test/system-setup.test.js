@@ -2,6 +2,20 @@
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("fs"), os = require("os"), path = require("path");
 const { landscape } = require("../system-setup");
 
+test("SAP Logon SNC single sign-on imports direct RFC settings", () => {
+  const file = path.join(os.tmpdir(), "vertex-snc-direct-" + process.pid + ".xml");
+  fs.writeFileSync(file, '<Landscape><Services>'
+    + '<Service type="SAPGUI" name="Snc" systemid="SNC" server="snchost:3200" sncname="p:CN=SNC" sncop="9"/>'
+    + '<Service type="SAPGUI" name="Password" systemid="PWD" server="pwdhost:3201" sncname="p:CN=PWD" sncnosso="1"/>'
+    + '</Services></Landscape>');
+  try {
+    const { systems } = landscape([file]);
+    assert.deepEqual(systems[0].snc, { partnerName: "p:CN=SNC", qop: "9" });
+    assert.equal(systems[0].host, "snchost");
+    assert.equal(systems[1].snc, undefined);
+  } finally { fs.unlinkSync(file); }
+});
+
 test("remove systems updates the configured scope and repairs an active selection", async () => {
   const { removeSystems } = require("../system-setup");
   const values = { systems: [{ name: "DEV", url: "https://dev" }, { name: "QAS", destination: "QAS" }], active: "QAS" };

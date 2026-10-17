@@ -552,7 +552,7 @@ function debuggerHost(auth, initial) {
   const end = code.indexOf("/* The source tools", start);
   let system = initial;
   const opened = [];
-  const host = { stopDebugger: null, adtExtension: require("../sap-adt-extension"), auth, tools: null, output: null, require: name => name === "./debugger" ? require("../debugger") : name === "./auth/systems" ? require("../auth/systems")
+  const host = { stopDebugger: null, auth, tools: null, output: null, require: name => name === "./debugger" ? require("../debugger") : name === "./auth/systems" ? require("../auth/systems")
     : name === "abap-adt-api" ? { ADTClient: function () { return auth.makeLegacy(); } } : name === "./sap-http" ? { create: () => ({}) } : require(name),
     password: async () => "test",
     active: () => ({ system }), vscode: { env: { openExternal: async url => opened.push(url) }, Uri: { parse: url => url } } };

@@ -15,7 +15,6 @@ const selector = require("./selector");
 const versions = require("./versions");
 const assistant = require("./assistant");
 const anthropic = require("./anthropic");
-const adtExtension = require("./sap-adt-extension");
 const https = require("https");
 const http = require("http");
 const fs = require("fs");
@@ -267,7 +266,7 @@ function failureText(system, error, sentence) {
  * Reads one resource and answers in the shape the page expects. Given a BODY it
  * writes instead, which needs a CSRF token first.
  */
-let frontendAnalysisRequest, frontendTableRequest, frontendTableWrite, frontendQuickSearch;
+let frontendAnalysisRequest, frontendTableRequest, frontendTableWrite;
 async function fetch(context, requestPath, body, progress, cancelled) {
   if (body == null && frontendAnalysisRequest && /^\/sap\/bc\/adt\/vertex\/(metrics|class|package|flow|navigator)\//.test(requestPath)) {
     try { return JSON.stringify(await frontendAnalysisRequest(requestPath, progress, cancelled)); }
@@ -287,20 +286,6 @@ async function fetch(context, requestPath, body, progress, cancelled) {
     try { return JSON.stringify(await frontendTableWrite(requestPath, body)); }
     catch (error) { return 'ERROR:' + error.message; }
   }
-  // A system reached through SAP's ADT extension has no ADT search: its repository answers from its index, in the
-  // XML the page reads from ADT.
-  if (body == null && frontendQuickSearch && requestPath.startsWith("/sap/bc/adt/repository/informationsystem/search?")
-      && !active().error && adtExtension.viaExtension(active().system)) {
-    const asked = new URLSearchParams(requestPath.split("?")[1]);
-    try {
-      const found = await frontendQuickSearch(asked.get("objectType"), asked.get("query"), Math.min(200, Number(asked.get("maxResults")) || 50));
-      const attr = value => String(value || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-      return '<?xml version="1.0" encoding="utf-8"?><adtcore:objectReferences xmlns:adtcore="http://www.sap.com/adt/core">'
-        + found.map(o => '<adtcore:objectReference adtcore:uri="' + attr(o.uri) + '" adtcore:type="' + attr(o.type) + '" adtcore:name="' + attr(o.name)
-          + '" adtcore:packageName="' + attr(o.packageName) + '" adtcore:description="' + attr(o.description) + '"/>').join("")
-        + "</adtcore:objectReferences>";
-    } catch (error) { return "ERROR:" + error.message; }
-  }
   if (body == null && requestPath === ABOUT) {
     const selected = active();
     if (selected.error) return 'ERROR:' + selected.error;
@@ -319,7 +304,6 @@ async function fetch(context, requestPath, body, progress, cancelled) {
     return "ERROR:" + chosen.error;
   }
   const system = chosen.system;
-  if (adtExtension.viaExtension(system)) return "ERROR:" + adtExtension.httpRefusal(system);
   let extra;
   if (body) {
     try {
@@ -741,7 +725,6 @@ function debuggerFor(context, auth) {
       return connectionKey(chosen.system);
     },
     explain: error => auth.explain(connected ? connected.system : active().system, error),
-    localOnly: () => { const chosen = active(); return !chosen.error && adtExtension.viaExtension(chosen.system); },
     connect: async function () {
       const chosen = active();
       if (chosen.error) { throw new Error(chosen.error); }
@@ -796,11 +779,9 @@ function activate(context) {
   const sapCode = require("./code-workbench").register(vscode, context, { active, auth, pin: pinTo,
     pinned: () => pinnedSystem.getStore() || "", systems });
   require("./local-navigation").register(vscode, context);
-  adtExtension.trackInstalled(vscode, context);
   frontendAnalysisRequest = sapCode.frontendRequest;
   frontendTableRequest = sapCode.tableRequest;
   frontendTableWrite = sapCode.tableWrite;
-  frontendQuickSearch = sapCode.quickSearch;
   require('./local-run').setSelectorQuery(sapCode.selectorQuery);
   // A first start with no system: offered once per start, never imported without the reader's click.
   const listed = vscode.workspace.getConfiguration("vertex").get("systems");
@@ -879,7 +860,6 @@ function activate(context) {
     name: dockedDebugSource.object_name,
     type: dockedDebugSource.object_type,
     // A system reached through SAP's ADT extension has no ADT debugger here: the panel offers no SAP run, steps or session.
-    noSapDebugger: !!dockedDebugSource.system_name && systems().some(s => s.name === dockedDebugSource.system_name && adtExtension.viaExtension(s)),
     line: dockedDebugSource.cursorLine || null,
     local: dockedDebugSource.local === true,
     // Opened to run, not to analyse: until a breakpoint is set the panel is the selection screen and the output.
@@ -1174,10 +1154,6 @@ function activate(context) {
   // In the transpiler panel the breakpoints are VS Code's own: a point set or removed in the editor is shown at once.
   context.subscriptions.push(vscode.debug.onDidChangeBreakpoints(() => { if (dockedDebugSource?.local && localDebugAdapter) postDockedPicture(); }));
   const openVisualDebug = async (runOnly = false, again = null) => {
-    if (!again && vscode.window.activeTextEditor?.document?.uri?.scheme === "abap") {
-      try { await sapCode.adopt(vscode.window.activeTextEditor.document); }
-      catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); return; }
-    }
     void vscode.commands.executeCommand("setContext", "vertex.localHistory", false);
     const editor = vscode.window.activeTextEditor;
     const local = require("./local-analysis");
@@ -1279,8 +1255,7 @@ function activate(context) {
     else if (kind === "CLAS") {
       const object = { object_name: shown.object_name, object_type: "CLAS", include: "main" };
       const tab = await pinTo(shown.system_name, () => sapCode.sourceUri(object)), editor = vscode.window.activeTextEditor;
-      const inExtension = editor && editor.document.uri.scheme === "abap" && /\.clas\.abap$/.test(editor.document.uri.path);
-      if (!editor || editor.document.uri.toString() !== tab && !inExtension)
+      if (!editor || editor.document.uri.toString() !== tab)
         throw new Error("Put the cursor in a method of " + shown.object_name + ", in the tab of its class source.");
       entryLine = editor.selection.active.line + 1;
     }
@@ -1367,7 +1342,6 @@ function activate(context) {
     vscode.commands.registerCommand("vertex.runTranspiler", async () => {
       if (require("./local-analysis").isLocalAbap(vscode.window.activeTextEditor?.document)) return openVisualDebug(true);
       try {
-        if (vscode.window.activeTextEditor?.document?.uri?.scheme === "abap") await sapCode.adopt(vscode.window.activeTextEditor.document);
         await runSapTranspiler(sapCode.editorContext());
       }
       catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
@@ -1412,14 +1386,6 @@ function activate(context) {
       try { await require("./system-setup").removeSystems(vscode); }
       catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
     }),
-    vscode.commands.registerCommand("vertex.indexSapSystem", async function () {
-      try { await sapCode.indexCommand(); }
-      catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
-    }),
-    vscode.commands.registerCommand("vertex.importAdtConnections", async function () {
-      try { await adtExtension.importConnections(vscode); }
-      catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
-    }),
     // Each configured system asked with its own user and password, the way every read is made: the answer says
     // which part of the setting is wrong.
     vscode.commands.registerCommand("vertex.testSystems", async function () {
@@ -1430,11 +1396,6 @@ function activate(context) {
         const chosen = auth.systemOf(entry);
         if (chosen.error) { results.push(entry.name + ": " + chosen.error); continue; }
         const system = chosen.system;
-        if (adtExtension.viaExtension(system)) {
-          const reached = await adtExtension.state(vscode, system);
-          results.push(system.name + ": " + (reached.ok ? "OK - " : "") + reached.text);
-          continue;
-        }
         try {
           const res = await request(system, "/sap/bc/adt/discovery");
           results.push(system.name + ": " + (res.status === 200 ? "OK - ADT answers for " + system.user + (system.client ? " in client " + system.client : "")
@@ -1458,9 +1419,7 @@ function activate(context) {
         all.map(function (s) {
           return {
             label: s.name,
-            description: adtExtension.viaExtension(s)
-              ? adtExtension.LABEL + " · " + s.destination
-              : s.user + "@" + s.url + (s.client ? " client " + s.client : ""),
+            description: s.user + "@" + s.url + (s.client ? " client " + s.client : ""),
             picked: !current.error && current.system.name === s.name
           };
         }),

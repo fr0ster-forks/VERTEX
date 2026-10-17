@@ -1,18 +1,22 @@
 # Release history
 
+## 2026-10-17 — VS Code 0.9.11: SAP ADT extension bridge retired
+
+Removed the experimental connection through SAP's ABAP Development Tools for VS Code, including destination import, `abap:` editor integration, its customer-package index, commands and settings. Direct RFC/SNC via fr0ster's connection and auth-broker libraries remains supported. Existing extension-only entries in `vertex.systems` need to be removed or imported again as direct SNC systems; settings are not changed automatically.
+
 ## 2026-10-17 — SNC acknowledgements
 
 The acknowledgements now credit fr0ster's connection/auth-broker libraries and PR #1 for VERTEX's direct SNC route, and Enrico Andreoli's independent `adt-rfc-bridge` for documenting the RFC bridge and the possibility of finding `sapnwrfc.dll` in an existing SAP GUI installation. No code provenance between those projects is asserted.
 
 ## 2026-10-17 — Direct SNC provenance and live result
 
-The direct RFC/SNC path builds on fr0ster-forks' auth-broker PR #1. VERTEX 0.9.10 then combined Windows and macOS native bindings in one VSIX, added installed RFC library discovery on Windows, and imported SNC/RFC settings from SAP Logon. The user confirmed direct ER6 access without separately installing the full RFC SDK; a compatible RFC library was present on that machine, though its exact location was not established. The SAP ADT extension route is a separate implementation.
+The direct RFC/SNC path builds on fr0ster-forks' auth-broker PR #1. VERTEX 0.9.10 then combined Windows and macOS native bindings in one VSIX, added installed RFC library discovery on Windows, and imported SNC/RFC settings from SAP Logon. The user confirmed direct ER6 access without separately installing the full RFC SDK; a compatible RFC library was present on that machine, though its exact location was not established. The separate SAP ADT extension route was retired in 0.9.11.
 
 ## 2026-10-17 — VS Code 0.9.10 rebuild: SNC import and system removal
 
 **VERTEX: Remove SAP Systems** removes selected entries from `vertex.systems` and selects a remaining system when needed. SAP Logon and ADT source connections are untouched; a later explicit import can add them again. The SAP Logon importer now fills direct SNC settings from entries with an application server rather than skipping them. Client and user still come from Eclipse settings or prompts.
 
-The next build will select the newly added system (preferring SNC when several were added) and name it in the completion message, so the sidebar does not remain on the previously active destination.
+The importer selects the newly added system (preferring SNC when several were added) and names it in the completion message, so the sidebar does not remain on the previously active destination.
 
 ## 2026-10-17 — VS Code 0.9.10: one package with optional SNC
 

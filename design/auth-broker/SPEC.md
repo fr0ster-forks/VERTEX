@@ -1,5 +1,7 @@
 # Spec: auth broker in VERTEX — first landing (`basic` and `snc`)
 
+> Historical implementation record. For the current 0.9.11 connection and packaging instructions, see [README.md](../../README.md). The SAP ADT for VS Code bridge and its object index were removed in 0.9.11; the current universal VSIX includes Windows x64 and macOS Apple silicon RFC bindings.
+
 Implements the first landing of [GOAL.md](GOAL.md). The second landing (`jwt`, `saml`) gets its
 own spec. Where this one lays groundwork for it, that is said, and nothing more of it is built
 here.

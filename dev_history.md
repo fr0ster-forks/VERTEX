@@ -1,5 +1,9 @@
 # Development history
 
+## 2026-10-17 — VS Code 0.9.11: direct SNC only
+
+Removed the separate bridge through the SAP ADT VS Code extension and its full-object index. The direct fr0ster RFC/SNC transport, SAP Logon import, native RFC library discovery and standard direct ADT operations remain. Historical entries below describe the bridge while it existed.
+
 ## 2026-10-17 — SNC attribution
 
 Added explicit acknowledgements for fr0ster's `@mcp-abap-adt/connection`/auth-broker libraries and PR #1, and Enrico Andreoli's independent `adt-rfc-bridge`. The latter's README informed VERTEX's search for a compatible installed `sapnwrfc.dll`; no Python bridge code was incorporated. There is no verified evidence of copying between the two external implementations, so the documentation does not claim it. Updated the third-party notice's packaging sentence to match the current universal VSIX.

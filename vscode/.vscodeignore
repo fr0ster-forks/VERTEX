@@ -8,4 +8,5 @@ images/icon.js
 test/**
 *.vsix
 dev_rfc*.log
+*.log
 package.ps1

@@ -26,12 +26,6 @@ function register(vscode,context,sapCode,showTools){
    let object=selected?.object_name?selected:selected?.object?.object_name?selected.object:null;
    let document;
    const uri=selected?.resourceUri||selected?.uri||(selected?.scheme?selected:null);
-   // A package or object of SAP's ADT extension: known by its path in the extension's tree, read through its system.
-   const abapUri=uri?.scheme==='abap'?uri:!uri&&vscode.window.activeTextEditor?.document?.uri?.scheme==='abap'?vscode.window.activeTextEditor.document.uri:null;
-   if(!object&&abapUri){
-    object=await sapCode.abapTools(abapUri);
-    if(abapUri.toString()===vscode.window.activeTextEditor?.document?.uri?.toString())document=vscode.window.activeTextEditor.document;
-   }
    if(!object){
     document=uri?await vscode.workspace.openTextDocument(uri):vscode.window.activeTextEditor?.document;
     object=document&&(sapCode.documentObject(document)||localAnalysis.sourceObject(document));

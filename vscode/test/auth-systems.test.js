@@ -53,30 +53,14 @@ test("url and webgui embedded credentials are refused", () => {
   }
 });
 
- test("SAP ADT extension systems validate without HTTP credentials and key their destination", () => {
-  const entry = { name: "EXT", connection: "sap-adt-extension", destination: "D", packages: ["ZROOT"] };
-  const system = readSystem(entry).system;
-  assert.deepEqual(system, entry);
-  assert.match(readSystem({ ...entry, destination: "" }).error, /destination/);
-  assert.match(readSystem({ ...entry, password: "secret" }).error, /password in settings/);
-  assert.notEqual(connectionKey(system), connectionKey({ ...system, destination: "OTHER" }));
-  assert.notEqual(connectionKey(system), connectionKey({ ...system, packages: ["YROOT"] }));
+test("old extension entries are rejected with a direct import hint", () => {
+  assert.match(readSystem({ name: "EXT", connection: "sap-adt-extension", destination: "D" }).error, /Import it again for direct RFC\/SNC/);
 });
 
-test("keyInfo reads basic, SNC, extension and legacy saved connection keys", () => {
+test("keyInfo reads direct and legacy saved keys", () => {
   const { keyInfo } = require("../auth/systems");
-  for (const authType of ["basic", "snc"]) {
-    assert.deepEqual(keyInfo(connectionKey({ ...base, authType })), { name: base.name, viaExtension: false, destination: "" });
-  }
-  const extension = { name: "EXT", connection: "sap-adt-extension", destination: "DEST" };
-  const expected = { name: "EXT", viaExtension: true, destination: "DEST" };
-  assert.deepEqual(keyInfo(connectionKey(extension)), expected);
-  for (const key of [[base.url, base.client, base.user, base.name, false],
-    ["", "100", "", "EXT", false, extension.connection, extension.destination]]) {
-    const info = key.length === 5 ? { name: base.name, viaExtension: false, destination: "" } : expected;
-    assert.deepEqual(keyInfo(key), info);
-    assert.deepEqual(keyInfo(JSON.stringify(key)), info);
-  }
-  assert.deepEqual(keyInfo("DEV"), { name: "DEV", viaExtension: false, destination: "" });
+  for (const authType of ["basic", "snc"]) assert.deepEqual(keyInfo(connectionKey({ ...base, authType })), { name: base.name });
+  assert.deepEqual(keyInfo([base.url, base.client, base.user, base.name, false]), { name: base.name });
+  assert.deepEqual(keyInfo("DEV"), { name: "DEV" });
   for (const invalid of [null, undefined, {}, "null", "{}"]) assert.equal(keyInfo(invalid).name, "");
 });

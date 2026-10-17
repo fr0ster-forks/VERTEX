@@ -234,7 +234,7 @@ RFC library installed on your computer. On Windows, VERTEX looks for
 put the SDK's `lib` directory on `DYLD_LIBRARY_PATH` before starting VS Code.
 Your SAP account needs RFC authorization for `SADT_REST_RFC_ENDPOINT`.
 
-The direct SNC connection builds on [fr0ster-forks' auth-broker PR #1](https://github.com/ysichov/VERTEX/pull/1): VERTEX sends ADT requests over RFC through `sap-rfc-lite` and `SADT_REST_RFC_ENDPOINT`. This path does not use SAP ADT for VS Code. The original platform-specific VSIX carried the native RFC binding; VERTEX 0.9.10 includes Windows x64 and macOS Apple silicon bindings in one universal VSIX, searches for an installed `sapnwrfc.dll` on Windows, and imports SNC/RFC settings from SAP Logon. The SAP RFC library itself stays outside the VSIX. A separate SDK installation may be unnecessary when a compatible library is already present, but that library is still required at runtime.
+The direct SNC connection builds on [fr0ster-forks' auth-broker PR #1](https://github.com/ysichov/VERTEX/pull/1): VERTEX sends ADT requests over RFC through `sap-rfc-lite` and `SADT_REST_RFC_ENDPOINT`. This path does not use SAP ADT for VS Code. The 0.9.11 universal VSIX includes Windows x64 and macOS Apple silicon bindings, searches for an installed `sapnwrfc.dll` on Windows, and imports SNC/RFC settings from SAP Logon. The SAP RFC library itself stays outside the VSIX. A separate SDK installation may be unnecessary when a compatible library is already present, but that library is still required at runtime.
 
 ```json
 "vertex.systems": [
@@ -303,47 +303,7 @@ development systems often have; it is off by default on purpose.
 
 A system that logs on with SNC single sign-on - SAP Logon's *Activate Secure Network
 Communication* without *SNC logon with user/password* - has no password VERTEX could use over HTTP.
-**VERTEX: Import SAP Systems** reads a direct SAP Logon entry's SNC name, protection level, application server and instance into VERTEX's own SNC connection. It finds the ADT HTTP address; the client and user come from the selected Eclipse workspace or are asked. An SNC logon group without a named application server is skipped with an explanation. Alternatively, configure the system **only with SAP ADT extension**: SAP's *ABAP Development Tools for VS Code*
-logs on to it by itself, SNC included, and VERTEX reads, writes and activates through it.
-
-- Install SAP ABAP Development Tools for VS Code and create its destination for the system there
-  (*ABAP: New ABAP Destination*, protocol RFC).
-- **VERTEX: Get Connections from SAP ADT for VS Code** - in the palette while SAP's extension is
-  installed, and a link under `vertex.systems` - lists that extension's destinations and adds the
-  picked ones to `vertex.systems`, with no url, user or password:
-
-  ```json
-  { "name": "A4H_001_DEVELOPER_EN", "connection": "sap-adt-extension",
-    "destination": "A4H_001_DEVELOPER_EN", "client": "001" }
-  ```
-
-- Log on to the destination in SAP's extension (*ABAP: Logon to Destination*) before VERTEX uses it.
-  **VERTEX: Test SAP Systems** says whether it is logged on. The system list and Switch System mark
-  such a system *only with SAP ADT extension*.
-- An imported direct SNC system has `authType: "snc"`, `snc` and `rfc` settings. An ADT extension system has `connection: "sap-adt-extension"` and `destination` instead.
-
-What works on such a system: reading and editing sources (a save writes, checks and activates through
-SAP's extension, and activates only when the check finds no error), VERTEX Tools - metrics, UML,
-Calls and Logic diagrams, package views -, Value Origin, the variables of a routine, breakpoints for
-the analysis between them, and **Run with ABAP Transpiler** with its debugging: classes, interfaces,
-function groups and the customer tables and structures it uses are read through SAP's extension,
-standard dictionary types from open-abap-core. What needs VERTEX's own HTTP connection says so
-instead: Run in SAP and the SAP debugger, SelecTor and Run Select, Versions, Where-used, ABAP Unit
-and ATC through VERTEX, element info on hover, and creating objects.
-
-The same commands work in SAP's own editor: in a source opened from its tree, the context menu has
-**VERTEX Tools**, **Visual Analysis / Debug** and **Run with ABAP Transpiler**, for the system of that
-source whichever is active; in its tree, **VERTEX Tools** on a package or an object opens the tools on
-it.
-
-**Finding objects by name.** SAP's extension finds no object by its name for anyone else, so VERTEX
-keeps an index of the system's objects. The first time a system is used, VERTEX offers to build it
-once, in the background, with its progress and Cancel; **VERTEX: Index SAP System** builds it again.
-The index covers every customer package (`Z*`, `Y*`, `/namespace/`) and the user's own `$TMP`, and is
-kept between sessions. Without it, or for an object made since, a name is looked for near the objects
-being worked on only - their package, then its neighbours up to their root package; standard SAP is
-never looked for. `packages` in the system's entry adds packages of its own to look in, for example
-`"packages": ["BASIS/SABAPDEMOS"]`.
+**VERTEX: Import SAP Systems** reads a direct SAP Logon entry's SNC name, protection level, application server and instance into VERTEX's own SNC connection. It finds the ADT HTTP address; the client and user come from the selected Eclipse workspace or are asked. An SNC logon group without a named application server is skipped with an explanation.
 
 Code reviews are saved where `vertex.review.storage` says: `table` (default) - SAP's
 `ZAVE_REVIEW`, shared with AVE; `file` - one JSON file per request; `both` - the table is read

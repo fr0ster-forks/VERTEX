@@ -1,5 +1,7 @@
 # Goal: VERTEX connects through the @mcp-abap-adt auth stack
 
+> Historical implementation record. For the current 0.9.11 connection and packaging instructions, see [README.md](../../README.md). The SAP ADT for VS Code bridge and its object index were removed in 0.9.11; the current universal VSIX includes Windows x64 and macOS Apple silicon RFC bindings.
+
 ## Why
 
 Today the VS Code extension authenticates with HTTP Basic only. The user and password come from

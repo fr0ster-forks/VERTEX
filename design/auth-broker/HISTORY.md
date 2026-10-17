@@ -1,5 +1,7 @@
 # How this work came about — session history
 
+> Historical implementation record. For the current 0.9.11 connection and packaging instructions, see [README.md](../../README.md). The SAP ADT for VS Code bridge and its object index were removed in 0.9.11; the current universal VSIX includes Windows x64 and macOS Apple silicon RFC bindings.
+
 A condensed record of the session that produced this branch: what was asked, what was learned,
 what was decided and by whom. The raw session transcript is not committed. This repository is
 public, and the transcript mixes this work with unrelated work, internal host names and account
