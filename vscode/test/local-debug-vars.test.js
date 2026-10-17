@@ -61,12 +61,15 @@ test("local declaration breakpoints are removed but executable breakpoints remai
 
 test("local variable tracker covers the active debug adapter type", () => {
   const types = [];
+  let factory;
   const vscode = { debug: { breakpoints: [], registerDebugAdapterTrackerFactory(type) {
-    types.push(type); return { dispose() {} };
+    types.push(type); factory = arguments[1]; return { dispose() {} };
   }, onDidChangeBreakpoints() { return { dispose() {} }; } } };
   const context = { subscriptions: [] };
   register(vscode, context, () => {});
   assert.deepEqual(types, ["*"]);
+  assert.equal(factory.createDebugAdapterTracker({ name: "Unrelated Node", type: "pwa-node" }), undefined);
+  assert.ok(factory.createDebugAdapterTracker({ name: "VERTEX Local ABAP", type: "pwa-node" }));
   context.subscriptions.forEach(subscription => subscription.dispose());
 });
 

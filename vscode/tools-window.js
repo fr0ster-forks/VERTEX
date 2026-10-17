@@ -189,7 +189,10 @@ function open(vscode, context, deps, initial) {
    if(editor&&Date.now()>=sourceNavigationUntil)void panel.webview.postMessage({type:'codeFocus'});
   }):null;
   let reported = false, analysisJob;
-  panel.onDidDispose(() => { if(analysisJob)analysisJob.cancelled=true;clearTimeout(cursorTimer);clearTimeout(scrollTimer);if(scrollChanges)scrollChanges.dispose();if(focusChanges)focusChanges.dispose();if(cursorChanges)cursorChanges.dispose();changes.dispose(); if (reported) { deps.setContext(null); } });
+  const viewStateChanges = panel.onDidChangeViewState && panel.onDidChangeViewState(event => {
+    if (event.webviewPanel.active && reported) deps.setContext(panel, undefined);
+  });
+  panel.onDidDispose(() => { if(analysisJob)analysisJob.cancelled=true;clearTimeout(cursorTimer);clearTimeout(scrollTimer);if(viewStateChanges)viewStateChanges.dispose();if(scrollChanges)scrollChanges.dispose();if(focusChanges)focusChanges.dispose();if(cursorChanges)cursorChanges.dispose();changes.dispose(); if (reported) { deps.setContext(panel, null); } });
   panel.webview.onDidReceiveMessage(message => pin(async () => {
     const args = message.args || [];
     try {
@@ -254,7 +257,7 @@ function open(vscode, context, deps, initial) {
         if(!state||typeof state!=="object")state={};
         if(initial?.boundObject&&state.workspace?.name)panel.title=state.workspace.name+" · VERTEX Tools";
         reported=true;
-        deps.setContext({system,workspace:state.workspace||initial||null,vertex_view:state.vertex_view||null,
+        deps.setContext(panel, {system,workspace:state.workspace||initial||null,vertex_view:state.vertex_view||null,
           selected_fragment:state.selected_fragment||null});
         return;
       }

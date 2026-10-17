@@ -43,6 +43,7 @@ test("a value is derived from the statement that changed it and what that statem
   assert.equal(rate.value, "3");
   assert.equal(rate.line, 5);
   assert.match(result.panes.formula, /From the run/);
+  assert.match(result.panes.formula, /before this assignment: 0/);
   assert.match(result.panes.expression.replace(/<[^>]+>/g, ""), /lv_rate = 3/);
   assert.equal(result.formula.edges.length, result.formula.nodes.length - 1);
 });

@@ -108,6 +108,24 @@ test("local variables expand an inline method result using its interface structu
   assert.deepEqual(value.components?.map(item => item.name.toUpperCase()), ["AMOUNT", "CURRENCY"], JSON.stringify(value));
 });
 
+test("a followed demo result loads its local call path, BSE and formula", async () => {
+  const fixture = require("./fixtures/value-origin-demo.json");
+  const files = fixture.map(source => document("C:\\work\\demo\\" + source.id, source.text));
+  const byUri = new Map(files.map(item => [item.uri.toString(), item]));
+  const host = { ...vscode, workspace: { findFiles: async () => files.map(item => item.uri),
+    openTextDocument: async uri => byUri.get(uri.toString()) } };
+  const report = files.find(item => item.uri.fsPath.endsWith("zvertex_debug_lab.prog.abap"));
+  const target = { line: 16, variable: "LS_RESULT-AMOUNT",
+    column: require("../value-origin-points").columnOf(report.getText().split(/\r?\n/)[15], "LS_RESULT-AMOUNT") };
+  const loaded = await local.originSources(host, report, target);
+  const graph = require("../value-origin").analyze(loaded.sources, loaded.target);
+  const points = require("../value-origin-points").pointsOf(graph, loaded.sources);
+  const formula = require("../value-origin-formula").formula(graph);
+  assert.ok(points.some(point => point.name === "ZCL_PRICE_ROAD"), JSON.stringify(points));
+  assert.ok(points.some(point => point.name === "ZCL_CALC_FACADE"), JSON.stringify(points));
+  assert.ok(formula.nodes.length > 1);
+});
+
 test("local source lookup rejects ambiguous names outside the active package folder", async () => {
   const owner = document("C:\\work\\src\\zmain.prog.abap", "REPORT zmain.");
   const left = document("C:\\work\\left\\zcl_target.clas.abap", "CLASS zcl_target DEFINITION. ENDCLASS.");

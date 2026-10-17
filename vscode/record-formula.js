@@ -251,7 +251,7 @@ const link = (node, label) => node && node.source ? `<button class="data-compose
 function formulaPane(tree, said, hasValues = true) {
   const html = (node, root) => {
     const caption = `<span class="formula-expression">${link(node, "<b>" + escape(node.of) + "</b>")}${hasValues ? " = " + escape(node.value) : ""}</span>`
-      + (node.outside ? ` <span class="edge">${escape(hasValues ? where(node) : "not written in the record")}</span>` : ` <code>${escape(node.text)}</code> <span class="edge">${escape(where(node))}${hasValues && node.before !== undefined ? " · was " + (node.before === "" ? "empty" : escape(node.before)) : ""}</span>`);
+      + (node.outside ? ` <span class="edge">${escape(hasValues ? where(node) : "not written in the record")}</span>` : ` <code>${escape(node.text)}</code> <span class="edge">${escape(where(node))}${hasValues && node.before !== undefined ? " · before this assignment: " + (node.before === "" ? "empty" : escape(node.before)) : ""}</span>`);
     const children = node.children.map(child => html(child, false)).join("");
     return children ? `<details class="formula-node" data-formula-node="${escape(node.id)}" data-level="${node.level}"${root ? " open" : ""}><summary>${caption}</summary><div class="formula-children">${children}</div></details>`
       : `<div class="formula-leaf" data-formula-node="${escape(node.id)}" data-level="${node.level}">${caption}</div>`;

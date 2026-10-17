@@ -90,18 +90,21 @@ async function ask(options) {
       throw new Error("Anthropic API answered without text or a VERTEX plan.");
     }
     messages.push({ role: "assistant", content: answer.content });
-    messages.push({ role: "user", content: calls.map(async call => {
+    const results = [];
+    for (const call of calls) {
       if (!(options.tools || []).some(tool => tool.name === call.name)) {
         throw new Error("Anthropic requested an unavailable tool: " + call.name);
       }
-      const content = JSON.stringify(await options.callTool(call.name, call.input || {}));
-      return { type: "tool_result", tool_use_id: call.id,
-        is_error: Buffer.byteLength(content, "utf8") > 24000,
-        content: Buffer.byteLength(content, "utf8") > 24000
-          ? "Result too large for chat. Ask the user to open the relevant method in VERTEX; the full source was not sent." : content };
-    }) });
-    // Tool results must be resolved before sending the next Messages request.
-    messages[messages.length - 1].content = await Promise.all(messages[messages.length - 1].content);
+      let content, isError = false;
+      try { content = JSON.stringify(await options.callTool(call.name, call.input || {})); }
+      catch (error) { content = JSON.stringify({ error: error.message }); isError = true; }
+      if (Buffer.byteLength(content, "utf8") > 24000) {
+        content = "Result too large for chat. Ask the user to open the relevant method in VERTEX; the full source was not sent.";
+        isError = true;
+      }
+      results.push({ type: "tool_result", tool_use_id: call.id, is_error: isError, content });
+    }
+    messages.push({ role: "user", content: results });
   }
   throw new Error("Anthropic API did not finish the VERTEX plan.");
 }

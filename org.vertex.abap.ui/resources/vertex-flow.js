@@ -43,7 +43,7 @@
       +'<button id="mermaid-out" hidden>−</button><button id="mermaid-in" hidden>+</button><button id="mermaid-full" hidden>Full screen</button></div>'
       +'<div id="flow-focus" class="flow-focus" hidden></div><div id="mermaid-viewport" class="mermaid-viewport"><div id="mermaid-graph" class="mermaid-canvas"></div></div></div></div>';
   }
-    let host=document.getElementById('mermaid-graph'),graph=JSON.parse(document.getElementById('mermaid-data').textContent),treePane=document.getElementById('bse-tree-pane'),formulaPane=document.getElementById('bse-formula-pane'),expressionPane=document.getElementById('bse-expression-pane'),diagramPane=document.getElementById('bse-diagram-pane'),flowPane=document.createElement('div');flowPane.id='bse-flow-pane';flowPane.className='bse-tree-pane';flowPane.hidden=true;flowPane.innerHTML=graph.bseFlowHtml;flowPane.innerHTML=treePane.innerHTML;treePane.after(flowPane);
+    let host=document.getElementById('mermaid-graph'),graph=JSON.parse(document.getElementById('mermaid-data').textContent),treePane=document.getElementById('bse-tree-pane'),formulaPane=document.getElementById('bse-formula-pane'),expressionPane=document.getElementById('bse-expression-pane'),diagramPane=document.getElementById('bse-diagram-pane'),flowPane=document.createElement('div');flowPane.id='bse-flow-pane';flowPane.className='bse-tree-pane';flowPane.hidden=true;treePane.after(flowPane);
     // A page with a heading names the origin there and puts the view toggle
     // under it; a window without one keeps the toggle where it was built.
     const heading=document.querySelector('h2');
@@ -198,6 +198,7 @@ depthLabel.textContent=formulaAxis()?'Depth: derivation':'Depth: calls';};if(dep
       graph=typeof next==='string'?JSON.parse(next):next;focusPath=[];
       // The panes that are HTML are the host's: a new analysis brings new ones.
       if(graph.panes){formulaPane.innerHTML=graph.panes.formula||'';expressionPane.innerHTML=graph.panes.expression||'';}
+      renderFlowTree();
       if(depthSlider)depthSlider.max=String(depthMax());
       syncDepth();markMode();applyDepth();paintMark();
     }};

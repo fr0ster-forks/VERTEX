@@ -168,6 +168,28 @@ test("an active UML view is sent as diagram context and is analysed without requ
   assert.match(prompt, /ZCL_A/);
   assert.match(prompt, /implementation/);
   assert.match(instructions, /supplied code or UML/);
+  assert.match(instructions, /do not search the package again/);
+});
+
+test("the package Navigator gives the assistant its loaded objects and asks for a substantive answer", async t => {
+  let request;
+  t.mock.method(assistant, "ask", async options => {
+    request = options;
+    return { plan: { answer: "The package calculates shipping prices.", navigation: null }, model: "haiku", usage: null };
+  });
+  const tools = { schemas: [{ name: "read_sap_object", description: "Read SAP source", inputSchema: {} }],
+    instructions: "SAP tools", editorContext: () => null };
+  const ask = chat.create(fakeVscode({ provider: "claude-subscription", model: "haiku" }), tools,
+    { start: async () => ({ url: "http://127.0.0.1:1/mcp" }), token: "t" });
+  await ask("Что делается в пакете?", { state: { workspace: { name: "Z_RIG", type: "DEVC" },
+    vertex_view: { view: "navigator", name: "Z_RIG", type: "DEVC", loaded_nodes: [
+      { depth: 2, label: "ZCL_CALC_FACADE", name: "ZCL_CALC_FACADE", type: "CLAS" },
+      { depth: 2, label: "ZVERTEX_DEBUG_LAB", name: "ZVERTEX_DEBUG_LAB", type: "PROG" } ] } } });
+  assert.match(request.prompt, /ZCL_CALC_FACADE/);
+  assert.match(request.prompt, /ZVERTEX_DEBUG_LAB/);
+  assert.match(request.instructions, /read a small representative set of sources/);
+  assert.match(request.instructions, /do not merely open the Navigator/);
+  assert.deepEqual(request.tools, ["read_sap_object"]);
 });
 
 test("a question about the visible method keeps the tools and is told to answer from the screen", async (t) => {

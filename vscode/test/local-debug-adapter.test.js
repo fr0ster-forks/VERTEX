@@ -66,6 +66,7 @@ test("a structure of a transpiler stop opens to its fields, whichever variable i
     changed: { lv_a: 1, ls_b: { amount: 5, currency: "EUR" }, ls_c: { x: 1 } } }];
   const adapter = create(vscode, { uri: { fsPath: "z.prog.abap" } }, async () => ({ records, live: null }), () => {});
   await adapter.command("run", { selection: {} });
+  assert.equal(adapter.picture().traceLength, 1);
   const fields = (await adapter.command("children", { id: "ls_c" })).children;
   assert.deepEqual(fields.map(field => field.name), ["x"], "not only the first variable can be opened");
   assert.equal((await adapter.command("children", { id: "ls_b" })).children.find(f => f.name === "amount").value, "5");

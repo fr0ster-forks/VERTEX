@@ -23,6 +23,8 @@
   .totals { margin: 6px 0 12px; }
   details.session { border: 1px solid var(--vscode-panel-border); background: var(--vscode-editorWidget-background); margin-bottom: 6px; }
   details.session > summary { padding: 6px 8px; cursor: pointer; display: flex; gap: 12px; flex-wrap: wrap; }
+  details.session > summary .preview { flex-basis: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  details.session[open] > summary .preview { display: none; }
   .provider { font-weight: 600; }
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: 4px 8px; border-top: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border)); vertical-align: top; }
@@ -40,9 +42,11 @@
 <header>
   <h1>Session Logs</h1>
   <button id="folder">Choose Folder…</button>
+  <button id="settings">Log Settings</button>
   <button id="refresh">Refresh</button>
 </header>
 <div id="status" class="muted">Loading…</div>
+<div class="muted">Enable <code>vertex.ai.log.request</code> to see VERTEX instructions and context for new prompts.</div>
 <div id="content"></div>
 <script nonce="{{NONCE}}">
 (function () {
@@ -52,6 +56,7 @@
   var content = document.getElementById("content");
   document.getElementById("refresh").onclick = function () { vscode.postMessage({ action: "refresh" }); };
   document.getElementById("folder").onclick = function () { vscode.postMessage({ action: "chooseFolder" }); };
+  document.getElementById("settings").onclick = function () { vscode.postMessage({ action: "settings" }); };
 
   function el(tag, cls, text) {
     var node = document.createElement(tag);
@@ -68,6 +73,10 @@
   }
   function usageText(u) {
     return "in " + n(u.input) + " · out " + n(u.output) + " · cache read " + n(u.cacheRead) + " · cache write " + n(u.cacheWrite);
+  }
+  function promptPreview(prompts) {
+    if (!prompts.length || !prompts[0].text) return "";
+    return String(prompts[0].text).replace(/\s+/g, " ").trim();
   }
 
   function render(report) {
@@ -88,6 +97,12 @@
       head.appendChild(el("span", "muted", span(s.start, s.end)));
       head.appendChild(el("span", "muted", s.prompts.length + " prompts"));
       head.appendChild(el("span", "muted", usageText(s.usage)));
+      var preview = promptPreview(s.prompts);
+      if (preview) {
+        var excerpt = el("span", "preview muted", preview);
+        excerpt.title = preview;
+        head.appendChild(excerpt);
+      }
       box.appendChild(head);
 
       var table = el("table");

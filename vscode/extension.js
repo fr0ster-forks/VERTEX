@@ -799,7 +799,7 @@ function activate(context) {
   sapCode.attachDebugger(dbg);
   const debugTools = mcp.debugSet(dbg);
   const chatTools = withDebugger(sapCode, debugTools);
-  let latestToolsContext = null;
+  const toolsContextState = require("./tools-context-state").create();
   // What the Visual Debug panel shows - the record, and the flow of the analysis - for the chat to be given with a question.
   let latestDebugContext = null;
   const port = vscode.workspace.getConfiguration("vertex").get("mcp.port", 37777);
@@ -832,7 +832,7 @@ function activate(context) {
       originPoints: args => sapCode.originPoints(args),
       openToolSource: args => sapCode.openToolSource(args),
       documentObject: document => sapCode.documentObject(document),
-      setContext: value => { latestToolsContext = value; },
+      setContext: (panel, value) => toolsContextState.update(panel, value),
       debugger: dbg,
       chat: () => require("./chat").create(vscode, chatTools, tools, context.secrets, () => latestDebugContext, () => require("./value-origin-view").originContext()) }, initial);
   // The normal source tab remains the sole code editor.  The debugger is a
@@ -848,6 +848,8 @@ function activate(context) {
   });
   context.subscriptions.push(localHistoryMark);
   let localHistoryEditor = null;
+  let localRevealSequence = 0;
+  let localRevealQueue = Promise.resolve();
   const clearLocalHistoryMark = () => {
     if (localHistoryEditor) localHistoryEditor.setDecorations(localHistoryMark, []);
     localHistoryEditor = null;
@@ -1047,16 +1049,25 @@ function activate(context) {
             // the editor's, so that is what has to move.
             const frame = JSON.parse(String((message.args || [])[0] || "{}"));
             if (dockedDebugSource?.local) {
+              const revealSequence = ++localRevealSequence;
               const source = String(frame.url || "");
               if (source && /\.abap$/i.test(source)) {
-                const document = await runDocument(source);
-                const line = Math.max(0, Math.min(document.lineCount - 1, Number(frame.line || 1) - 1));
-                const editor = await vscode.window.showTextDocument(document, { preserveFocus: true, preview: false, viewColumn: runColumn(document) });
-                const position = new vscode.Position(line, 0);
-                if (localHistoryEditor && localHistoryEditor !== editor) clearLocalHistoryMark();
-                editor.setDecorations(localHistoryMark, [document.lineAt(line).range]);
-                localHistoryEditor = editor;
-                editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+                // VS Code may finish opening an earlier step after a newer one.
+                // Serialize editor changes, then skip any step the player left.
+                localRevealQueue = localRevealQueue.catch(() => {}).then(async () => {
+                  if (revealSequence !== localRevealSequence) return;
+                  const document = await runDocument(source);
+                  if (revealSequence !== localRevealSequence) return;
+                  const line = Math.max(0, Math.min(document.lineCount - 1, Number(frame.line || 1) - 1));
+                  const editor = await vscode.window.showTextDocument(document, { preserveFocus: true, preview: true, viewColumn: runColumn(document) });
+                  if (revealSequence !== localRevealSequence) return;
+                  const position = new vscode.Position(line, 0);
+                  if (localHistoryEditor && localHistoryEditor !== editor) clearLocalHistoryMark();
+                  editor.setDecorations(localHistoryMark, [document.lineAt(line).range]);
+                  localHistoryEditor = editor;
+                  editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+                });
+                await localRevealQueue;
               }
             } else {
               await sapCode.revealFrame(frame);
@@ -1141,6 +1152,9 @@ function activate(context) {
     }
   }, { webviewOptions: { retainContextWhenHidden: true } }));
   require("./local-debug-vars").register(vscode, context, state => {
+    // A recorded transpiler run owns its variables. A native Node debug session that is still open must not
+    // replace its stop, structure values, or error with a separate debugger's state.
+    if (dockedDebugSource?.local && localDebugAdapter?.hasTrace()) return;
     latestLocalVariables = state;
     if (dockedDebugSource?.local && localDebugAdapter) localDebugAdapter.update(state);
     if (dockedDebugView && dockedDebugSource?.local) {
@@ -1353,7 +1367,7 @@ function activate(context) {
   );
   require("./sidebar").register(vscode, context, active,
     require("./chat").create(vscode, chatTools, tools, context.secrets, () => latestDebugContext, () => require("./value-origin-view").originContext()), systems,
-    () => withShownDiff(context, latestToolsContext));
+    () => withShownDiff(context, toolsContextState.current()));
   require("./log-report").register(vscode, context);
   serveTools(context, tools);
   // External clients cannot trigger a VS Code MCP provider. Start on activation

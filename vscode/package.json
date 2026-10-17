@@ -436,6 +436,11 @@
           "default": false,
           "markdownDescription": "Also log SAP source inside tool calls and results. Takes effect only with **Log tools**."
         },
+        "vertex.ai.log.request": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Log VERTEX's full instructions and composed model request, including workspace and visible UML/code context, available tool definitions and answer schema. May contain source code, conversation history and local paths. Applies only to new requests; provider-internal instructions are not available to VERTEX."
+        },
         "vertex.ai.personalInstructions": {
           "type": "boolean",
           "default": false,

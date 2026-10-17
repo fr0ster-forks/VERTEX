@@ -8,6 +8,7 @@
 //   answers   - the text of the assistant's answers
 //   tools     - SAP tool calls with their arguments and a summary of the result
 //   code      - SAP source inside tool calls and results (only with tools)
+//   request   - complete VERTEX instructions and composed model request; may contain source
 
 const fs = require("fs");
 const path = require("path");
@@ -23,7 +24,8 @@ function stamp(date) {
 function options(include) {
   const given = include || {};
   return { questions: given.questions === true, answers: given.answers === true,
-    tools: given.tools === true, code: given.tools === true && given.code === true };
+    tools: given.tools === true, code: given.tools === true && given.code === true,
+    request: given.request === true };
 }
 
 /** Null when no folder is configured. `session` names the file and stays fixed for a conversation. */
@@ -43,6 +45,11 @@ function create(root, provider, session, include) {
     file,
     user(text) {
       write({ type: "user", message: { role: "user", content: on.questions ? String(text || "") : NOT_LOGGED } });
+    },
+    request({ instructions, prompt, tools, schema }) {
+      if (!on.request) { return; }
+      write({ type: "vertex_request", request: { instructions: String(instructions || ""), prompt: String(prompt || ""),
+        tools: tools || [], schema: schema || null } });
     },
     assistant({ model, usage, text }) {
       write({ type: "assistant", message: { id: id("msg"), model: model || "", usage: {
@@ -143,7 +150,8 @@ function reset() {
 /** The log choices from the VS Code settings section vertex.ai. */
 function fromConfig(config) {
   return { questions: config.get("log.questions", false), answers: config.get("log.answers", false),
-    tools: config.get("log.tools", false), code: config.get("log.code", false) };
+    tools: config.get("log.tools", false), code: config.get("log.code", false),
+    request: config.get("log.request", false) };
 }
 
 module.exports = { create, current, reset, tools, assistantTool, redactArgs, summarize, stamp, fromConfig };

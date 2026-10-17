@@ -54,6 +54,7 @@ function create(vscode, document, launch, publish, scope, more = {}) {
     const breakpoints = points();
     const hit = breakpoints.find(bp => bp.active && bp.url.toLowerCase() === source.toLowerCase() && bp.line === line);
     return { system: "Transpiler", listening, ended, ending: null, error, breakpoints,
+      traceLength: trace.length,
       stopped: latest?.frame && line ? { at: name + ":" + line, breakpoint: hit || null,
         frames: [{ n: 0, current: true, label: "EVENT " + latest.frame,
           program: latest.owner || name, include: latest.owner || name, unitType: "EVENT", unit: latest.frame,

@@ -213,6 +213,7 @@
   #diagram .hint { color: #666666; font-family: "Segoe UI", system-ui, sans-serif; }
   .analysis-progress{display:flex;align-items:center;gap:9px;padding:6px 10px;color:var(--vscode-descriptionForeground,var(--fg));font-size:12px}
   .analysis-progress[hidden]{display:none}
+  body.analysis-active #diagram .hint.busy{display:none}
   .analysis-spinner,#diagram .hint.busy::before{display:inline-block;width:13px;height:13px;flex:none;border:2px solid var(--vscode-focusBorder,#0a66c2);border-right-color:transparent;border-radius:50%;animation:analysis-spin .8s linear infinite}
   #diagram .hint.busy::before{content:"";margin-right:8px;vertical-align:-2px}
   @keyframes analysis-spin{to{transform:rotate(360deg)}}
@@ -452,11 +453,13 @@ function beginAnalysis(text) {
     analysisTimer=setInterval(function(){document.getElementById("analysis-elapsed").textContent="· "+Math.floor((Date.now()-analysisStarted)/1000)+" s";},1000);
   }
   box.hidden=false;
+  document.body.classList.add("analysis-active");
   document.getElementById("analysis-progress-text").textContent=String(text||"").replace(/ · \d+ s$/,"");
 }
 function endAnalysis() {
   clearInterval(analysisTimer);analysisTimer=null;
   document.getElementById("analysis-progress").hidden=true;
+  document.body.classList.remove("analysis-active");
 }
 
 function message(text) {

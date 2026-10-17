@@ -12,6 +12,19 @@ const sumUsage = (into, usage) => {
   into.cacheWrite += Number(usage.cache_creation_input_tokens || 0);
 };
 
+function prettyJson(value) {
+  if (typeof value !== "string") return JSON.stringify(value, null, 2);
+  try { return JSON.stringify(JSON.parse(value), null, 2); }
+  catch (_) { return value; }
+}
+
+function prettyRequest(text) {
+  return String(text || "").split("\n").map(line => {
+    const value = line.trim();
+    return value.startsWith("{") || value.startsWith("[") ? prettyJson(value) : line;
+  }).join("\n");
+}
+
 function parseSession(text, file) {
   const name = path.basename(file, ".jsonl");
   const provider = name.replace(/_\d{8}_\d{6}(?:_\d+)?$/, "");
@@ -28,6 +41,15 @@ function parseSession(text, file) {
       session.end = session.end === null ? time : Math.max(session.end, time);
     }
     const content = record.message?.content;
+    if (record.type === "vertex_request") {
+      if (current && record.request) {
+        current.details.push({ type: "VERTEX instructions", text: String(record.request.instructions || "") });
+        current.details.push({ type: "Model request and context", text: prettyRequest(record.request.prompt) });
+        current.details.push({ type: "Available tools", text: prettyJson(record.request.tools || []) });
+        current.details.push({ type: "Answer schema", text: prettyJson(record.request.schema || null) });
+      }
+      continue;
+    }
     if (record.type === "user") {
       const prompt = typeof content === "string" ? content : Array.isArray(content) && !content.some(block => block?.type === "tool_result")
         ? content.filter(block => block?.type === "text").map(block => block.text || "").join("\n") : "";
@@ -37,7 +59,7 @@ function parseSession(text, file) {
         session.prompts.push(current);
       } else if (current && Array.isArray(content)) {
         for (const block of content) if (block?.type === "tool_result")
-          current.details.push({ type: "tool result", text: typeof block.content === "string" ? block.content : JSON.stringify(block.content || "") });
+          current.details.push({ type: "tool result", text: prettyJson(block.content || "") });
       }
       continue;
     }
@@ -89,6 +111,7 @@ function open(vscode) {
   };
   panel.webview.onDidReceiveMessage(async message => {
     if (message?.action === "ready" || message?.action === "refresh") await refresh();
+    if (message?.action === "settings") await vscode.commands.executeCommand("workbench.action.openSettings", "vertex.ai.log.request");
     if (message?.action === "chooseFolder") {
       await require("./model-config").chooseLogFolder(vscode);
       await refresh();
@@ -102,4 +125,4 @@ function register(vscode, context) {
   context.subscriptions.push(vscode.commands.registerCommand("vertex.showLogs", () => open(vscode)));
 }
 
-module.exports = { parseSession, readSessions, register, open };
+module.exports = { parseSession, readSessions, register, open, prettyJson, prettyRequest };

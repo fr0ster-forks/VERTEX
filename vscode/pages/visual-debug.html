@@ -1261,6 +1261,9 @@ function snapshot(captured,pre){
 var recordedOpen={},recordedPages={};
 function drawRecordedTree(table,name,value,depth,key){
   var complex=value!==null&&typeof value==="object",list=Array.isArray(value);
+  // Show the components of a local run's top-level structures immediately;
+  // an explicit collapse is kept when the player moves to another stop.
+  if(INITIAL.local&&complex&&!list&&depth===0&&recordedOpen[key]===undefined)recordedOpen[key]=true;
   var tr=document.createElement("tr"),n=document.createElement("td"),type=document.createElement("td"),val=document.createElement("td");
   n.className="n";type.className="t";n.style.paddingLeft=(6+depth*14)+"px";
   var marker=document.createElement("span");marker.className="tw";
@@ -1311,6 +1314,7 @@ function drawRecordedVars(i){
   if(from.vars.error){box.innerHTML='';var e=document.createElement("div");e.className="empty";e.textContent="The values could not be read at this stop: "+from.vars.error;box.appendChild(e);return;}
   var table=document.createElement("table");table.className="vars";
   from.vars.forEach(function(g){
+    if(!groupOn(g)||/^SY(?:ST)?$/i.test(String(g.name))&&!$("syst").classList.contains("on"))return;
     var tr=document.createElement("tr");tr.className="grp";var td=document.createElement("td");td.colSpan=3;
     td.textContent=g.name+" · "+(k+1===i?"read at this stop":"as read at stop "+(k+2));tr.appendChild(td);table.appendChild(tr);
     g.children.forEach(function(v){drawRecordedTree(table,v.name,v.value,0,g.name+"/"+v.name);});
@@ -1863,15 +1867,25 @@ function logStep(p){
   
   if(paneOn("logsec"))drawLog();
 }
-function logText(rows){return rows.map(function(r){return r.n+"\t"+r.ms+" ms (SAP "+r.sap+")\tdepth "+r.depth+"\t"+r.from+"\t-> "+r.to+"\t"+r.action+(r.detail?"\t| "+r.detail:"");}).join("\n");}
-function shownRows(){var f=logFilter.toUpperCase();return steplog.rows.filter(function(r){return !f||(r.action+" "+r.from+" "+r.to+" "+r.detail).toUpperCase().indexOf(f)>=0;});}
+function logText(rows){return rows.map(function(r){return r.n+"\t"+(INITIAL.local?"—":r.ms+" ms (SAP "+r.sap+")")+"\tdepth "+r.depth+"\t"+r.from+"\t-> "+r.to+"\t"+r.action+(r.detail?"\t| "+r.detail:"");}).join("\n");}
+function allLogRows(){
+  if(!INITIAL.local)return steplog.rows;
+  return (flow.timeline||[]).map(function(t,i){
+    var owner=t.cur&&t.cur.owner||t.stack&&t.stack[0]&&t.stack[0].program||"",line=t.at&&t.at.line||0;
+    var previous=i&&flow.timeline[i-1],from=previous&&previous.cur&&previous.cur.owner||"";
+    var source=texts[norm(t.at&&t.at.url||"")],statement=source&&source[line-1]||"";
+    return {n:i+1,action:"recorded",from:i?from+":"+(previous.at&&previous.at.line||0):"start",
+      to:owner+":"+line,ms:"—",sap:"—",detail:statement.trim(),depth:(t.stack||[]).length};
+  });
+}
+function shownRows(){var f=logFilter.toUpperCase();return allLogRows().filter(function(r){return !f||(r.action+" "+r.from+" "+r.to+" "+r.detail).toUpperCase().indexOf(f)>=0;});}
 function drawLog(){
-  var box=$("logbox"),rows=shownRows();
+  var box=$("logbox"),rows=shownRows(),all=allLogRows();
   // What a step costs belongs with the steps, not in the toolbar: an average
   // over the run, and where it goes - the request to SAP, and reading the
   // stack after it.
   var s=series||lastStats;
-  $("logtime").textContent=s&&s.steps?" · "+Math.round(s.total/s.steps)+" ms/step (SAP "
+  $("logtime").textContent=!INITIAL.local&&s&&s.steps?" · "+Math.round(s.total/s.steps)+" ms/step (SAP "
     +Math.round(s.sap/s.steps)+", stack "+(s.steps-s.predicted-s.loops>0?Math.round(s.stackMs/(s.steps-s.predicted-s.loops)):0)+")":"";
   if(!$("logfilter")){
     box.innerHTML='<div class="logbar"><input id="logfilter" placeholder="Filter the steps" spellcheck="false"><button id="logcopy" title="Copy the steps shown, as text">Copy</button><span id="logcount"></span></div><div id="logrows"></div>';
@@ -1882,11 +1896,11 @@ function drawLog(){
     $("logcopy").onclick=function(){var rows=shownRows();
       debug("copy",{text:logText(rows)}).then(function(){$("logcount").textContent="copied "+rows.length+" steps";}).catch(failed);};
   }
-  $("logcount").textContent=rows.length+" of "+steplog.rows.length+" steps";
+  $("logcount").textContent=rows.length+" of "+all.length+" steps";
   var table=document.createElement("table");table.className="grid log";
   var head=document.createElement("tr");["#","ms","depth","from","to","step","why"].forEach(function(t){var th=document.createElement("th");th.textContent=t;head.appendChild(th);});table.appendChild(head);
   rows.slice(-1000).forEach(function(r){var tr=document.createElement("tr");
-    [r.n,r.ms+" ("+r.sap+")",r.depth,r.from,r.to,r.action,r.detail].forEach(function(v){var td=document.createElement("td");td.textContent=v;td.title=v;tr.appendChild(td);});table.appendChild(tr);});
+    [r.n,INITIAL.local?"—":r.ms+" ("+r.sap+")",r.depth,r.from,r.to,r.action,r.detail].forEach(function(v){var td=document.createElement("td");td.textContent=v;td.title=v;tr.appendChild(td);});table.appendChild(tr);});
   var list=$("logrows");list.textContent="";list.appendChild(table);list.scrollTop=list.scrollHeight;
 }
 function showLog(){setPane("logsec",true);}
@@ -1902,11 +1916,17 @@ function stepSources(){
   });},Promise.resolve());
 }
 function showFlow(){
-  if(flowBusy){flowAgain=true;return;}flowBusy=true;
+  if(flowBusy){flowAgain=true;return flowDone;}
+  flowBusy=true;
+  flowDone=(async function(){
+    do {flowAgain=false;await renderFlow();} while(flowAgain);
+  })().catch(failed).finally(function(){flowBusy=false;flowDone=null;});
+  return flowDone;
+}
+function renderFlow(){
   // Nothing recorded yet: say what would fill this, rather than show an empty
   // frame and leave the reader to work it out.
   if(!(flow.timeline||[]).length&&!staticFlow){
-    flowBusy=false;
     if(!paneOn("flowpane")){$("flowpane").hidden=false;document.querySelectorAll('#panes button[data-pane="flowpane"]').forEach(function(b){b.classList.add("on");});layoutPanes();}
     $("bse-workspace").innerHTML='<div class="empty">Nothing recorded yet. With the record on, Continue steps the program and keeps every stop; the flow appears here.</div>';
     return;
@@ -1918,8 +1938,7 @@ function showFlow(){
   // diagram and the controls over both. The window supplies the graph.
   $("fdepthbox").hidden=true;
   if((flow.timeline||[]).length&&(flow.timeline||[]).some(function(t){return t.at&&t.at.url&&!texts[norm(t.at.url)];})){
-    flowBusy=false;return stepSources().then(showFlow).catch(failed);}
-  flowBusy=false;
+    return stepSources().then(function(){flowAgain=true;});}
   return loadMermaid().then(function(){
     mermaid.initialize({startOnLoad:false,securityLevel:"strict",theme:darkPane()?"dark":"default",flowchart:{htmlLabels:false,useMaxWidth:false},maxEdges:100000,maxTextSize:5000000});
     // The shown reading of the one record (or of the analysis) is built now; the shared view asks for another one
@@ -1940,7 +1959,7 @@ function showFlow(){
     if(data.panes)$("bse-workspace").innerHTML='<template data-flow-pane="formula">'+data.panes.formula+'</template><template data-flow-pane="expression">'+data.panes.expression+'</template>';
     return loadFlowView().then(openRecordFlow).then(markNow);
     });
-  }).catch(failed);
+  });
 }
 /* Formula and Expression from the record: where the chosen value changed, the statement that changed it and what that
    statement read, with the values the record holds. Built by the host (abaplint reads the statements); the analysis's,
@@ -1979,7 +1998,8 @@ function withRecordFormula(data){
     var on=rf.hasValues&&$("fvalues").classList.contains("on");
     data.formula={nodes:rf.formula.nodes.map(function(n){return Object.assign({},n,{label:on?n.label:n.text,dataText:on?n.label:n.text});}),edges:rf.formula.edges};
     data.maxLevel=rf.formula.maxLevel;
-    data.panes={formula:rf.panes.formula,expression:analysed?analysed.expression:rf.panes.expression};
+    // Both panes must describe this recorded run. A static path may carry an empty Expression.
+    data.panes={formula:rf.panes.formula,expression:rf.panes.expression};
     return data;
   });}).catch(function(error){notice("Formula from the run: "+(error&&error.message||error));return data;});
 }
@@ -2126,16 +2146,18 @@ function drawPos(){var any=stops();$("recbar").hidden=!any;if(playing&&playing.f
 /* Docked in VS Code, this window has no source pane of its own - the editor is
    the source - so a replayed stop has to move the editor, the way a live stop
    does. Standing on its own, the window shows it in its own pane. */
-var revealedAt="";
+var revealTimer=null;
 function revealInEditor(t){
   if(!document.body.classList.contains("vertex-docked-debug"))return;
   if(typeof sdeReveal!=="function"||!t||!t.at)return;
-  // Consecutive stops on one line - a loop, a chained statement - are one
-  // place, and at full speed that is most of them.
-  var place=norm(t.at.url)+":"+t.at.line;if(place===revealedAt)return;revealedAt=place;
+  clearTimeout(revealTimer);
+  if(playing)return;
+  // Dragging the slider can pass dozens of stops before an editor opens.
+  // Show only the source at the stop where the player settles.
   var f=t.stack&&t.stack[0];
-  sdeReveal({url:t.at.url,line:t.at.line,program:f&&f.program,include:f&&f.include,
-    unit:f&&f.unit,unitType:f&&f.unitType,label:f&&f.label});
+  var frame={url:t.at.url,line:t.at.line,program:f&&f.program,include:f&&f.include,
+    unit:f&&f.unit,unitType:f&&f.unitType,label:f&&f.label};
+  revealTimer=setTimeout(function(){revealTimer=null;sdeReveal(frame);},150);
 }
 function showStop(i){
   var t=flow.timeline[i];markNow(t.cur,t.upto);if(t.stack)drawStack(t.stack);drawRecordedVars(i);
@@ -2159,7 +2181,7 @@ $("fplay").onclick=function(){
   // Source and block per stop, one per animation frame: ms/frame is what the
   // window takes to show a stop. The chart itself is not drawn again.
   function frame(){
-    if(playing.stop||at>=n){var p=playing;playing=null;if(!p.stop)replay(n-1);else drawPos();return;}
+    if(playing.stop||at>=n){var p=playing;playing=null;if(!p.stop)replay(n-1);else{drawPos();revealInEditor(flow.timeline[replayAt]);}return;}
     replayAt=at;
     var t0=Date.now();
     showStop(at).then(function(){playing.ms+=Date.now()-t0;playing.frames++;at++;drawPos();
@@ -2339,8 +2361,11 @@ function localResult(result){
       // Back to the screen, in a plain run of a program that has one.
       $("runback").hidden=!(document.body.classList.contains("vx-run-only")&&$("local-selection").childNodes.length);
       var trace=result.trace||[];
+      // An old empty restore may arrive after a newer run has already published its first stop.
+      if(!trace.length&&picture.traceLength>0)return;
       flow={edges:{},nodes:{},order:[],timeline:[],ended:picture.ended};flowPath=[];
       localPush(trace);localEnded=!!result.ended;setOutput(result.output);localRunMs=result.durationMs||0;localStats();
+      if(paneOn("logsec"))drawLog();
       if(!trace.length){$("state").textContent="Transpiler run recorded 0 ABAP steps. See VERTEX Local ABAP output.";notice("No ABAP steps were recorded in this run.");return;}
       $("bse-workspace").hidden=false;replay(trace.length-1);showFlow();
       $("state").textContent=localEnded?"Program finished without reaching a breakpoint. "+trace.length+" recorded steps.":"Stopped at step "+trace.length+". Continue runs to the next breakpoint.";
@@ -2427,7 +2452,7 @@ var chosenValue=null;
 /* The values followed: one or several, a structure as its components. One of them is the chosen value, the one
    Formula, Expression and the places are about; the list on the chip switches between them. The analysed path is kept
    per value, so switching back to one is immediate. */
-var followed=[],flowByValue={};
+var followed=[],flowByValue={},bseAfterFollow=false;
 function componentsOf(name){
   var base=String(name).toUpperCase();if(base.indexOf("-")>=0)return [];
   // After a run: the components the run changed.
@@ -2450,6 +2475,7 @@ function follow(path){
   var parts=componentsOf(name);
   if(!parts.length)parts=[name];
   parts.forEach(function(p){if(followed.indexOf(p)<0)followed.push(p);});
+  bseAfterFollow=true;
   chooseValue(parts[0]);
 }
 function valuePath(v,owner,parent){return parent?parent+"-"+v.name:String(v.name||"");}
@@ -2493,7 +2519,7 @@ document.addEventListener("mousedown",function(e){if(!(e.target.closest&&e.targe
 document.addEventListener("keydown",function(e){if(e.key==="Escape")closeValueMenu();});
 function chooseValue(name){
   chosenValue=name?{name:String(name).toUpperCase()}:null;
-  if(!chosenValue)followed=[];else if(followed.indexOf(chosenValue.name)<0)followed.push(chosenValue.name);
+  if(!chosenValue){followed=[];bseAfterFollow=false;}else if(followed.indexOf(chosenValue.name)<0)followed.push(chosenValue.name);
   // The analysed path of this value, if it was analysed; else the path of the point is analysed for it.
   if(chosenValue&&staticFlow&&staticFlow.point){var kept=flowByValue[chosenValue.name+"|"+staticFlow.point.id];
     // Not analysed yet: a copy, so the slice that arrives for it does not write into the previous value's path.
@@ -2523,7 +2549,7 @@ function inSlice(owner,line){return !!sliceAt(owner,line);}
 /* The slice itself: where the analysis says the chosen value can be changed,
    with the names each of those places is about. Asked for once per value; BSE
    is what it shows, and Points turns the same places into breakpoints. */
-var sliceFor="",sliceAsked=null;
+var sliceFor="",sliceAsked=null,sliceSeq=0;
 /* The line of the analysed object the analysis starts from: the object's own frame on the stack, not the frame the
    run happens to be in - a line inside a called method belongs to another source. A frame the run has left for a
    call is on its call; the value is looked for from the statement after it. */
@@ -2545,10 +2571,12 @@ function fetchSlice(){
   if(typeof sdeOrigin!=="function")return Promise.reject(new Error("This host cannot run the analysis."));
   if(sliceFor===chosenValue.name&&sliceAsked)return sliceAsked;
   var line;try{line=originLine();}catch(e){return Promise.reject(e);}
-  sliceFor=chosenValue.name;
+  var variable=chosenValue.name,requestSeq=++sliceSeq;
+  sliceFor=variable;
   notice("Asking the analysis where "+chosenValue.name+" can be changed…");
-  sliceAsked=askOrigin({object_name:object.name,object_type:object.type,line:line,variable:chosenValue.name})
-    .then(function(answer){
+  var request=askOrigin({object_name:object.name,object_type:object.type,line:line,variable:variable})
+    .then(async function(answer){
+      if(requestSeq!==sliceSeq||!chosenValue||chosenValue.name!==variable)return [];
       var points=(answer&&answer.points)||[];
       slicePoints={};points.forEach(function(p){slicePoints[String(p.name).toUpperCase()+":"+p.line]=p;});
       // A path drawn before selecting a value has no included rows. Replace
@@ -2572,12 +2600,17 @@ function fetchSlice(){
       }
       drawChosen();publishDebugContext();
       // The places of this value are known now: the diagram marks them.
-      if(paneOn("flowpane")&&((flow.timeline||[]).length||staticFlow))showFlow();
-      if(paneOn("flowpane")&&(staticFlow||(flow.timeline||[]).length))showFlow();
+      if(paneOn("flowpane")&&(staticFlow||(flow.timeline||[]).length))await showFlow();
+      if(bseAfterFollow&&chosenValue&&chosenValue.name===variable){
+        bseAfterFollow=false;
+        var bse=document.querySelector('[data-flow-scope="bse"]');
+        if(bse&&!bse.classList.contains("active"))bse.click();
+      }
       return points;
     });
-  sliceAsked.catch(function(){sliceAsked=null;sliceFor="";});
-  return sliceAsked;
+  sliceAsked=request;
+  request.catch(function(){if(requestSeq===sliceSeq){sliceAsked=null;sliceFor="";}});
+  return request;
 }
 function pointsFromBse(){
   fetchSlice().then(function(points){
@@ -2978,8 +3011,15 @@ function readNamed(names){
 function refresh(){return debug("picture").then(apply);}
 // During a Visual run the run draws each stop itself; the same stop told
 // again by the debugger would be drawn twice.
+var localRestorePending=false;
 function sdeDebugEvent(raw){if(series||INITIAL.local&&typeof localFetching!=="undefined"&&localFetching)return;try{
   var next=JSON.parse(raw);
+  // Schedule the restore before drawing: an unrelated or incomplete variable snapshot must not suppress it.
+  if(INITIAL.local&&next.traceLength>0&&!(flow.timeline||[]).length&&!localRestorePending){
+    localRestorePending=true;
+    debug("restore").then(function(result){if(result.trace&&result.trace.length)localResult(result);}).catch(failed)
+      .then(function(){localRestorePending=false;});
+  }
   if(INITIAL.local&&replayAt!=null&&(!next.stopped||!picture.stopped||
       next.ended!==picture.ended||next.stopped.at!==picture.stopped.at)){
     replayAt=null;drawPos();

@@ -86,9 +86,7 @@ function register(vscode, context, report, localPanel = () => false) {
   const hiddenDebugViews = new Set();
   const isLocalSession = session => session && (session.name === "VERTEX Local ABAP" ||
     /vertex-local-entry\.mjs$/i.test(session.configuration?.program || "") ||
-    (session.parentSession && isLocalSession(session.parentSession)) ||
-    (localPanel() && /^(?:pwa-)?node$/i.test(session.type || "") &&
-      require("./local-analysis").isLocalAbap(vscode.window.activeTextEditor?.document)));
+    (session.parentSession && isLocalSession(session.parentSession)));
   const factory = {
     createDebugAdapterTracker(session) {
       if (!isLocalSession(session)) return undefined;

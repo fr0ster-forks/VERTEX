@@ -22,6 +22,21 @@ li.closed>ul{display:none}
 <script>
 const initial = /*INIT*/null/*INIT*/;
 const status = document.getElementById("status");
+let loading = false;
+function sdeContext() {
+  const all = Array.from(document.querySelectorAll("#tree li")).filter(li => li.__vertexNode);
+  const loaded_nodes = all.slice(0, 100).map(li => {
+    const node = li.__vertexNode;
+    const object = node.open || node.expand || {};
+    let depth = 0, parent = li.parentElement;
+    while (parent) { if (parent.tagName === "LI") depth++; parent = parent.parentElement; }
+    return { depth, label: node.label, ...(object.name ? { name: object.name, type: object.type || "" } : {}) };
+  });
+  return { view: "navigator", name: initial && initial.name || "", type: initial && initial.type || "",
+    loading, loaded_nodes, truncated: all.length > loaded_nodes.length,
+    partial: all.some(li => li.__vertexNode.expand && !li.__vertexLoaded) };
+}
+function publishContext() { if (typeof sdeContextUpdate === "function") sdeContextUpdate({ vertex_view: sdeContext() }); }
 /* One answer at a time comes back through sdeReady; each request waits its turn here. */
 const waiting = [];
 function load(name, type, then, node) { waiting.push(then); sdeLoad(name, type, node || ""); }
@@ -39,6 +54,8 @@ function open(target) {
 }
 function item(node) {
   const li = document.createElement("li"), row = document.createElement("div");
+  li.__vertexNode = node;
+  li.__vertexLoaded = !!node.children;
   row.className = "row"; li.appendChild(row);
   const twist = document.createElement("span"); twist.className = "twist"; row.appendChild(twist);
   if (node.visibility) { const mark = document.createElement("span"); mark.className = "mark " + node.visibility; mark.title = node.visibility; row.appendChild(mark); }
@@ -55,12 +72,15 @@ function item(node) {
     const toggle = () => {
       const closing = !li.classList.contains("closed");
       li.classList.toggle("closed", closing); twist.textContent = closing ? "›" : "⌄";
+      publishContext();
       if (closing || loaded) return;
       loaded = true; twist.textContent = "…";
       load(node.expand.name, node.expand.type, (data, error) => {
         twist.textContent = "⌄";
         if (error) { loaded = false; li.classList.add("closed"); twist.textContent = "›"; status.textContent = node.expand.name + ": " + error; return; }
         data.forEach(child => list.appendChild(item(child)));
+        li.__vertexLoaded = true;
+        publishContext();
         if (!data.length) { const empty = document.createElement("li"); empty.className = "desc"; empty.textContent = "(empty)"; list.appendChild(empty); }
       }, node.expand.node);
     };
@@ -70,10 +90,13 @@ function item(node) {
   return li;
 }
 function show(state) {
+  loading = true;
   status.textContent = "Reading " + state.name + "…";
   document.getElementById("tree").replaceChildren();
+  publishContext();
   load(state.name, state.type, (data, error) => {
-    if (error) { status.textContent = error; return; }
+    loading = false;
+    if (error) { status.textContent = error; publishContext(); return; }
     // SAP's tree may have nothing under the object: said, not shown as a bare root.
     status.textContent = data.length ? "" : "SAP's tree has nothing under " + state.name + ".";
     const root = { label: state.name, children: data };
@@ -81,6 +104,7 @@ function show(state) {
     const ul = document.createElement("ul"), top = item(root);
     top.classList.remove("closed"); top.querySelector(".twist").textContent = "⌄";
     ul.appendChild(top); document.getElementById("tree").appendChild(ul);
+    publishContext();
   });
 }
 if (initial && initial.name) show(initial);

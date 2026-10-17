@@ -25,6 +25,25 @@ test("no folder, no log", () => {
   assert.equal(sessionLog.create("", "claude"), null);
 });
 
+test("full VERTEX instructions and context are logged only when requested", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-request-log-"));
+  try {
+    const quiet = sessionLog.create(root, "claude", "quiet", {});
+    quiet.user("show UML");
+    quiet.request({ instructions: "system secret", prompt: "context secret", tools: [], schema: {} });
+    assert.doesNotMatch(fs.readFileSync(quiet.file, "utf8"), /secret/);
+
+    const full = sessionLog.create(root, "claude", "full", { request: true });
+    full.user("show UML");
+    full.request({ instructions: "Use the diagram", prompt: "Current VERTEX view: Z_RIG", tools: [{ name: "read_sap_object" }], schema: { type: "object" } });
+    const records = fs.readFileSync(full.file, "utf8").trim().split("\n").map(JSON.parse);
+    assert.equal(records[1].type, "vertex_request");
+    assert.equal(records[1].request.instructions, "Use the diagram");
+    assert.equal(records[1].request.prompt, "Current VERTEX view: Z_RIG");
+    assert.equal(records[1].request.tools[0].name, "read_sap_object");
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test("the minimal log is tokens only: no question, answer, tool call or code", async () => {
   const { raw, lines } = await session({});
   assert.deepEqual(lines.map(l => l.type), ["user", "assistant"]);

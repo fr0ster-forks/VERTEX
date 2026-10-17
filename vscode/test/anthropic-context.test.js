@@ -14,7 +14,7 @@ test("sidebar line-count question sends the published method in one bounded Anth
       onDidChangeConfiguration: () => ({ dispose() {} }) },
     window: { createWebviewPanel: () => panel, tabGroups: { all: [] } } };
   workspace.open(vscode, { subscriptions: [] }, { pages: path.resolve(__dirname, "../../org.vertex.abap.ui/resources"),
-    chat: () => null, active: () => ({ system: { name: "QAS" } }), setContext: value => { state = value; },
+    chat: () => null, active: () => ({ system: { name: "QAS" } }), setContext: (_panel, value) => { state = value; },
     debugger: { watch: () => () => {}, picture: () => ({}) } }, null);
   const method = ["METHOD add_cr_diag.", "CHECK mv_code_review = abap_true.", "CHECK iv_text IS NOT INITIAL.",
     "IF lines( mt_cr_diag ) < 300.", "APPEND iv_text TO mt_cr_diag.", "ENDIF.", "ENDMETHOD."];
@@ -71,4 +71,34 @@ test("Anthropic reports each model round to the common session logger", async t 
     callTool: async () => ({ source: "CLASS zcl_a." }), onModelCall: round => rounds.push(round) });
   assert.equal(result.plan.answer, "Done");
   assert.deepEqual(rounds.map(round => round.usage.input_tokens), [10, 20]);
+});
+
+test("Anthropic reads multiple SAP objects sequentially through one session", async t => {
+  const requests = [];
+  const replies = [
+    { content: [
+      { type: "tool_use", id: "first", name: "read_sap_object", input: { object_name: "ZCL_A" } },
+      { type: "tool_use", id: "second", name: "read_sap_object", input: { object_name: "ZCL_B" } }
+    ] },
+    { content: [{ type: "text", text: "Both classes read." }] }
+  ];
+  t.mock.method(https, "request", (_options, callback) => {
+    const req = new EventEmitter(); req.setTimeout = () => {}; req.end = payload => {
+      requests.push(JSON.parse(payload));
+      const res = new EventEmitter(); res.statusCode = 200; res.setEncoding = () => {};
+      callback(res); res.emit("data", JSON.stringify(replies.shift())); res.emit("end");
+    }; return req;
+  });
+  let active = false;
+  const result = await anthropic.ask({ apiKey: "fake", model: "test", instructions: "", prompt: "Read two classes",
+    tools: [{ name: "read_sap_object", description: "Read", inputSchema: {} }], schema: {},
+    callTool: async (_name, args) => {
+      if (active) throw new Error("SAP session is busy");
+      active = true;
+      await new Promise(resolve => setTimeout(resolve, 1));
+      active = false;
+      return { object_name: args.object_name };
+    } });
+  assert.equal(result.plan.answer, "Both classes read.");
+  assert.deepEqual(requests[1].messages[2].content.map(item => JSON.parse(item.content).object_name), ["ZCL_A", "ZCL_B"]);
 });

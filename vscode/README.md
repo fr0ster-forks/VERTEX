@@ -539,8 +539,11 @@ SAP search, changes, tests and debugger actions require a system.
 For API-key providers, the chat displays the provider's input, cached and output token counts
 for the complete answer, including model requests made around tool calls when reported by the API.
 Set `vertex.ai.logPath` to write a Claude-compatible JSONL conversation log in its
-`claude_compatible` subfolder. `vertex.ai.log.questions`, `.answers`, `.tools` and `.code`
-control which content is retained. Direct Anthropic API tool calls are included when `.tools`
+`claude_compatible` subfolder. `vertex.ai.log.questions`, `.answers`, `.tools`, `.code` and `.request`
+control which content is retained. Enable `vertex.ai.log.request` to inspect VERTEX's full instructions,
+composed request context, available tool definitions and answer schema in new log entries. It can include
+source code, conversation history and local paths, so it is off by default. The provider's own hidden
+instructions are not available to VERTEX. Direct Anthropic API tool calls are included when `.tools`
 is on. Each direct Anthropic, compatible API and Copilot model call gets a separate assistant
 record with its reported usage; Claude Code and Codex subscriptions have one record per VERTEX
 CLI invocation because their internal model calls are not exposed. The format is the same for
@@ -548,8 +551,8 @@ every provider and does not capture raw HTTP payloads. Use **Choose log folder..
 Providers or the folder link beside `vertex.ai.logPath` in Settings; the gear opens the log settings.
 The 📜 button beside **LLM Providers** opens the session report inside VS Code. It reads the
 configured log folder and shows sessions, prompts and token usage by day or across all dates.
-Filter by provider, model or prompt text; click a row to inspect any answer and tool details
-retained by the log settings. The report has a refresh button and a log-folder picker.
+Filter by provider, model or prompt text; click a row to inspect any request context, answer and tool details
+retained by the log settings. JSON tool results are indented for reading. The report has a refresh button and a log-folder picker.
 
 Local ABAP programs and classes also have VERTEX navigation in the editor: Outline,
 Go to Definition for local method and class calls, and Back. The **VERTEX Tools** context
