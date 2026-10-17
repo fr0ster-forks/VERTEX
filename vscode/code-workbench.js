@@ -1515,6 +1515,22 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const word = wordAt(document, at);
     if (!word) return undefined;
     const lines = document.getText().split(/\r?\n/), name = String(word.name).toUpperCase();
+    // A call of a method of a class this source declares - lcl=>m( ), or lo->m( ) with lo TYPE REF TO lcl - goes to
+    // its METHOD in that class's IMPLEMENTATION here; SAP knows no such global class.
+    const call = externalCallAnchor(document, at);
+    if (call && call.method && name === call.method && ["method", "instance-method"].includes(call.kind)) {
+      const owner = call.kind === "method" ? call.object_name : String(instanceClass(document, at, call.instance) || "").toUpperCase();
+      const start = owner ? lines.findIndex(text => { const hit = /^\s*CLASS\s+(\S+)\s+IMPLEMENTATION\b/i.exec(text); return hit && hit[1].replace(/\.$/, '').toUpperCase() === owner; }) : -1;
+      if (start >= 0) {
+        let end = start;
+        while (end < lines.length && !/^\s*ENDCLASS\b/i.test(lines[end])) end++;
+        const found = require("./value-origin-open").methodLine(lines.slice(start, end + 1).join("\n"), name, true);
+        if (found >= 0) {
+          const line = start + found;
+          return { document, target: location(document.uri, line, Math.max(0, lines[line].toUpperCase().indexOf(name)), name.length) };
+        }
+      }
+    }
     const line = lines.findIndex(text => {
       const hit = /^\s*(?:CLASS\s+(\S+)\s+DEFINITION\b(?!.*\b(?:DEFERRED|LOAD)\b)|INTERFACE\s+(\S+)(?!.*\b(?:DEFERRED|LOAD)\b)|FORM\s+(\S+))/i.exec(text);
       return hit && String(hit[1] || hit[2] || hit[3]).replace(/\.$/, '').toUpperCase() === name;

@@ -442,7 +442,7 @@ function resolver(index) {
   const resolving = new Set();
   function types(ts, p, before, bound, depth = 0) {
     if (depth > 15) return new Set();
-    if (val(ts, 0) === 'NEW' && word(ts[1])) return new Set([val(ts, 1)]);
+    if (newOnly(ts)) return new Set([val(ts, 1)]);
     const call = callOf(ts);
     if (call) {
       const result = new Set();
@@ -876,13 +876,23 @@ function analyze(sources, target, options = {}) {
             const returning = (index.signature(callee) || []).find(x => x.mode === 'RETURNING');
             if (returning?.type) { type = returning.type; break; }
           }
-        } else if (val(expression, 0) === 'NEW' && word(expression[1]) && expression[2]?.value === '(') type = 'REF TO ' + expression[1].value;
+        } else if (newOnly(expression)) type = 'REF TO ' + expression[1].value;
       }
       const components = type && !/^(REF TO|STANDARD|SORTED|HASHED|TABLE)/i.test(type) ? typeComponents(sources, type) : null;
       return components ? { ...local, type, components } : { ...local, type };
     }) }));
   return { root, nodes, edges, callSites, declarations, calls: orderedCalls, flow, boundedFlow, fullFlow, executionFlow, flowBounds, flowLog, scenarios: radioGroups(sources), selectedVariable: U(target.variable), selectedSource: target.source, selectedProgram,
     selectedLine: target.line, truncated, mode: 'static', notice: 'Backward source dependencies across calls. Possible dispatch targets and branches are alternatives; loop order, database contents and runtime values are not inferred.' };
+}
+/* NEW x( ... ) and nothing after it: the object made is the value. NEW x( )->m( ) is the value m returns. */
+function newOnly(ts) {
+  if (val(ts, 0) !== 'NEW' || !word(ts[1]) || ts[2]?.value !== '(') return false;
+  let depth = 0;
+  for (let i = 2; i < ts.length; i++) {
+    if (ts[i].value === '(') depth++;
+    else if (ts[i].value === ')' && --depth === 0) return i === ts.length - 1 || (i === ts.length - 2 && ts[i + 1].value === '.');
+  }
+  return false;
 }
 function variableAt(source, offset) {
   // Editor hit testing only. The selected SAP source is parsed by ACE.

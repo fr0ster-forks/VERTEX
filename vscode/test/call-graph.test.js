@@ -22,3 +22,13 @@ test('shared walker observes depth and entry breakpoint range before visiting bo
  await calls.walk(entry,{maxDepth:4,range:{from:2,to:3},calls:(p,s)=>shared.calls(p,s),onStatement:p=>visited.push(p.name)});
  assert.equal(visited.length,0,'range does not include the one-line fixture');
 });
+test('a variable made by NEW x( )->m( ) is of the type m returns, not of x - also when the call cannot be resolved',()=>{
+ const sources=[
+  ['ZTEST','PROG','REPORT ztest. START-OF-SELECTION. DATA(lo) = NEW zcl_factory( )->make( iv = 1 ). LOOP AT lo->parts( ) INTO DATA(ls). ENDLOOP.'],
+  ['ZCL_FACTORY','CLAS','CLASS zcl_factory DEFINITION. PUBLIC SECTION. METHODS make IMPORTING iv TYPE i RETURNING VALUE(ro) TYPE REF TO zif_obj. ENDCLASS. CLASS zcl_factory IMPLEMENTATION. METHOD make. ro = NEW zcl_obj( ). ENDMETHOD. ENDCLASS.'],
+  ['ZIF_OBJ','INTF','INTERFACE zif_obj PUBLIC. METHODS parts RETURNING VALUE(rt) TYPE string_table. ENDINTERFACE.']
+ ].map(([name,type,text])=>parseSource({id:name,name,objectName:name,objectType:type,text}).source);
+ const index=model.buildIndex(sources),shared=calls.create(index),owners=[];
+ for(const p of index.procedures.filter(p=>p.source.objectName==='ZTEST'))for(const s of p.body)for(const record of shared.calls(p,s))if(record.call.method==='PARTS')owners.push(...record.owners);
+ assert.deepEqual(owners,['ZCL_OBJ']);
+});

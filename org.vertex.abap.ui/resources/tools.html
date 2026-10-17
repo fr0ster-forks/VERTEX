@@ -204,7 +204,9 @@ function localClassParts(data){
   });
   return rows;
 }
-function partsIdentity(state){return state.type+":"+state.name+":"+(localParts(state)?"adt":"backend");}
+/* One list per object, whatever function read it: a part is found by its key in every page (Diff matches the key
+   too), so switching the function never reads the parts again. */
+function partsIdentity(state){return state.type+":"+state.name;}
 function renderTools(){
   const box=document.getElementById("tparts");
   box.textContent="";box.classList.toggle("folded",partsFolded);
