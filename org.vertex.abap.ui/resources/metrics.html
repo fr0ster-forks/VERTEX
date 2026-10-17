@@ -1013,6 +1013,8 @@ function render(data) {
   umlObjectCount = null;
   umlDiagram = null;
   units = data.units || [];
+  // The window's Parts list is these units when nothing cheaper gave it one: no second parse for it.
+  if (typeof sdePartsFound === "function") { sdePartsFound(JSON.stringify({ units: units })); }
   totals = data.totals;
   var first = loadedObject !== data.object;
   loadedObject = data.object;
@@ -1483,7 +1485,7 @@ function tintDecisions(svg) {
   // A rule inside the picture, not a style on each shape: mermaid's own
   // class rules carry !important, and a rule survives the picture being
   // cloned for the zoom. ACE's own classes are left alone.
-  var own = ["callnode", "dbnode", "tryblk", "event", "method", "form", "constr", "enh", "func", "exitnode"]
+  var own = ["callnode", "dbnode", "tryblk", "event", "method", "form", "constr", "enh", "func", "exitnode", "foldnode"]
     .map(function (c) { return ":not(." + c + ")"; }).join("");
   var style = document.createElementNS("http://www.w3.org/2000/svg", "style");
   style.textContent = "g.node" + own + " > polygon { fill: " + fill + " !important; stroke: " + accent + " !important; }";
@@ -1492,6 +1494,10 @@ function tintDecisions(svg) {
   style.textContent += "g.node.exitnode > rect, g.node.exitnode > path { fill: " + toward(ground(), exit, darkPage() ? 0.25 : 0.12)
     + " !important; stroke: " + exit + " !important; stroke-width: 2px !important; } g.node.exitnode text, g.node.exitnode tspan { fill: "
     + exit + " !important; }";
+  // Folded operations: a quiet dashed block in the theme's own colours, a click away from what it holds.
+  var muted = themeColour("--vscode-descriptionForeground", accent);
+  style.textContent += "g.node.foldnode > rect, g.node.foldnode > path { fill: " + ground() + " !important; stroke: " + muted
+    + " !important; stroke-dasharray: 4 3 !important; cursor: pointer; } g.node.foldnode text, g.node.foldnode tspan { fill: " + muted + " !important; }";
   svg.insertBefore(style, svg.firstChild);
 }
 
@@ -1939,6 +1945,13 @@ function onDiagramClick(e) {
   }
   if (href.indexOf("sapevent:") !== 0) { return; }
   e.preventDefault();
+  // A block of folded operations opens; a click on one of them, opened, folds them again.
+  var fold = /^sapevent:aceexp_(\d+)$/.exec(href);
+  if (fold) {
+    var at = expanded.indexOf(fold[1]);
+    if (at >= 0) { expanded.splice(at, 1); } else { expanded.push(fold[1]); }
+    requestDiagram();
+  }
 
 }
 

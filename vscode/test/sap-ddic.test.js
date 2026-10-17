@@ -123,3 +123,14 @@ test("the types a source declares with TYPES are its own, not its components", (
     + "    tt_steps TYPE STANDARD TABLE OF ty_step WITH EMPTY KEY.\n  TYPES ty_amount TYPE p LENGTH 15 DECIMALS 2.\n  DATA lv TYPE matnr.\nENDINTERFACE.");
   assert.deepEqual([...names], ["TY_STEP", "TT_STEPS", "TY_AMOUNT"]);
 });
+
+test("a domain named as one of open-abap-core's data elements is read from SAP: a data element is no domain", async () => {
+  const core = coreNames();
+  const coreElementOnly = [...core].find(name => !core.domains.has(name) && name === "BAPI_MSG");
+  assert.ok(coreElementOnly, "BAPI_MSG is a data element of open-abap-core with no domain of that name");
+  const { query, asked } = queryOf({ DD04L: [{ ROLLNAME: "ZREQUEST_ID", DOMNAME: "BAPI_MSG", DATATYPE: "CHAR", LENG: "000220", DECIMALS: "000000", REFKIND: "D", REFTYPE: "" }],
+    DD01L: [{ DOMNAME: "BAPI_MSG", DATATYPE: "CHAR", LENG: "000220", DECIMALS: "000000" }] });
+  const objects = await readDictionary(query, new Set(["ZREQUEST_ID"]), core);
+  assert.ok(asked.some(a => a.startsWith("DD01L:") && a.includes("BAPI_MSG")), asked.join(" | "));
+  assert.deepEqual(objects.map(o => o.kind + " " + o.name).sort(), ["DOMA BAPI_MSG", "DTEL ZREQUEST_ID"]);
+});
