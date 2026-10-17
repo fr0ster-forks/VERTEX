@@ -227,13 +227,14 @@ password is discarded; the next operation asks again. Basic also works on remote
 extension hosts. **VERTEX: Forget Credentials** clears the active system's stored
 credentials.
 
-For `snc`, install the **win32-x64** VSIX on Windows x64 or the **darwin-arm64**
-VSIX on macOS on Apple silicon. These packages carry their own prebuilt
-`@mcp-abap-adt/sap-rfc-lite` binding. The **universal**
-package has no SNC support; use it otherwise. SNC requires local VS Code,
-Secure Login Client, and the SAP NW RFC SDK installed by you. Put the SDK's `lib`
-directory on `PATH` (Windows) or `DYLD_LIBRARY_PATH` (macOS) before starting
-VS Code. Your SAP account needs RFC authorization for `SADT_REST_RFC_ENDPOINT`.
+The universal VSIX carries prebuilt RFC bindings for Windows x64 and macOS on
+Apple silicon. SNC requires local VS Code, Secure Login Client, and the SAP NW
+RFC library installed on your computer. On Windows, VERTEX looks for
+`sapnwrfc.dll` in `SAPNWRFC_HOME`, Windows System32, SAP GUI and `PATH`. On macOS,
+put the SDK's `lib` directory on `DYLD_LIBRARY_PATH` before starting VS Code.
+Your SAP account needs RFC authorization for `SADT_REST_RFC_ENDPOINT`.
+
+The direct SNC connection builds on [fr0ster-forks' auth-broker PR #1](https://github.com/ysichov/VERTEX/pull/1): VERTEX sends ADT requests over RFC through `sap-rfc-lite` and `SADT_REST_RFC_ENDPOINT`. This path does not use SAP ADT for VS Code. The original platform-specific VSIX carried the native RFC binding; VERTEX 0.9.10 includes Windows x64 and macOS Apple silicon bindings in one universal VSIX, searches for an installed `sapnwrfc.dll` on Windows, and imports SNC/RFC settings from SAP Logon. The SAP RFC library itself stays outside the VSIX. A separate SDK installation may be unnecessary when a compatible library is already present, but that library is still required at runtime.
 
 ```json
 "vertex.systems": [
@@ -260,11 +261,10 @@ SNC can be refused before connecting:
 
 - "SNC needs the local VS Code on Windows or macOS; this window runs on a remote host (‹remoteName›)."
 - "SNC runs on Windows x64 and macOS on Apple silicon only."
-- "This VERTEX package has no SNC support; install the Windows or macOS package of VERTEX."
+- "This VERTEX package has no SNC support" if the RFC binding is missing.
 
-If the binding cannot load, VERTEX asks you to install the SAP NW RFC SDK, put
-its `lib` directory on `PATH` or `DYLD_LIBRARY_PATH`, and restart VS Code, with
-the load failure included.
+If the SAP library or binding cannot load, VERTEX names the missing component
+and includes the load failure.
 
 Running a program under the debugger opens WebGUI. ADT breakpoints do not catch
 a SAP GUI (SAP Logon) session. For SNC systems too, browser logon for WebGUI is
@@ -280,7 +280,7 @@ A first install opens **Get started with VERTEX** (VS Code's Get Started page; l
 system's host and instance from SAP Logon (for a logon group, its message server's host), the client and user from an Eclipse ADT workspace - the recent workspaces of the Eclipse installations it finds are offered, another folder can be chosen - and
 looks for ADT on the usual ports - 443NN and 80NN for the instance, then 44300, 8000, 50001, 50000, 443, 80, 8443,
 8080 - offering only addresses that answer. **VERTEX: Test SAP Systems** then logs on to each configured system and
-says what is wrong, if anything; for basic, the password it asks for is kept in the OS credential store, never in settings. The import also checks where the debugger can open WebGUI (`/sap/bc/gui/sap/its/webgui`): on the system's `url` it needs nothing; served on another address that answered - say `url` on HTTP 8000, WebGUI on HTTPS 44300 - or behind a redirect to a host this computer resolves, it writes that as `webgui`; found nowhere, it says so, and `webgui` is set by hand.
+says what is wrong, if anything; for basic, the password it asks for is kept in the OS credential store, never in settings. **VERTEX: Remove SAP Systems** lets you select entries to delete from `vertex.systems`; it switches to a remaining system if the active one was removed. The original SAP Logon or ADT entries stay available for a later import. The import also checks where the debugger can open WebGUI (`/sap/bc/gui/sap/its/webgui`): on the system's `url` it needs nothing; served on another address that answered - say `url` on HTTP 8000, WebGUI on HTTPS 44300 - or behind a redirect to a host this computer resolves, it writes that as `webgui`; found nowhere, it says so, and `webgui` is set by hand.
 By hand, the entries look like this; the HTTP(S) port is in SMICM > Goto > Services.
 
 ```json
@@ -303,7 +303,7 @@ development systems often have; it is off by default on purpose.
 
 A system that logs on with SNC single sign-on - SAP Logon's *Activate Secure Network
 Communication* without *SNC logon with user/password* - has no password VERTEX could use over HTTP.
-Use VERTEX's own SNC connection described above, or configure the system **only with SAP ADT extension**: SAP's *ABAP Development Tools for VS Code*
+**VERTEX: Import SAP Systems** reads a direct SAP Logon entry's SNC name, protection level, application server and instance into VERTEX's own SNC connection. It finds the ADT HTTP address; the client and user come from the selected Eclipse workspace or are asked. An SNC logon group without a named application server is skipped with an explanation. Alternatively, configure the system **only with SAP ADT extension**: SAP's *ABAP Development Tools for VS Code*
 logs on to it by itself, SNC included, and VERTEX reads, writes and activates through it.
 
 - Install SAP ABAP Development Tools for VS Code and create its destination for the system there
@@ -320,8 +320,7 @@ logs on to it by itself, SNC included, and VERTEX reads, writes and activates th
 - Log on to the destination in SAP's extension (*ABAP: Logon to Destination*) before VERTEX uses it.
   **VERTEX: Test SAP Systems** says whether it is logged on. The system list and Switch System mark
   such a system *only with SAP ADT extension*.
-- **VERTEX: Import SAP Systems** does not add an SNC single sign-on entry of SAP Logon for HTTP; it
-  names it and points to the command above.
+- An imported direct SNC system has `authType: "snc"`, `snc` and `rfc` settings. An ADT extension system has `connection: "sap-adt-extension"` and `destination` instead.
 
 What works on such a system: reading and editing sources (a save writes, checks and activates through
 SAP's extension, and activates only when the check finds no error), VERTEX Tools - metrics, UML,
@@ -1352,6 +1351,8 @@ The VS Code extension talks to SAP ADT through
 and writing source, activation, the debugger, ABAP Unit, ATC, where-used, keyword documentation. It travels inside the VSIX with its
 licence, as do the other npm packages it depends on (MIT, Apache-2.0, BSD-3-Clause), each in its
 own folder. The Eclipse plugin does not use it: it works through the platform and ADT only.
+
+The direct SNC transport uses fr0ster's [@mcp-abap-adt/connection](https://github.com/fr0ster/mcp-abap-connection), [auth broker](https://github.com/fr0ster/mcp-abap-adt-auth-broker) and `sap-rfc-lite`, integrated into VERTEX through [PR #1](https://github.com/ysichov/VERTEX/pull/1). [Enrico Andreoli's adt-rfc-bridge](https://github.com/enricoandreoli/adt-rfc-bridge) independently documents ADT over `SADT_REST_RFC_ENDPOINT` and pointed us to the possibility of finding `sapnwrfc.dll` in an existing SAP GUI installation. VERTEX does not include its Python bridge. We have not established whether either implementation drew from the other.
 
 ## Release notes
 

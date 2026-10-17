@@ -1,8 +1,34 @@
 # Release history
 
-## Unreleased — VS Code: SNC and the auth broker
+## 2026-10-17 — SNC acknowledgements
 
-Systems support `authType` basic or snc. SNC carries ADT over RFC on Windows x64 and macOS on Apple silicon through the win32-x64 and darwin-arm64 packages with their prebuilt bindings; the universal package has no SNC support. Basic passwords are migrated once from the old storage to the auth broker's VS Code SecretStorage. **VERTEX: Forget Credentials** (formerly **VERTEX: Forget Password**) clears the active system's stored credentials; refused basic passwords are discarded and asked for again. Refusals explain unsupported platforms, remote hosts, a package without SNC support, or a missing SAP NW RFC SDK. SNC on macOS (Apple silicon) is not yet verified.
+The acknowledgements now credit fr0ster's connection/auth-broker libraries and PR #1 for VERTEX's direct SNC route, and Enrico Andreoli's independent `adt-rfc-bridge` for documenting the RFC bridge and the possibility of finding `sapnwrfc.dll` in an existing SAP GUI installation. No code provenance between those projects is asserted.
+
+## 2026-10-17 — Direct SNC provenance and live result
+
+The direct RFC/SNC path builds on fr0ster-forks' auth-broker PR #1. VERTEX 0.9.10 then combined Windows and macOS native bindings in one VSIX, added installed RFC library discovery on Windows, and imported SNC/RFC settings from SAP Logon. The user confirmed direct ER6 access without separately installing the full RFC SDK; a compatible RFC library was present on that machine, though its exact location was not established. The SAP ADT extension route is a separate implementation.
+
+## 2026-10-17 — VS Code 0.9.10 rebuild: SNC import and system removal
+
+**VERTEX: Remove SAP Systems** removes selected entries from `vertex.systems` and selects a remaining system when needed. SAP Logon and ADT source connections are untouched; a later explicit import can add them again. The SAP Logon importer now fills direct SNC settings from entries with an application server rather than skipping them. Client and user still come from Eclipse settings or prompts.
+
+The next build will select the newly added system (preferring SNC when several were added) and name it in the completion message, so the sidebar does not remain on the previously active destination.
+
+## 2026-10-17 — VS Code 0.9.10: one package with optional SNC
+
+The universal VSIX includes the Windows x64 and macOS Apple silicon RFC bindings. On Windows, VERTEX searches installed SAP NW RFC libraries in the SDK location, Windows System32, SAP GUI and PATH. The SAP library remains installed separately; SNC is used only when configured for a system.
+
+## 2026-10-17 — VS Code 0.9.9: transpiler interface methods
+
+An interface method reached during a transpiler run keeps its implementation. Previously, a call to `calculate_base` could leave `ZIF_PRICING_STRATEGY~CALCULATE_BASE` replaced with a failing assertion. Recompile an existing run to replace its previously saved build.
+
+## 2026-10-17 — VS Code 0.9.8: SAP ADT extension detection
+
+VERTEX checks the `abap:` repository when the VS Code extension list does not expose SAP ADT extension. A working SAP ADT connection is no longer reported as "not installed". A failed repository read names the destination and the underlying error.
+
+## 2026-10-17 — VS Code 0.9.7: SNC and the auth broker
+
+Systems support `authType` basic or snc. SNC carries ADT over RFC in the Windows x64 package with its prebuilt binding; the universal package has no SNC support. The macOS Apple silicon target was prepared but no 0.9.7 package was handed over. Basic passwords are migrated once from the old storage to the auth broker's VS Code SecretStorage. **VERTEX: Forget Credentials** (formerly **VERTEX: Forget Password**) clears the active system's stored credentials; refused basic passwords are discarded and asked for again. Refusals explain unsupported platforms, remote hosts, a package without SNC support, or a missing SAP NW RFC SDK. SNC on macOS (Apple silicon) is not yet verified.
 
 The VS Code 0.9.5 features also support broker-based basic and SNC connections. SAP ADT extension destinations retain their separate repository connection and local breakpoints.
 ## 2026-10-17 — VS Code 0.9.6: Object Navigator

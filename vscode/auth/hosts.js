@@ -5,7 +5,7 @@ function refusalFor(system, { platform = process.platform, arch = process.arch, 
   if (!(platform === "win32" && arch === "x64") && !(platform === "darwin" && arch === "arm64"))
     return "SNC runs on Windows x64 and macOS on Apple silicon only.";
   try { resolve("@mcp-abap-adt/sap-rfc-lite"); }
-  catch (_) { return "This VERTEX package has no SNC support; install the Windows or macOS package of VERTEX."; }
+  catch (_) { return "This VERTEX package has no SNC support: the RFC binding is missing."; }
   return null;
 }
 module.exports = { refusalFor };

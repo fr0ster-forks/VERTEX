@@ -4,9 +4,9 @@ Runtime package inventory from `npm ls --omit=dev --all --json` in `vscode/`.
 Versions and licence identifiers below are from the installed packages. Paths are relative
 to the VSIX `extension/` directory. Separate sections identify distinct installed versions.
 
-The SAP NW RFC SDK is not shipped. SNC users install the SDK themselves.
+The SAP NW RFC library is not shipped. SNC needs a compatible installed library.
 `@mcp-abap-adt/sap-rfc-lite` and its exclusive dependencies (`node-addon-api` and
-`node-gyp-build`) ship only in native target packages, not the universal package.
+`node-gyp-build`) ship with Windows x64 and macOS Apple silicon bindings in the universal package.
 LGPL-3.0-only packages ship as separate, replaceable modules in `node_modules`;
 their `LICENSE` and `COPYING` texts accompany them.
 

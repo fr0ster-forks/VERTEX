@@ -16,7 +16,7 @@ function attributes(tag) {
   return found;
 }
 function landscape(files) {
-  const systems = [], skipped = [], snc = [], texts = files.map(file => { try { return fs.readFileSync(file, "utf8"); } catch (_) { return ""; } });
+  const systems = [], skipped = [], texts = files.map(file => { try { return fs.readFileSync(file, "utf8"); } catch (_) { return ""; } });
   // A logon group's entry names no application server, only its message server (msid) - described by a <Messageserver>
   // element, in this file or the global one. Its host usually runs an ICM too, so that host is the one tried; the
   // instance comes from a message server port 36NN, when the port is written as a number.
@@ -29,10 +29,9 @@ function landscape(files) {
       const a = attributes(tag);
       if (a.type !== "SAPGUI" || !a.systemid) { continue; }
       const title = a.name || a.systemid;
-      // SNC with single sign-on (sncname set, "SNC logon with user/password" not ticked): the user logs on without a
-      // password, which VERTEX's HTTP connection cannot do. Such a system is reached through SAP's ADT extension.
-      if (a.sncname && a.sncnosso !== "1") { snc.push(title); continue; }
+      const snc = a.sncname && a.sncnosso !== "1";
       if (a.msid) {
+        if (snc) { skipped.push(title + " (SNC logon group: no application server for RFC is specified)"); continue; }
         const ms = messageServers[a.msid], port = ms && /^36(\d\d)$/.exec(ms.port || "");
         if (!ms || !ms.host) { skipped.push(title + " (logon group, message server not described)"); continue; }
         systems.push({ id: a.systemid, title, host: ms.host, instance: port ? port[1] : "", group: a.server || "" });
@@ -40,10 +39,11 @@ function landscape(files) {
       }
       const server = /^(.+):32(\d\d)$/.exec(a.server || "");
       if (!server) { skipped.push(title + " (server " + (a.server || "not given") + ")"); continue; }
-      systems.push({ id: a.systemid, title, host: server[1], instance: server[2] });
+      systems.push({ id: a.systemid, title, host: server[1], instance: server[2],
+        ...(snc ? { snc: { partnerName: a.sncname, ...(a.sncop ? { qop: a.sncop } : {}) } } : {}) });
     }
   }
-  return { systems, skipped, snc };
+  return { systems, skipped };
 }
 function landscapeFiles() {
   const common = path.join(process.env.APPDATA || "", "SAP", "Common");
@@ -210,14 +210,11 @@ async function importSystems(vscode, context) {
   const config = vscode.workspace.getConfiguration("vertex");
   const existing = (config.get("systems") || []).filter(s => s && s.name);
   const known = new Set(existing.map(s => String(s.name).toUpperCase()));
-  const { systems: logon, skipped, snc } = landscape(landscapeFiles());
-  const sncNote = snc.length ? snc.join(", ") + " log on with SNC single sign-on, which VERTEX's own connection cannot do;"
-    + " connect them with VERTEX: Get Connections from SAP ADT for VS Code." : "";
+  const { systems: logon, skipped } = landscape(landscapeFiles());
   if (!logon.length) {
     throw new Error("No SAP Logon systems with a host and instance were found in " + landscapeFiles().join(" or ")
-      + (skipped.length ? ". Skipped: " + skipped.join(", ") : "") + "." + (sncNote ? " " + sncNote : ""));
+      + (skipped.length ? ". Skipped: " + skipped.join(", ") : "") + ".");
   }
-  if (sncNote) { vscode.window.showInformationMessage("VERTEX: " + sncNote); }
   // Client and user from an Eclipse workspace: the ones Eclipse lists as recent are found and offered with the systems
   // they know; another folder can still be chosen.
   let workspace = context.globalState.get("vertex.eclipseWorkspace") || "";
@@ -257,7 +254,7 @@ async function importSystems(vscode, context) {
         return { ...s, found, webgui: found ? await findWebgui(found, found.answering) : null, logon: logons[s.id] || {} }; })));
   const items = candidates.map(c => ({
     label: c.id + "  " + c.title + (c.group !== undefined ? "  (logon group " + c.group + ", message server " + c.host + ")" : ""),
-    description: c.found ? c.found.url + (c.found.insecure ? " (certificate not verified)" : "") : "ADT did not answer on any usual port",
+    description: (c.snc ? "SNC · " : "") + (c.found ? c.found.url + (c.found.insecure ? " (certificate not verified)" : "") : "ADT did not answer on any usual port"),
     detail: [c.webgui ? "WebGUI at " + c.webgui : c.found && c.webgui === null ? "WebGUI not found" : "", c.logon.client ? "client " + c.logon.client : "client: asked", c.logon.user ? "user " + c.logon.user : "user: asked",
       known.has(c.id) ? "a system named " + c.id + " is already configured" : ""].filter(Boolean).join(" · "),
     picked: !!c.found && !known.has(c.id), candidate: c }));
@@ -281,6 +278,11 @@ async function importSystems(vscode, context) {
     const user = c.logon.user || await vscode.window.showInputBox({ title: c.id + ": SAP user", ignoreFocusOut: true });
     if (!user) { continue; }
     const system = { name, url, ...(client ? { client } : {}), user };
+    if (c.snc) {
+      system.authType = "snc";
+      system.snc = c.snc;
+      system.rfc = { ashost: c.host, sysnr: c.instance };
+    }
     if (c.found && c.found.insecure) { system.allowInsecureCertificate = true; }
     // WebGUI found somewhere else than url: the debugger opens it there. Not found at all: said, left to the reader.
     if (url === (c.found && c.found.url) && c.webgui) { system.webgui = c.webgui; }
@@ -289,12 +291,59 @@ async function importSystems(vscode, context) {
     known.add(name.toUpperCase());
   }
   if (!added.length) { return; }
-  await config.update("systems", [...existing, ...added], vscode.ConfigurationTarget.Global);
+  const systemsScope = config.inspect && config.inspect("systems");
+  const systemsTarget = systemsScope && systemsScope.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+    : systemsScope && systemsScope.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+  await config.update("systems", [...existing, ...added], systemsTarget);
+  const selectedSystem = added.find(system => system.authType === "snc") || added[0];
+  const activeScope = config.inspect && config.inspect("active");
+  const activeTarget = activeScope && activeScope.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+    : activeScope && activeScope.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+  await config.update("active", selectedSystem.name, activeTarget);
   const insecure = added.filter(s => s.allowInsecureCertificate).map(s => s.name);
-  vscode.window.showInformationMessage("VERTEX: added " + added.map(s => s.name).join(", ") + " to vertex.systems."
+  vscode.window.showInformationMessage("VERTEX: added " + added.map(s => s.name).join(", ") + " to vertex.systems and selected " + selectedSystem.name + "."
     + (insecure.length ? " " + insecure.join(", ") + ": the server certificate could not be verified, so allowInsecureCertificate is on." : "")
     + (noWebgui.length ? " " + noWebgui.join(", ") + ": no address serving WebGUI was found - for the debugger, set webgui by hand." : "")
     + " Test them with VERTEX: Test SAP Systems.");
 }
 
-module.exports = { importSystems, findWebgui, webguiAt, landscape, eclipseLogons, eclipseWorkspaces, recentWorkspaces, probe, answers };
+async function removeSystems(vscode) {
+  const config = vscode.workspace.getConfiguration("vertex");
+  const existing = config.get("systems") || [];
+  if (!existing.length) {
+    vscode.window.showInformationMessage("VERTEX: no SAP systems are configured.");
+    return;
+  }
+  const choices = existing.map((system, index) => ({
+    label: system.name || "(unnamed system)",
+    description: system.destination || system.url || "",
+    index
+  }));
+  const selected = await vscode.window.showQuickPick(choices, {
+    canPickMany: true,
+    ignoreFocusOut: true,
+    title: "VERTEX: remove systems from vertex.systems"
+  });
+  if (!selected || !selected.length) { return; }
+  const removed = new Set(selected.map(item => item.index));
+  const remaining = existing.filter((_, index) => !removed.has(index));
+  const scope = config.inspect && config.inspect("systems");
+  const target = scope && scope.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+    : scope && scope.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+  await config.update("systems", remaining, target);
+
+  const active = config.get("active");
+  if (active && !remaining.some(system => system.name === active)) {
+    const activeScope = config.inspect && config.inspect("active");
+    const activeTarget = activeScope && activeScope.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+      : activeScope && activeScope.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace
+        : vscode.ConfigurationTarget.Global;
+    await config.update("active", remaining[0]?.name || "", activeTarget);
+  }
+  vscode.window.showInformationMessage("VERTEX: removed " + selected.map(item => item.label).join(", ") + " from vertex.systems.");
+}
+
+module.exports = { importSystems, removeSystems, findWebgui, webguiAt, landscape, eclipseLogons, eclipseWorkspaces, recentWorkspaces, probe, answers };

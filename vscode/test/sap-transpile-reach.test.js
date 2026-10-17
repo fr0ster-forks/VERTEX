@@ -50,3 +50,38 @@ test("an unreached method keeps its lines but not its body: one failing line whe
   assert.equal(used.includes("NEW zcl_spare_dep"), false, "the uncalled method of a read class has no body");
   assert.ok(used.includes("rv = 2."));
 });
+
+test("an interface method called by its short name keeps its implementation", async () => {
+  const road = "CLASS zcl_price_road DEFINITION PUBLIC.\n  PUBLIC SECTION.\n    INTERFACES zif_pricing_strategy.\nENDCLASS.\n"
+    + "CLASS zcl_price_road IMPLEMENTATION.\n  METHOD zif_pricing_strategy~calculate_base.\n    cs_context-amount = 42.\n  ENDMETHOD.\n"
+    + "  METHOD zif_pricing_strategy~unused.\n    cs_context-amount = 99.\n  ENDMETHOD.\nENDCLASS.";
+  const program = "REPORT zvertex_debug_lab.\nDATA(lo_road) = NEW zcl_price_road( ).\nlo_road->calculate_base( ).";
+  const source = async ({ object_name, object_type }) => {
+    if (object_name === "ZVERTEX_DEBUG_LAB" && object_type === "PROG")
+      return { object_type: "PROG", source: program };
+    if (object_name === "ZCL_PRICE_ROAD" && object_type === "CLAS")
+      return { object_type: "CLAS", source: road, includes: [] };
+    if (object_name === "ZIF_PRICING_STRATEGY" && object_type === "INTF")
+      return { object_type: "INTF", source: "INTERFACE zif_pricing_strategy. ENDINTERFACE." };
+    throw new Error(object_name + " was not found.");
+  };
+  const sources = await collect(source, { name: "ZVERTEX_DEBUG_LAB", type: "PROG" });
+  const roadSource = sources.find(item => item.name === "ZCL_PRICE_ROAD").text;
+  assert.match(roadSource, /cs_context-amount = 42\./);
+  assert.doesNotMatch(roadSource, /cs_context-amount = 99\./);
+  assert.match(roadSource, /VERTEX: not transpiled/);
+});
+
+test("the debug lab reaches the road strategy through its facade and factory", async () => {
+  const fixture = require("./fixtures/value-origin-demo.json");
+  const readFixture = async ({ object_name, object_type }) => {
+    const item = fixture.find(source => source.name === object_name);
+    return { object_type, source: item ? item.text
+      : `CLASS ${object_name} DEFINITION PUBLIC. ENDCLASS. CLASS ${object_name} IMPLEMENTATION. ENDCLASS.`, includes: [] };
+  };
+  const sources = await collect(readFixture, { name: "ZVERTEX_DEBUG_LAB", type: "PROG" });
+  const road = sources.find(source => source.name === "ZCL_PRICE_ROAD");
+  assert.ok(road, "the factory brings the road strategy into the run");
+  assert.match(road.text, /cs_context-amount = lv_chargeable_weight/);
+  assert.doesNotMatch(road.text, /VERTEX: not transpiled/);
+});

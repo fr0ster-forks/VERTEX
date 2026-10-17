@@ -13,16 +13,19 @@ test("archive policy accepts own prebuilds and rejects foreign bindings, SDK lib
         cases.push([target, [notice], false]);
         cases.push([target, [notice, binding(target), binding("linux-x64")], false]);
     }
-    cases.push(["universal", [notice], true]);
+    cases.push(["universal", [notice, binding("win32-x64"), binding("darwin-arm64")], true]);
+    cases.push(["universal", [notice], false]);
     cases.push(["universal", [notice, binding("win32-x64")], false]);
+    cases.push(["universal", [notice, binding("win32-x64"), binding("darwin-arm64"), binding("linux-x64")], false]);
+    cases.push(["universal", [notice, binding("win32-x64"), binding("darwin-arm64"), "extension/dev_rfc.log"], false]);
     cases.push(["universal", [notice, "extension/node_modules/@mcp-abap-adt/sap-rfc-lite/package.json"], false]);
     cases.push(["universal", [], false]);
     for (const file of ["sapnwrfc.node", "sapnwrfc.dll", "libsapnwrfc.so", "libsapnwrfc.dylib", "libsapucum.so", "sapucum.dll", "icudt72.dll", "icudt72.dat", "icuin72.dll", "icuuc72.dll", "libicuuc.so.72", "libicudata.72.dylib"]) {
         for (const target of ["universal", "win32-x64", "darwin-arm64"]) {
-            cases.push([target, [notice, ...(target === "universal" ? [] : [binding(target)]), `extension/sdk/${file}`], false]);
+            cases.push([target, [notice, ...(target === "universal" ? [binding("win32-x64"), binding("darwin-arm64")] : [binding(target)]), `extension/sdk/${file}`], false]);
         }
     }
-    cases.push(["universal", [notice, "extension/sapnwrfc.node.txt", "extension/sapnwrfc.dll.txt"], true]);
+    cases.push(["universal", [notice, binding("win32-x64"), binding("darwin-arm64"), "extension/sapnwrfc.node.txt", "extension/sapnwrfc.dll.txt"], true]);
     for (const [target, names, expected] of cases) {
         if (expected) assert.doesNotThrow(() => checkArchivePolicy(names, target));
         else assert.throws(() => checkArchivePolicy(names, target));

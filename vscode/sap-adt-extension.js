@@ -48,28 +48,29 @@ function httpRefusal(system) {
    folders once a destination is logged on, and nothing before. */
 async function state(vscode, system) {
   const extension = find(vscode);
-  if (!extension) { return { ok: false, text: "SAP ABAP Development Tools for VS Code is not installed" }; }
   if (!destinations().some(d => d.id === system.destination)) {
     return { ok: false, text: "SAP ADT extension has no destination " + system.destination };
   }
   try {
-    if (!extension.isActive) { await extension.activate(); }
+    // Reading abap: also activates SAP ADT through its onFileSystem event. An extension
+    // running in another host may be absent from this host's extensions list.
+    if (extension && !extension.isActive) { await extension.activate(); }
     const top = await vscode.workspace.fs.readDirectory(rootUri(vscode, system.destination));
     return top.length ? { ok: true, text: "logged on through SAP ADT extension (" + system.destination + ")" }
       : { ok: false, text: "not logged on - log on to " + system.destination + " in SAP ADT extension (ABAP: Logon to Destination)" };
   } catch (error) {
+    if (!extension) return { ok: false, text: "SAP ADT extension is not available in this VS Code window for "
+      + system.destination + ": " + error.message };
     return { ok: false, text: "SAP ADT extension did not answer for " + system.destination + ": " + error.message };
   }
 }
 
 /* The command behind "Get Connections from SAP ADT for VS Code". Nothing is written until the reader has picked. */
 async function importConnections(vscode) {
-  if (!find(vscode)) {
-    throw new Error("SAP ABAP Development Tools for VS Code is not installed, so there are no connections to take.");
-  }
   const list = destinations();
   if (!list.length) {
-    throw new Error("SAP ADT extension has no destinations in " + destinationsFile() + ". Create one there first (ABAP: New ABAP Destination).");
+    throw new Error("SAP ADT extension has no destinations in " + destinationsFile()
+      + ". Install or enable it in this VS Code window and create one (ABAP: New ABAP Destination).");
   }
   const config = vscode.workspace.getConfiguration("vertex");
   const existing = (config.get("systems") || []).filter(s => s && s.name);
@@ -105,7 +106,8 @@ async function importConnections(vscode) {
 
 /* The context key the command's menu entries are shown by: true while the SAP extension is installed. */
 function trackInstalled(vscode, context) {
-  const update = () => vscode.commands.executeCommand("setContext", "vertex.sapAdtExtension", !!find(vscode));
+  const update = () => vscode.commands.executeCommand("setContext", "vertex.sapAdtExtension",
+    !!find(vscode) || fs.existsSync(destinationsFile()));
   update();
   context.subscriptions.push(vscode.extensions.onDidChange(update));
 }

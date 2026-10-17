@@ -1,4 +1,5 @@
 "use strict";
+const fs = require("fs");
 const path = require("path");
 const LOGOFF = "/sap/public/bc/icf/logoff";
 const STRIP = ["authorization", "cookie", "x-csrf-token", "x-sap-adt-sessiontype"];
@@ -6,11 +7,31 @@ const STRIP = ["authorization", "cookie", "x-csrf-token", "x-sap-adt-sessiontype
 // abap-adt-api; never sent to SAP because §8.2 strips x-csrf-token outbound.
 const CSRF_MARKER = "rfc";
 
+function findRfcLibrary(env = process.env, exists = fs.existsSync) {
+  const dirs = [env.SAPNWRFC_HOME && path.join(env.SAPNWRFC_HOME, "lib"), env.SAPNWRFC_HOME,
+    env.SystemRoot && path.join(env.SystemRoot, "System32"),
+    env.ProgramFiles && path.join(env.ProgramFiles, "SAP", "FrontEnd", "SAPgui"),
+    env["ProgramFiles(x86)"] && path.join(env["ProgramFiles(x86)"], "SAP", "FrontEnd", "SAPgui"),
+    ...(env.PATH || env.Path || "").split(path.delimiter)];
+  for (const dir of dirs.filter(Boolean)) {
+    const file = path.join(dir, "sapnwrfc.dll");
+    if (exists(file)) return file;
+  }
+  return null;
+}
+
 function sdkSentence(error) {
   return "SNC needs the SAP NW RFC SDK: install it, put its lib directory on PATH (Windows) or "
     + "DYLD_LIBRARY_PATH (macOS), and restart VS Code. The load failed with: " + (error && error.message || error);
 }
 function loadClient() {
+  if (process.platform === "win32") {
+    const library = findRfcLibrary();
+    if (!library) throw new Error("SNC needs sapnwrfc.dll. VERTEX searched SAPNWRFC_HOME, Windows System32, SAP GUI and PATH. Install the SAP NW RFC library and restart VS Code.");
+    const dir = path.dirname(library);
+    if (!(process.env.PATH || "").split(path.delimiter).some(part => part.toLowerCase() === dir.toLowerCase()))
+      process.env.PATH = dir + path.delimiter + (process.env.PATH || "");
+  }
   const connectionDir = path.dirname(require.resolve("@mcp-abap-adt/connection/package.json"));
   try { return require(require.resolve("@mcp-abap-adt/sap-rfc-lite", { paths: [connectionDir] })).Client; }
   catch (e) { throw new Error(sdkSentence(e)); }
@@ -81,4 +102,4 @@ function createRfcWire(system, { providerFor, logger = null, connector = default
     dispose() { return run(end); },
   };
 }
-module.exports = { createRfcWire, sdkSentence };
+module.exports = { createRfcWire, sdkSentence, findRfcLibrary };

@@ -215,13 +215,15 @@
 </p>
 
 <p>
-  In VS Code, an SNC system is reached in one of two ways. VERTEX's own RFC connection (<code>authType: "snc"</code>, with Secure Login
-  Client and the SAP NW RFC SDK; see the VS Code README) offers everything, Run in SAP and the debugger included. Or a system configured <em>only with SAP ADT extension</em>: SAP's ABAP Development Tools for VS Code logs on to it, SNC
+  In VS Code, an SNC system is reached in one of two ways. VERTEX's own RFC connection (<code>authType: "snc"</code>) builds on <a href="https://github.com/ysichov/VERTEX/pull/1">fr0ster-forks' auth-broker PR</a>: it carries ADT requests over RFC through <code>sap-rfc-lite</code> and <code>SADT_REST_RFC_ENDPOINT</code>, without SAP ADT for VS Code. VERTEX 0.9.10 puts Windows and macOS native bindings in one VSIX, searches for the installed SAP RFC library on Windows, and imports SNC settings from SAP Logon. The SAP library and Secure Login Client remain local prerequisites; the RFC route offers Run in SAP and the debugger. Or a system configured <em>only with SAP ADT extension</em>: SAP's ABAP Development Tools for VS Code logs on to it, SNC
   included, and VERTEX reads, writes and activates through that extension. VERTEX: Get Connections from
   SAP ADT for VS Code adds its destinations as systems; VERTEX: Index SAP System builds, once, the index
   by which objects are found by name there. Sources, VERTEX Tools, Value Origin and the ABAP transpiler's
   run work on such a system, also from SAP's own editor and tree; Run in SAP, the SAP debugger,
   SelecTor, Versions, where-used, ABAP Unit and ATC need VERTEX's own connection and say so.
+</p>
+<p>
+  Acknowledgements: VERTEX's direct SNC transport uses fr0ster's <a href="https://github.com/fr0ster/mcp-abap-connection">connection library</a> and <a href="https://github.com/ysichov/VERTEX/pull/1">auth-broker integration</a>. <a href="https://github.com/enricoandreoli/adt-rfc-bridge">Enrico Andreoli's adt-rfc-bridge</a> documents an independent Python bridge and helped identify the installed SAP RFC library search path. VERTEX does not bundle that bridge.
 </p>
 
 <p>

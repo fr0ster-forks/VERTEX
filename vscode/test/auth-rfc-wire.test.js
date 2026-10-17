@@ -1,8 +1,15 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
-const { createRfcWire } = require("../auth/rfc-wire");
+const { createRfcWire, findRfcLibrary } = require("../auth/rfc-wire");
 const { readSystem } = require("../auth/systems");
 const system = readSystem({ name: "S", url: "https://s", user: "u", authType: "snc", snc: { partnerName: "p:CN=S" }, rfc: { ashost: "s", sysnr: "00" } }).system;
+
+test("RFC library discovery checks the installed SDK, Windows and SAP GUI", () => {
+  const env = { SAPNWRFC_HOME: "C:\\sdk", SystemRoot: "C:\\Windows", "ProgramFiles(x86)": "C:\\Program Files (x86)", PATH: "C:\\other" };
+  assert.equal(findRfcLibrary(env, file => file === "C:\\Windows\\System32\\sapnwrfc.dll"), "C:\\Windows\\System32\\sapnwrfc.dll");
+  assert.equal(findRfcLibrary(env, file => file === "C:\\sdk\\lib\\sapnwrfc.dll"), "C:\\sdk\\lib\\sapnwrfc.dll");
+  assert.equal(findRfcLibrary(env, () => false), null);
+});
 
 function fakeFactory(log) {
   let n = 0;

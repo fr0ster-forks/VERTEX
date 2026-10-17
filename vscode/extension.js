@@ -1408,6 +1408,10 @@ function activate(context) {
       try { await require("./system-setup").importSystems(vscode, context); }
       catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
     }),
+    vscode.commands.registerCommand("vertex.removeSystems", async function () {
+      try { await require("./system-setup").removeSystems(vscode); }
+      catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
+    }),
     vscode.commands.registerCommand("vertex.indexSapSystem", async function () {
       try { await sapCode.indexCommand(); }
       catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }

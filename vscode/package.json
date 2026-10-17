@@ -25,7 +25,7 @@
     "codex",
     "reviewer"
   ],
-  "version": "0.9.6",
+  "version": "0.9.10",
   "publisher": "YuriiSychov",
   "engines": {
     "vscode": "^1.85.0"
@@ -166,6 +166,10 @@
         "title": "VERTEX: Import SAP Systems"
       },
       {
+        "command": "vertex.removeSystems",
+        "title": "VERTEX: Remove SAP Systems"
+      },
+      {
         "command": "vertex.importAdtConnections",
         "title": "VERTEX: Get Connections from SAP ADT for VS Code"
       },
@@ -289,7 +293,7 @@
         "vertex.systems": {
           "type": "array",
           "default": [],
-          "markdownDescription": "The ABAP systems this extension can read. One of them is active at a time - see `vertex.active`, or the **VERTEX: Switch System** command.\n\n[Import from SAP Logon and Eclipse](command:vertex.importSystems) · [Get connections from SAP ADT for VS Code](command:vertex.importAdtConnections) · [Test the connections](command:vertex.testSystems)\n\nImport reads each system's host and instance from SAP Logon, the client and user from an Eclipse ADT workspace, and looks for the ADT address on the usual ports. The HTTP(S) port is also in SMICM > Goto > Services.\n\nFor VERTEX's own SNC connection, set authType to snc and configure snc and rfc. Alternatively, connect only with SAP ADT extension: `connection` is `sap-adt-extension` and `destination` names one of that extension's destinations, with no url, user or password.",
+          "markdownDescription": "The ABAP systems this extension can read. One of them is active at a time - see `vertex.active`, or the **VERTEX: Switch System** command.\n\n[Import from SAP Logon and Eclipse](command:vertex.importSystems) · [Get connections from SAP ADT for VS Code](command:vertex.importAdtConnections) · [Remove configured systems](command:vertex.removeSystems) · [Test the connections](command:vertex.testSystems)\n\nImport reads each system's host and instance from SAP Logon, the client and user from an Eclipse ADT workspace, and looks for the ADT address on the usual ports. A direct SAP Logon SNC entry also supplies its SNC name, protection level and RFC server. The HTTP(S) port is also in SMICM > Goto > Services.\n\nFor VERTEX's own SNC connection, use authType snc with snc and rfc. Alternatively, connect only with SAP ADT extension: `connection` is `sap-adt-extension` and `destination` names one of that extension's destinations, with no url, user or password.",
           "items": {
             "type": "object",
             "required": [
@@ -513,7 +517,7 @@
         },
         {
           "command": "vertex.runTranspiler",
-          "when": "editorLangId == abap && (resourceScheme == file || resourceScheme == vertex-sap && resourcePath =~ /^\/[^/]+\/(PROG|CLAS|FUNC)\// || resourceScheme == abap && resourceFilename =~ /\\.(prog|clas|func)\\.abap$/)",
+          "when": "editorLangId == abap && (resourceScheme == file || resourceScheme == vertex-sap && resourcePath =~ /^/[^/]+/(PROG|CLAS|FUNC)// || resourceScheme == abap && resourceFilename =~ /\\.(prog|clas|func)\\.abap$/)",
           "group": "navigation@8"
         },
         {

@@ -1,5 +1,29 @@
 # Development history
 
+## 2026-10-17 — SNC attribution
+
+Added explicit acknowledgements for fr0ster's `@mcp-abap-adt/connection`/auth-broker libraries and PR #1, and Enrico Andreoli's independent `adt-rfc-bridge`. The latter's README informed VERTEX's search for a compatible installed `sapnwrfc.dll`; no Python bridge code was incorporated. There is no verified evidence of copying between the two external implementations, so the documentation does not claim it. Updated the third-party notice's packaging sentence to match the current universal VSIX.
+
+## 2026-10-17 — Direct SNC lineage clarified
+
+The successful ER6 access uses the direct auth-broker/RFC path from fr0ster-forks PR #1, augmented in 0.9.10 by one universal VSIX with both supported native bindings, Windows `sapnwrfc.dll` discovery, and direct SAP Logon SNC import. The prebuilt `sap-rfc-lite` binding is packaged; SAP's RFC library is not. The observed success proves a compatible library was found at runtime, not that a separate full SDK install occurred or that SAP GUI necessarily supplied the DLL. The independent SAP ADT extension bridge does not participate in that request path.
+
+## 2026-10-17 — 0.9.10: unified SNC packaging trial
+
+The universal VSIX now includes the prebuilt `sap-rfc-lite` bindings for Windows x64 and macOS Apple silicon, omitting Linux and SAP's own libraries. `rfc-wire` finds `sapnwrfc.dll` in SAPNWRFC_HOME, System32, SAP GUI or PATH before loading the binding. On this Windows host the RFC binding loads with the installed System32 DLL. Archive-policy and discovery tests pass. Built and verified `vertex-abap-0.9.10.vsix`; the package check also excludes generated RFC diagnostic logs. A live SNC logon has not been verified.
+
+## 2026-10-17 — 0.9.9: interface method reachability fix
+
+The SNC work reduced what the transpiler reads by omitting bodies of class methods the run cannot reach. Its reachability parser split `METHOD zif~method` at `~` and stored only the interface name. Calls recorded the method name, so a reachable interface implementation was replaced with the unreached-method assertion. `partsOf` now retains the qualified name and `collect` matches its method suffix. A saved run still failed after the code fix because its cached sources already contained the assertion; the user confirmed Recompile corrected the run. Regression tests cover a called and an uncalled interface method and the debug lab's facade-to-factory-to-road path. The focused tests pass. Built and verified the universal VSIX for 0.9.9. A Windows x64 VSIX was also built and verified, then removed at the user's request to defer SNC packaging. No Eclipse or macOS package was built.
+
+## 2026-10-17 — 0.9.8: SAP ADT extension visibility
+
+The SAP ADT extension can be available through its `abap:` file system even when it is absent from the current extension host's `extensions` list. `state` now probes the repository instead of refusing early; the `onFileSystem:abap` event activates SAP ADT when needed. Import reads known destinations without the extension-list gate, and the setup link remains visible when a destinations file exists. A missing provider now reports the failed read rather than incorrectly claiming the extension is not installed. Built the universal VSIX for the SAP ADT extension route; the RFC package was not rebuilt.
+
+## 2026-10-17 — 0.9.7: SNC auth broker release
+
+Reviewed the merged fr0ster auth-broker PR against the Basic and SNC transport boundaries, SecretStorage migration, host refusals and package checks. Released the existing integration as VS Code 0.9.7; Eclipse was not rebuilt.
+
 ## 2026-10-17 — The auth broker next to SNC through SAP's ADT extension
 
 While this landing was under way, 0.9.3–0.9.5 reached SNC systems through SAP's ADT extension (`"connection": "sap-adt-extension"`). The owner decided both routes stay: the extension route needs no SAP NW RFC SDK but offers no Run in SAP or SAP debugger; `authType: "snc"` talks RFC directly, needs the SDK, and offers everything, the debugger included. The branch was merged with 0.9.5: extension destinations are validated apart from the broker systems and never reach the broker, its wires or a password prompt; connection keys are read through `auth/systems.keyInfo` instead of by array position, so breakpoints and variable reads of an extension tab stay on its destination; `package.js` carries the vendor-source check 0.9.5 added to `package.ps1`.
@@ -3947,3 +3971,10 @@ Docs: eclipse/README.md lost its contradiction - the 0.8.1 note said the ACE end
 First live look (ZVERTEX_DEBUG_LAB stopped at line 15 in ADT): Visual Debug showed nothing - no stack, no variables - where the old Debug Monitor at least showed the stack. The old monitor found ADT threads through the launch manager's debug targets; VisualDebugSession asked `AbapDebuggerPlugin.getAllThreads(project)`, which was never checked live and is the likely empty list. Threads are now found the old monitor's way and kept to the view's project; a session of another ABAP project is reported by name instead of an empty page. Rebuilt as target/eclipse-0.8.8.20261010101657; not yet seen live. Also seen: the title said "Visual Debug" without the object, so the view got no object from the editor - not yet explained.
 
 Still empty after that, and the breakpoint pane would not even toggle. The host now prints script errors and unhandled rejections on the page, and Eclipse showed: "Failed to execute 'write' on 'Document': missing ) after argument list (line 1791)" and "INITIAL is not defined" - the page's main script never ran. Cause: DebugMonitorView put the theme, the controls CSS, the docked class and the bridge in with Java's String.replace, which replaces every occurrence; visual-debug.html builds a frame with "</head>" and "<body>" inside JS strings (line 2045), so a style block with double quotes landed inside a string literal. A Node rebuild of the page used JS replace, which replaces the first occurrence only, and so passed - the reason the browser check could not see it. Each tag is now replaced once, at its first occurrence, and a missing tag fails loudly. The same trap held for PageView's PLACEHOLDER, replaced everywhere: visual-debug-host.js carried it literally for the Logic frame's template, so that frame would have got the page's own initial object; the literal is now split. The getAllThreads change before this was a guess and stays: the launch-manager way is the one the old monitor proved. Rebuilt as target/eclipse-0.8.8.20261010103956.
+# 2026-10-17 — Configured system removal
+
+Added a multi-select Remove SAP Systems command that updates the effective configuration scope and repairs `vertex.active` when its system is deleted. Import remains explicit; removal does not change SAP Logon or ADT source entries. Added focused tests for removal and cancellation.
+
+The user's direct SNC use case exposed a stale exclusion in the SAP Logon importer. Direct entries now preserve `sncname` and `sncop` and create `authType: snc` with the RFC application server and instance from `server`. SNC logon groups without an application server remain skipped with an explicit reason; guessing the message server as `rfc.ashost` would be wrong. Added parser tests. At the user's request rebuilt the universal VSIX as 0.9.10 without a version bump; the package verifier passed.
+
+The user still saw the ADT destination after selecting an import candidate. The importer added systems but did not change `vertex.active`, so the sidebar stayed on the old destination. It now selects the newly added SNC system and names that selection in the completion message. The importer also writes to the effective `vertex.systems` scope instead of always writing globally, which a workspace setting could mask. These changes are in source pending a new package. The local SAP GUI landscape inspected on the development host contains no ER6 entry, so the user's ER6 import result from their VS Code environment still needs confirmation.

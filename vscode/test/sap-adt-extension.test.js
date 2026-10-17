@@ -32,19 +32,20 @@ test("a system through the extension refuses what needs VERTEX's own HTTP connec
   assert.match(adt.httpRefusal(system), /only with SAP ADT extension \(destination A4H_001_DEVELOPER_EN\)/);
 });
 
-test("SAP Logon entries with SNC single sign-on are set apart; SNC with user and password stays an HTTP candidate", () => {
+test("SAP Logon SNC entries are imported for direct RFC while password logon stays basic", () => {
   const file = tempFile("landscape.xml", '<Landscape><Services>'
     + '<Service type="SAPGUI" name="Snc" systemid="SNC" server="snchost:3200" sncname="p:CN=SNC" sncop="9"/>'
     + '<Service type="SAPGUI" name="SncPw" systemid="SPW" server="spwhost:3201" sncname="p:CN=SPW" sncnosso="1"/>'
     + '<Service type="SAPGUI" name="Dev" systemid="DEV" server="devhost:3205"/></Services></Landscape>');
   try {
-    const { systems, snc } = landscape([file]);
-    assert.deepEqual(systems.map(s => s.id), ["SPW", "DEV"]);
-    assert.deepEqual(snc, ["Snc"]);
+    const { systems } = landscape([file]);
+    assert.deepEqual(systems.map(s => s.id), ["SNC", "SPW", "DEV"]);
+    assert.deepEqual(systems[0].snc, { partnerName: "p:CN=SNC", qop: "9" });
+    assert.equal(systems[1].snc, undefined);
   } finally { fs.unlinkSync(file); }
 });
 
-function fakeVscode({ installed = true, top = [], picked = items => items } = {}) {
+function fakeVscode({ installed = true, top = [], readError, picked = items => items } = {}) {
   const updates = [], messages = [];
   const extension = { id: "SAPSE.adt-vscode", isActive: true, activate: async () => {} };
   let systems = [{ name: "A4H", url: "https://a4h:44300", user: "DEVELOPER" }];
@@ -52,7 +53,7 @@ function fakeVscode({ installed = true, top = [], picked = items => items } = {}
     extensions: { getExtension: id => installed && id === "SAPSE.adt-vscode" ? extension : undefined, all: installed ? [extension] : [] },
     Uri: { from: parts => ({ ...parts, toString: () => parts.scheme + ":" + parts.path }) },
     workspace: {
-      fs: { readDirectory: async () => top },
+      fs: { readDirectory: async () => { if (readError) throw readError; return top; } },
       getConfiguration: () => ({ get: () => systems, update: async (key, value) => { updates.push(value); systems = value; } })
     },
     ConfigurationTarget: { Global: 1 },
@@ -77,8 +78,11 @@ test("Get Connections adds the picked destinations as systems with no url, user 
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test("without the SAP extension there is nothing to take, and that is said", async () => {
-  await assert.rejects(adt.importConnections(fakeVscode({ installed: false })), /is not installed/);
+test("without a destinations file there is nothing to take, and that is said", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-home-"));
+  t.mock.method(os, "homedir", () => home);
+  try { await assert.rejects(adt.importConnections(fakeVscode({ installed: false })), /has no destinations/); }
+  finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
 test("the state tells not installed, unknown destination, not logged on and logged on apart", async t => {
@@ -88,7 +92,9 @@ test("the state tells not installed, unknown destination, not logged on and logg
   t.mock.method(os, "homedir", () => home);
   const system = { name: "A4H_2", connection: "sap-adt-extension", destination: "A4H" };
   try {
-    assert.match((await adt.state(fakeVscode({ installed: false }), system)).text, /not installed/);
+    assert.match((await adt.state(fakeVscode({ installed: false, readError: new Error("no abap provider") }), system)).text, /not available in this VS Code window.*no abap provider/);
+    assert.equal((await adt.state(fakeVscode({ installed: false, top: [["Local Objects ($TMP)", 2]] }), system)).ok, true,
+      "the abap file system proves availability even when getExtension cannot see SAP ADT");
     assert.match((await adt.state(fakeVscode(), { ...system, destination: "B4H" })).text, /has no destination B4H/);
     assert.deepEqual(await adt.state(fakeVscode(), system), { ok: false,
       text: "not logged on - log on to A4H in SAP ADT extension (ABAP: Logon to Destination)" });

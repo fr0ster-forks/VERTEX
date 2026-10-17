@@ -2,6 +2,40 @@
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("fs"), os = require("os"), path = require("path");
 const { landscape } = require("../system-setup");
 
+test("remove systems updates the configured scope and repairs an active selection", async () => {
+  const { removeSystems } = require("../system-setup");
+  const values = { systems: [{ name: "DEV", url: "https://dev" }, { name: "QAS", destination: "QAS" }], active: "QAS" };
+  const updates = [];
+  const config = {
+    get: key => values[key],
+    inspect: key => key === "systems" ? { workspaceValue: values.systems } : { globalValue: values.active },
+    update: async (key, value, target) => { updates.push({ key, value, target }); values[key] = value; }
+  };
+  const vscode = {
+    ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
+    workspace: { getConfiguration: () => config },
+    window: {
+      showQuickPick: async items => [items[1]],
+      showInformationMessage: () => {}
+    }
+  };
+  await removeSystems(vscode);
+  assert.deepEqual(updates, [
+    { key: "systems", value: [{ name: "DEV", url: "https://dev" }], target: 2 },
+    { key: "active", value: "DEV", target: 1 }
+  ]);
+});
+
+test("cancelling system removal leaves configuration intact", async () => {
+  const { removeSystems } = require("../system-setup");
+  let updated = false;
+  await removeSystems({
+    workspace: { getConfiguration: () => ({ get: () => [{ name: "DEV" }], update: () => { updated = true; } }) },
+    window: { showQuickPick: async () => undefined }
+  });
+  assert.equal(updated, false);
+});
+
 test("SAP Logon entries give the host and instance; a logon group gives its message server's host", () => {
   const file = path.join(os.tmpdir(), "vertex-landscape-" + process.pid + ".xml");
   fs.writeFileSync(file, '<Landscape><Messageservers>'
@@ -18,6 +52,17 @@ test("SAP Logon entries give the host and instance; a logon group gives its mess
       { id: "QAS", title: "QA", host: "qms", instance: "", group: "SPACE" },
       { id: "DEV", title: "Dev", host: "devhost", instance: "05" }]);
     assert.deepEqual(skipped, ["Lost (logon group, message server not described)"]);
+  } finally { fs.unlinkSync(file); }
+});
+
+test("SNC logon group without an RFC application server is explained and skipped", () => {
+  const file = path.join(os.tmpdir(), "vertex-snc-group-" + process.pid + ".xml");
+  fs.writeFileSync(file, '<Landscape><Messageservers><Messageserver uuid="m1" host="msg" port="3600"/></Messageservers>'
+    + '<Services><Service type="SAPGUI" name="SNC Group" systemid="PRD" msid="m1" sncname="p:CN=PRD"/></Services></Landscape>');
+  try {
+    const result = landscape([file]);
+    assert.deepEqual(result.systems, []);
+    assert.match(result.skipped[0], /SNC logon group.*no application server/);
   } finally { fs.unlinkSync(file); }
 });
 

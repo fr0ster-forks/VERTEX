@@ -65,7 +65,9 @@ function partsOf(text) {
   for (const statement of statementsOf(text)) {
     const first = up(statement[0].value);
     if (!open && ROUTINE_START[first] && statement[1]) {
-      open = { name: up(statement[1].value), end: ROUTINE_START[first], statements: [statement], first: statement[0].line, last: statement[0].line };
+      const name = statement[2] && statement[2].value === "~" && statement[3]
+        ? up(statement[1].value) + "~" + up(statement[3].value) : up(statement[1].value);
+      open = { name, end: ROUTINE_START[first], statements: [statement], first: statement[0].line, last: statement[0].line };
       continue;
     }
     if (open) {
@@ -157,7 +159,8 @@ async function collect(read, root, { progress = () => {}, cancelled = () => fals
       again = false;
       for (let k = 0; k < waiting.length; k++) {
         const w = waiting[k];
-        const go = w.routine ? w.entry || called.has(w.routine) : used.has(w.variable);
+        const methodName = w.routine && w.routine.includes("~") ? w.routine.slice(w.routine.lastIndexOf("~") + 1) : w.routine;
+        const go = w.routine ? w.entry || called.has(w.routine) || called.has(methodName) : used.has(w.variable);
         if (!go) continue;
         waiting.splice(k--, 1);
         if (w.routine) reached.add(w.owner + ":" + w.routine);

@@ -7,4 +7,5 @@ images/icon.js
 **/*.map
 test/**
 *.vsix
+dev_rfc*.log
 package.ps1

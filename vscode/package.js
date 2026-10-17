@@ -79,12 +79,16 @@ function checkArchivePolicy(names, target) {
     const bindings = names.filter(name => /[^/]*\+sap-rfc-lite[^/]*\.node$/i.test(name));
     for (const name of names) {
         const leaf = name.split("/").pop();
+        if (/^dev_rfc.*\.log$/i.test(leaf)) fail("RFC diagnostic log " + name);
         if (/^(sapnwrfc\.dll|libsapnwrfc\.(so|dylib)|libsapucum\..*|sapucum\.dll|(?:icudt|icuin|icuuc|libicu)[^/]*)$/i.test(leaf)) fail("SAP SDK library " + name);
         if (/^sapnwrfc\.node$/i.test(leaf)) fail("local binding " + name);
     }
     if (target === "universal") {
-        if (bindings.length) fail("universal contains a sap-rfc-lite binding.");
-        if (names.some(name => ("/" + name).includes("/node_modules/@mcp-abap-adt/sap-rfc-lite/"))) fail("universal contains sap-rfc-lite.");
+        for (const platform of ["win32-x64", "darwin-arm64"])
+            if (!bindings.some(name => name.includes("/node_modules/@mcp-abap-adt/sap-rfc-lite/prebuilds/" + platform + "/")))
+                fail("missing " + platform + " sap-rfc-lite prebuilt binding.");
+        for (const name of bindings)
+            if (!/\/prebuilds\/(?:win32-x64|darwin-arm64)\//.test(name)) fail("unexpected binding " + name);
     } else {
         const own = "/node_modules/@mcp-abap-adt/sap-rfc-lite/prebuilds/" + target + "/";
         if (!bindings.some(name => name.includes(own))) fail("missing " + target + " sap-rfc-lite prebuilt binding.");
@@ -189,16 +193,18 @@ function main(args) {
     const rfcRoots = ["node_modules/@mcp-abap-adt/sap-rfc-lite", "node_modules/@mcp-abap-adt/connection/node_modules/@mcp-abap-adt/sap-rfc-lite"];
     fs.rmSync(candidate, { force: true });
     try {
-        run("npm", target === "universal" ? ["ci", "--omit=optional"] : ["ci"]);
+        run("npm", ["ci"]);
         const installed = rfcRoots.filter(relative => fs.existsSync(path.join(__dirname, relative)));
-        if (target !== "universal" && !installed.length) throw new Error("Missing optional sap-rfc-lite package.");
+        if (!installed.length) throw new Error("Missing optional sap-rfc-lite package.");
         for (const relative of installed) {
-            if (target === "universal") throw new Error("Universal install unexpectedly contains sap-rfc-lite.");
             const rfc = path.resolve(__dirname, relative);
             const prebuilds = path.join(rfc, "prebuilds");
-            const own = path.join(prebuilds, target);
-            if (!fs.existsSync(own) || !fs.readdirSync(own, { withFileTypes: true }).some(file => file.isFile() && file.name.endsWith(".node"))) throw new Error("Missing sap-rfc-lite prebuilds/" + target + "/*.node.");
-            const remove = fs.readdirSync(prebuilds, { withFileTypes: true }).filter(dir => dir.isDirectory() && dir.name !== target).map(dir => path.join(prebuilds, dir.name));
+            const keep = target === "universal" ? ["win32-x64", "darwin-arm64"] : [target];
+            for (const platform of keep) {
+                const own = path.join(prebuilds, platform);
+                if (!fs.existsSync(own) || !fs.readdirSync(own, { withFileTypes: true }).some(file => file.isFile() && file.name.endsWith(".node"))) throw new Error("Missing sap-rfc-lite prebuilds/" + platform + "/*.node.");
+            }
+            const remove = fs.readdirSync(prebuilds, { withFileTypes: true }).filter(dir => dir.isDirectory() && !keep.includes(dir.name)).map(dir => path.join(prebuilds, dir.name));
             remove.push(path.join(rfc, "build"));
             for (const item of remove) {
                 if (!path.resolve(item).startsWith(rfc + path.sep)) throw new Error("Refusing to remove path outside sap-rfc-lite: " + item);
@@ -211,7 +217,7 @@ function main(args) {
         console.log(names.join("\n"));
         checkArchivePolicy(names, target);
         const expected = [...required];
-        if (target !== "universal") for (const relative of installed) for (const file of ["package.json", "LICENSE", "NOTICE"]) expected.push("extension/" + relative + "/" + file);
+        for (const relative of installed) for (const file of ["package.json", "LICENSE", "NOTICE"]) expected.push("extension/" + relative + "/" + file);
         for (const name of expected) if (!archive.has(name)) throw new Error("VSIX verification failed: missing " + name);
         // Read every entry, including directories, before promotion.
         for (const read of archive.values()) read();
