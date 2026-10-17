@@ -15,6 +15,7 @@ const selector = require("./selector");
 const versions = require("./versions");
 const assistant = require("./assistant");
 const anthropic = require("./anthropic");
+const adtExtension = require("./sap-adt-extension");
 const https = require("https");
 const http = require("http");
 const fs = require("fs");
@@ -29,10 +30,16 @@ const PAGES = fs.existsSync(PACKAGED)
   ? PACKAGED
   : path.join(__dirname, "..", "org.vertex.abap.ui", "resources");
 
-/** Passwords are filed per system: two systems are two users often enough. */
-function secretKey(system) {
-  return "vertex.password." + system.name;
-}
+let auth;
+let stopDebugger;
+let output;
+const outputLogger = {};
+["debug", "info", "warn", "error"].forEach(function (level) {
+  outputLogger[level] = function (message) {
+    if (!output) { output = vscode.window.createOutputChannel("VERTEX", { log: true }); }
+    output[level](message);
+  };
+});
 
 /* ---------- what each service asks for ----------
 
@@ -163,7 +170,7 @@ function active() {
   const pinned = pinnedSystem.getStore();
   const wanted = pinned || (vscode.workspace.getConfiguration("vertex").get("active") || "").trim();
   if (!wanted) {
-    return { system: all[0] };
+    return auth.systemOf(all[0]);
   }
   const found = all.filter(function (s) { return s.name === wanted; });
   if (found.length === 0) {
@@ -173,32 +180,7 @@ function active() {
            + " in vertex.systems. There is " + all.map(function (s) { return s.name; }).join(", ") + "."
     };
   }
-  return { system: found[0] };
-}
-
-function missing(system) {
-  const gaps = [];
-  if (!system.url) { gaps.push("url"); }
-  if (!system.user) { gaps.push("user"); }
-  return gaps;
-}
-
-// Asked once per system, then kept by VS Code in the OS credential store. This
-// extension never writes it to a file and never puts it in a URL.
-async function password(context, system) {
-  const stored = await context.secrets.get(secretKey(system));
-  if (stored) {
-    return stored;
-  }
-  const entered = await vscode.window.showInputBox({
-    prompt: "SAP password for " + system.user + " on " + system.name,
-    password: true,
-    ignoreFocusOut: true
-  });
-  if (entered) {
-    await context.secrets.store(secretKey(system), entered);
-  }
-  return entered;
+  return auth.systemOf(found[0]);
 }
 
 /** The client belongs to every request, not to one of them. */
@@ -210,64 +192,32 @@ function withClient(system, requestPath) {
        + "sap-client=" + encodeURIComponent(system.client);
 }
 
-function request(system, pw, requestPath, extra) {
+async function request(system, requestPath, extra) {
   const settings = extra || {};
-  return new Promise(function (resolve, reject) {
-    let base;
-    try {
-      base = new URL(system.url);
-    } catch (e) {
-      reject(new Error("The url of " + system.name + " is not a valid one: " + system.url));
-      return;
-    }
-
-    const secure = base.protocol === "https:";
-    const headers = {
-      Authorization: "Basic " + Buffer.from(system.user + ":" + pw).toString("base64"),
-      Accept: requestPath.split("?")[0] === "/sap/bc/adt/discovery"
-        ? "application/atomsvc+xml" : "application/json"
-    };
-    Object.keys(settings.headers || {}).forEach(function (name) {
-      headers[name] = settings.headers[name];
-    });
-    if (settings.body) {
-      headers["Content-Type"] = "application/json; charset=utf-8";
-      headers["Content-Length"] = Buffer.byteLength(settings.body, "utf8");
-    }
-
-    const options = {
-      hostname: base.hostname,
-      port: base.port || (secure ? 443 : 80),
-      path: requestPath,
-      method: settings.method || "GET",
-      headers: headers
-    };
-    if (secure) {
-      options.rejectUnauthorized = system.allowInsecureCertificate !== true;
-    }
-
-    const req = (secure ? https : http).request(options, function (res) {
-      let body = "";
-      res.setEncoding("utf8");
-      res.on("data", function (chunk) { body += chunk; });
-      res.on("end", function () {
-        resolve({ status: res.statusCode, headers: res.headers, body: body });
-      });
-    });
-    req.on("error", reject);
-    if (settings.body) {
-      req.write(settings.body, "utf8");
-    }
-    req.end();
+  const headers = {
+    Accept: requestPath.split("?")[0] === "/sap/bc/adt/discovery"
+      ? "application/atomsvc+xml" : "application/json"
+  };
+  Object.keys(settings.headers || {}).forEach(function (name) {
+    headers[name] = settings.headers[name];
   });
+  if (settings.body) {
+    headers["Content-Type"] = "application/json; charset=utf-8";
+    headers["Content-Length"] = Buffer.byteLength(settings.body, "utf8");
+  }
+  const wire = await auth.commandWire(system);
+  const res = await wire.request({ url: withClient(system, requestPath),
+    method: settings.method || "GET", headers: headers, body: settings.body });
+  return { status: res.status, headers: res.headers, body: res.body };
 }
 
 /* A write needs a CSRF token, and the token belongs to the session that was
    given it - so the cookies of that response have to travel with it. Eclipse
    never needed this: its ADT communication layer holds a destination and does
    the same dance out of sight. */
-async function csrf(system, pw) {
-  const res = await request(system, pw, withClient(system, "/sap/bc/adt/discovery"), {
+async function csrf(system) {
+  if (system.authType === "snc") { return { token: "", cookies: "" }; }
+  const res = await request(system, "/sap/bc/adt/discovery", {
     headers: { "x-csrf-token": "fetch" }
   });
   const token = res.headers["x-csrf-token"];
@@ -288,6 +238,10 @@ function describeFailure(status, body) {
   return "HTTP " + status + (detail ? ": " + detail : "");
 }
 
+function reasonAndHint(r) {
+  return r ? r.reason + (r.hint ? " " + r.hint : "") : "";
+}
+
 function describeConnection(error) {
   const code = String(error.code || "");
   let text = "Cannot reach the system: " + (error.message || String(error));
@@ -301,13 +255,21 @@ function describeConnection(error) {
   return text;
 }
 
+function failureText(system, error, sentence) {
+  if (/^No password was entered/.test(error && error.message)) {
+    return "No password was entered, so the request was not sent.";
+  }
+  if (error && typeof error.code === "string") return describeConnection(error);
+  return sentence && error && error.message ? error.message : auth.explain(system, error);
+}
+
 /**
  * Reads one resource and answers in the shape the page expects. Given a BODY it
  * writes instead, which needs a CSRF token first.
  */
-let frontendAnalysisRequest, frontendTableRequest, frontendTableWrite;
+let frontendAnalysisRequest, frontendTableRequest, frontendTableWrite, frontendQuickSearch;
 async function fetch(context, requestPath, body, progress, cancelled) {
-  if (body == null && frontendAnalysisRequest && /^\/sap\/bc\/adt\/vertex\/(metrics|class|package|flow)\//.test(requestPath)) {
+  if (body == null && frontendAnalysisRequest && /^\/sap\/bc\/adt\/vertex\/(metrics|class|package|flow|navigator)\//.test(requestPath)) {
     try { return JSON.stringify(await frontendAnalysisRequest(requestPath, progress, cancelled)); }
     catch (error) { return 'ERROR:' + error.message; }
   }
@@ -324,6 +286,20 @@ async function fetch(context, requestPath, body, progress, cancelled) {
   if (body != null && frontendTableWrite && /^\/sap\/bc\/adt\/vertex\/review\//.test(requestPath)) {
     try { return JSON.stringify(await frontendTableWrite(requestPath, body)); }
     catch (error) { return 'ERROR:' + error.message; }
+  }
+  // A system reached through SAP's ADT extension has no ADT search: its repository answers from its index, in the
+  // XML the page reads from ADT.
+  if (body == null && frontendQuickSearch && requestPath.startsWith("/sap/bc/adt/repository/informationsystem/search?")
+      && !active().error && adtExtension.viaExtension(active().system)) {
+    const asked = new URLSearchParams(requestPath.split("?")[1]);
+    try {
+      const found = await frontendQuickSearch(asked.get("objectType"), asked.get("query"), Math.min(200, Number(asked.get("maxResults")) || 50));
+      const attr = value => String(value || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+      return '<?xml version="1.0" encoding="utf-8"?><adtcore:objectReferences xmlns:adtcore="http://www.sap.com/adt/core">'
+        + found.map(o => '<adtcore:objectReference adtcore:uri="' + attr(o.uri) + '" adtcore:type="' + attr(o.type) + '" adtcore:name="' + attr(o.name)
+          + '" adtcore:packageName="' + attr(o.packageName) + '" adtcore:description="' + attr(o.description) + '"/>').join("")
+        + "</adtcore:objectReferences>";
+    } catch (error) { return "ERROR:" + error.message; }
   }
   if (body == null && requestPath === ABOUT) {
     const selected = active();
@@ -343,29 +319,20 @@ async function fetch(context, requestPath, body, progress, cancelled) {
     return "ERROR:" + chosen.error;
   }
   const system = chosen.system;
-  const gaps = missing(system);
-  if (gaps.length) {
-    return "ERROR:System " + system.name + " has no " + gaps.join(" and ") + ".";
-  }
-
-  const pw = await password(context, system);
-  if (!pw) {
-    return "ERROR:No password was entered, so the request was not sent.";
-  }
-
+  if (adtExtension.viaExtension(system)) return "ERROR:" + adtExtension.httpRefusal(system);
   let extra;
   if (body) {
     try {
-      const ticket = await csrf(system, pw);
+      const ticket = await csrf(system);
       extra = {
         method: "POST",
         body: body,
-        headers: { "x-csrf-token": ticket.token, Cookie: ticket.cookies }
+        headers: system.authType === "snc" ? {} : { "x-csrf-token": ticket.token, Cookie: ticket.cookies }
       };
     } catch (e) {
       // CSRF already says what went wrong in a sentence; a connection failure
       // does not, and describeConnection is what turns one into words.
-      return "ERROR:" + (e && e.message ? e.message : describeConnection(e));
+      return "ERROR:" + failureText(system, e, true);
     }
   }
 
@@ -376,17 +343,15 @@ async function fetch(context, requestPath, body, progress, cancelled) {
 
   let response;
   try {
-    response = await request(system, pw, withClient(system, requestPath), extra);
+    response = await request(system, requestPath, extra);
   } catch (e) {
-    return "ERROR:" + describeConnection(e);
+    return "ERROR:" + failureText(system, e);
   }
 
   if (response.status === 401) {
-    // A wrong password kept in the store would block every later attempt with no
-    // way out, so drop it and say that it was dropped.
-    await context.secrets.delete(secretKey(system));
     return "ERROR:HTTP 401: " + system.name + " rejected user " + system.user
-         + ". The stored password has been discarded; loading again will ask for it.";
+         + ". " + reasonAndHint(auth.lastRefusal(system))
+         + (system.authType === "basic" ? " The stored password has been discarded; loading again will ask for it." : "");
   }
   if (response.status === 404) {
     // A resource that is not there is a setup state, not a failure: the
@@ -749,15 +714,16 @@ async function withShownDiff(context, state) {
           + " ('-' removed, '+' added):\n" + lines.join("\n") } };
 }
 
-function systemKey(system) {
-  return JSON.stringify([system.name, system.url, system.client || "", system.user]);
+function connectionKey(system) {
+  return require("./auth/systems").connectionKey(system);
 }
 
 /* The debugger an assistant drives through /debug: one per window, on the
    active system, with the password VS Code keeps. The listener runs on a
    stateless session; each stopped program gets a stateful one of its own. */
-function debuggerFor(context) {
+function debuggerFor(context, auth) {
   const crypto = require("crypto");
+  let connected = null;
   let id = context.globalState.get("vertex.debug.ideId");
   if (!id) {
     id = crypto.randomBytes(16).toString("hex").toUpperCase();
@@ -768,36 +734,42 @@ function debuggerFor(context) {
     terminalId: id,
     openUrl: url => vscode.env.openExternal(vscode.Uri.parse(url)),
     // Which system is active now: a window's own, a chat's named one, or vertex.active.
-    current: () => { const chosen = active(); return chosen.error ? "" : systemKey(chosen.system); },
+    current: () => {
+      const chosen = active();
+      if (chosen.error) { return ""; }
+      if (connected && connected.key === connectionKey(chosen.system)) { connected.system = chosen.system; }
+      return connectionKey(chosen.system);
+    },
+    explain: error => auth.explain(connected ? connected.system : active().system, error),
+    localOnly: () => { const chosen = active(); return !chosen.error && adtExtension.viaExtension(chosen.system); },
     connect: async function () {
       const chosen = active();
       if (chosen.error) { throw new Error(chosen.error); }
       const system = chosen.system;
-      const pw = await password(context, system);
-      if (!pw) { throw new Error("The SAP password for " + system.name + " was not supplied."); }
-      const { ADTClient } = require("abap-adt-api");
-      const make = function () {
-        const client = new ADTClient(system.url, system.user, pw, system.client || "", "EN", { timeout: 300000 });
-        client.httpClient.httpclient = require("./sap-http").create(system);
-        return client;
-      };
-      const listener = make();
+      const listener = await auth.makeClient(system, "listener");
       // The listener spends its life in a long poll, so the dump feed gets a
       // stateless session of its own rather than queueing behind it.
-      const probe = make();
-      return {
-        key: systemKey(system), system, user: String(system.user).toUpperCase(), listener, probe,
+      let probe;
+      try { probe = await auth.makeClient(system, "probe"); }
+      catch (error) { await listener.dispose().catch(() => {}); throw error; }
+      connected = {
+        key: connectionKey(system), system, user: String(system.user).toUpperCase(), listener, probe,
         open: async function () {
-          const client = make();
+          const client = await auth.makeClient(system, "debuggee");
           client.stateful = "stateful";
-          await client.login();
+          try { await client.login(); }
+          catch (error) { await client.dispose().catch(() => {}); throw error; }
           return client;
         }
       };
+      return connected;
     }
   });
   // A closed window must not leave breakpoints and a listener behind on SAP.
-  context.subscriptions.push({ dispose: () => { dbg.stop().catch(() => {}); } });
+  let stopping = null;
+  const stop = () => stopping || (stopping = dbg.stop());
+  stopDebugger = stop;
+  context.subscriptions.push({ dispose: () => { stop().catch(() => {}); } });
   return dbg;
 }
 
@@ -820,12 +792,15 @@ function withDebugger(sapCode, debugTools) {
 }
 
 function activate(context) {
-  const sapCode = require("./code-workbench").register(vscode, context, { active, password, pin: pinTo,
+  auth = require("./auth/clients").createAuth({ vscode, context, logger: outputLogger });
+  const sapCode = require("./code-workbench").register(vscode, context, { active, auth, pin: pinTo,
     pinned: () => pinnedSystem.getStore() || "", systems });
   require("./local-navigation").register(vscode, context);
+  adtExtension.trackInstalled(vscode, context);
   frontendAnalysisRequest = sapCode.frontendRequest;
   frontendTableRequest = sapCode.tableRequest;
   frontendTableWrite = sapCode.tableWrite;
+  frontendQuickSearch = sapCode.quickSearch;
   require('./local-run').setSelectorQuery(sapCode.selectorQuery);
   // A first start with no system: offered once per start, never imported without the reader's click.
   const listed = vscode.workspace.getConfiguration("vertex").get("systems");
@@ -839,7 +814,7 @@ function activate(context) {
   // The panel's chat debugs too: its assistant gets the debugger tools beside
   // the source tools, on the same /chat address, with nothing to register.
   // Visual Debug in the Tools window draws this same debugger.
-  const dbg = debuggerFor(context);
+  const dbg = debuggerFor(context, auth);
   sapCode.attachDebugger(dbg);
   const debugTools = mcp.debugSet(dbg);
   const chatTools = withDebugger(sapCode, debugTools);
@@ -869,7 +844,9 @@ function activate(context) {
   tools = mcp.create({ fetch: fetch, context: context, port: port,
     pin: pinTo, pinned: () => pinnedSystem.getStore() || "",
     pages: Object.assign(windowTools(), { "/chat": chatSet, "/debug": debugTools }) });
-  const showTools = (initial, embeddedPanel) => require("./tools-window").open(vscode, context,
+  const showTools = (initial, embeddedPanel) => initial && initial.systemName
+    ? pinTo(initial.systemName, () => openTools(initial, embeddedPanel)) : openTools(initial, embeddedPanel);
+  const openTools = (initial, embeddedPanel) => require("./tools-window").open(vscode, context,
     { panel: embeddedPanel, pages: PAGES, fetch, asset, active, pin: pinTo, models: args => assistantModels(context, args),
       originPoints: args => sapCode.originPoints(args),
       openToolSource: args => sapCode.openToolSource(args),
@@ -901,21 +878,51 @@ function activate(context) {
   const dockedDebugInitial = () => !dockedDebugSource ? null : {
     name: dockedDebugSource.object_name,
     type: dockedDebugSource.object_type,
+    // A system reached through SAP's ADT extension has no ADT debugger here: the panel offers no SAP run, steps or session.
+    noSapDebugger: !!dockedDebugSource.system_name && systems().some(s => s.name === dockedDebugSource.system_name && adtExtension.viaExtension(s)),
+    line: dockedDebugSource.cursorLine || null,
     local: dockedDebugSource.local === true,
     // Opened to run, not to analyse: until a breakpoint is set the panel is the selection screen and the output.
     runOnly: dockedDebugSource.local === true && dockedDebugSource.runOnly === true,
     // Opened by the Run command, not by Clear: the program runs at once.
-    autoRun: dockedDebugSource.local === true && dockedDebugSource.autoRun === true,
+    autoRun: dockedDebugSource.local === true && dockedDebugSource.autoRun === true && !localDebugAdapter?.hasTrace(),
+    // A run of the program window: Visual Debug offers the way back to it.
+    programWindow: dockedDebugSource.local === true && require("./program-window").isOpen(),
+    // An SAP object's run: when its build was read, for Recompile.
+    sapBuild: dockedDebugSource.sapCopies ? { name: dockedDebugSource.sapCopies.root?.object_name || "", builtAt: dockedDebugSource.sapCopies.builtAt || "" } : null,
+    // Opened again while its run is alive: the page takes the run's record instead of starting one.
+    restore: dockedDebugSource.local === true && !!localDebugAdapter?.hasTrace(),
     scenarios: dockedDebugSource.local ? require("./local-run").scenariosFor(dockedDebugSource.document) : [],
     // A method or function module under the cursor: the screen of its parameters, or why it cannot be called.
     entry: dockedDebugSource.local ? localEntry(dockedDebugSource) : null,
-    parameters: dockedDebugSource.local ? require("./local-run").parametersFor(dockedDebugSource.document) : []
+    parameters: dockedDebugSource.local ? require("./local-run").parametersFor(dockedDebugSource.document) : [],
+    // The whole selection screen with its texts, which the panel draws.
+    screen: dockedDebugSource.local ? require("./local-run").screenFor(dockedDebugSource.document) : null
+  };
+  // A transpiler run of an SAP program works on copies of its sources; the reader works in the SAP tabs. These turn one
+  // into the other: a copy's path and its tab's address. A local file is its own path.
+  const sapCopy = (by, value) => (dockedDebugSource?.sapCopies?.copies || []).find(copy =>
+    by === "uri" ? copy.uri === value : copy.path.toLowerCase() === String(value || "").toLowerCase());
+  const runPathOf = uri => uri?.scheme === "file" ? uri.fsPath : sapCopy("uri", uri?.toString())?.path || null;
+  const runUriOf = file => { const copy = sapCopy("path", file); return copy ? vscode.Uri.parse(copy.uri) : vscode.Uri.file(file); };
+  const runDocument = async file => {
+    const copy = sapCopy("path", file);
+    return copy ? pinTo(dockedDebugSource.sapCopies.system, () => sapCode.sourceOf(copy.object))
+      : vscode.workspace.openTextDocument(vscode.Uri.file(file));
+  };
+  // Where a run's source is shown: the column it is already open in, else beside the program window rather than over
+  // it, so the window's list stays in sight while the flow is followed.
+  const runColumn = document => {
+    const open = (vscode.window.visibleTextEditors || []).find(item => item.document.uri.toString() === document.uri.toString());
+    if (open) return open.viewColumn;
+    const program = require("./program-window").column();
+    return program !== undefined && program === vscode.window.tabGroups?.activeTabGroup?.viewColumn ? vscode.ViewColumn.Beside : undefined;
   };
   const postDockedPicture = () => {
     if (dockedDebugSource?.local && localDebugAdapter) {
       const frame = localDebugAdapter.picture().stopped?.frames?.[0];
       const editor = (vscode.window.visibleTextEditors || []).find(item =>
-        frame && item.document.uri.fsPath?.toLowerCase() === String(frame.url || "").toLowerCase());
+        frame && runPathOf(item.document.uri)?.toLowerCase() === String(frame.url || "").toLowerCase());
       if (localHistoryEditor && localHistoryEditor !== editor) clearLocalHistoryMark();
       if (editor && frame?.line > 0 && frame.line <= editor.document.lineCount) {
         editor.setDecorations(localHistoryMark, [editor.document.lineAt(frame.line - 1).range]);
@@ -926,10 +933,16 @@ function activate(context) {
       payload: JSON.stringify(dockedDebugSource?.local ? localDebugAdapter?.picture() : dbg.picture()) });
   };
   let latestLocalVariables = null;
+  // Each load of the panel's page has its number. The page asks one thing at a time and takes the answers in order, so
+  // an answer to the page before - a request still running when the page was written again - must not reach the new
+  // one: it would stand in the place of the new page's first answer, and every answer after it would be one off.
+  let dockedGeneration = 0;
+  const setDockedHtml = html => { dockedGeneration++; dockedDebugView.webview.html = html; };
   context.subscriptions.push(vscode.window.registerWebviewViewProvider("vertex.visualDebug", {
     resolveWebviewView(view) {
       dockedDebugView = view;
       view.webview.options = { enableScripts: true };
+      dockedGeneration++;
       view.webview.html = require("./tools-window").debugHtml(dockedDebugInitial());
       if (dockedDebugSource?.local && latestLocalVariables) {
         setTimeout(() => void view.webview.postMessage({ type: "localVariables", state: latestLocalVariables }), 150);
@@ -950,6 +963,9 @@ function activate(context) {
       setTimeout(sendCursor, 400);
       view.onDidDispose(() => { clearTimeout(cursorTimer); cursorWatchers.forEach(watcher => watcher.dispose()); });
       const receive = view.webview.onDidReceiveMessage(async message => {
+        // The answer goes to the page that asked, not to one written since.
+        const asked = dockedGeneration;
+        const replyTo = payload => asked === dockedGeneration ? view.webview.postMessage({ type: "result", payload }) : undefined;
         try {
           if (message.call === "localPanelReady") {
             if (latestLocalVariables && dockedDebugSource?.local) {
@@ -990,12 +1006,12 @@ function activate(context) {
             if (!["PROG", "CLAS", "FUNC"].includes(type)) { throw new Error("Unsupported source type."); }
             const source = await pinTo(dockedDebugSource && dockedDebugSource.system_name, () =>
               sapCode.execute("read_sap_object", { object_name: String(args[0] || ""), object_type: type }));
-            await view.webview.postMessage({ type: "result", payload: JSON.stringify(source) });
+            await replyTo(JSON.stringify(source));
             return;
           }
           if (message.call === "asset") {
             const name = String((message.args || [])[0] || "");
-            await view.webview.postMessage({ type: "result", payload: asset(name) });
+            await replyTo(asset(name));
             return;
           }
           if (message.call === "origin") {
@@ -1030,7 +1046,8 @@ function activate(context) {
             const point = JSON.parse(String((message.args || [])[0] || "{}"));
             let editor = null;
             if (dockedDebugSource?.local) {
-              editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(String(point.url || ""))), { preview: false });
+              const shown = await runDocument(String(point.url || ""));
+              editor = await vscode.window.showTextDocument(shown, { preview: false, viewColumn: runColumn(shown) });
             } else {
               await sapCode.revealFrame(point);
               const name = String(point.program || "").toLowerCase();
@@ -1052,9 +1069,9 @@ function activate(context) {
             if (dockedDebugSource?.local) {
               const source = String(frame.url || "");
               if (source && /\.abap$/i.test(source)) {
-                const document = await vscode.workspace.openTextDocument(vscode.Uri.file(source));
+                const document = await runDocument(source);
                 const line = Math.max(0, Math.min(document.lineCount - 1, Number(frame.line || 1) - 1));
-                const editor = await vscode.window.showTextDocument(document, { preserveFocus: true, preview: false });
+                const editor = await vscode.window.showTextDocument(document, { preserveFocus: true, preview: false, viewColumn: runColumn(document) });
                 const position = new vscode.Position(line, 0);
                 if (localHistoryEditor && localHistoryEditor !== editor) clearLocalHistoryMark();
                 editor.setDecorations(localHistoryMark, [document.lineAt(line).range]);
@@ -1069,7 +1086,7 @@ function activate(context) {
           if (message.call === "debug" && (message.args || [])[0] === "copy") {
             // The step log to the clipboard, through VS Code rather than the page.
             await vscode.env.clipboard.writeText(String(JSON.parse((message.args || [])[1] || "{}").text || ""));
-            await view.webview.postMessage({ type: "result", payload: "{}" });
+            await replyTo("{}");
             return;
           }
           if (message.call !== "debug") { throw new Error("Unsupported VERTEX Debug request."); }
@@ -1079,6 +1096,13 @@ function activate(context) {
           const args = message.args || [];
           const command = String(args[0] || "");
           const commandArgs = JSON.parse(String(args[1] || "{}"));
+          // Recompile: the SAP object of this run read and transpiled again, and the panel opened on that build.
+          if (command === "sapRecompile") { await recompileSap(); return; }
+          if (command === "toProgram") {
+            if (!require("./program-window").reveal()) throw new Error("The program window is closed: Run with ABAP Transpiler opens it again.");
+            await replyTo("{}");
+            return;
+          }
           if (dockedDebugSource?.local && localDebugAdapter) {
             if (["run", "step", "stop", "detach", "terminate"].includes(command)) clearLocalHistoryMark();
             const answer = await localDebugAdapter.command(command, commandArgs);
@@ -1086,14 +1110,16 @@ function activate(context) {
             if (["run", "step"].includes(command) && answer && answer.ended) clearLocalHistoryMark();
             if (["run", "stop", "detach", "terminate"].includes(command))
               await vscode.commands.executeCommand("setContext", "vertex.localHistory", localDebugAdapter.hasTrace());
-            await view.webview.postMessage({ type: "result", payload: JSON.stringify(answer) });
+            await replyTo(JSON.stringify(answer));
             return;
           }
           // The SAP program run with the ABAP transpiler: its sources are read into a folder of their own, and the panel
           // turns to the transpiler's, on the program written there.
           if (command === "sapTranspile") {
-            await view.webview.postMessage({ type: "result", payload: "{}" });
-            await runSapTranspiler(dockedDebugSource);
+            await replyTo("{}");
+            // The page has its answer already; a failure after it is sent to the page too, where it stays.
+            try { await runSapTranspiler(dockedDebugSource); }
+            catch (error) { void view.webview.postMessage({ type: "runFailed", payload: error && error.message || String(error) }); throw error; }
             return;
           }
           if(command==="logicTools"){
@@ -1114,13 +1140,16 @@ function activate(context) {
               resource => fetch(context, resource)));
           // How long the host held a step, for the window's time per stage.
           if (command === "step" && answer && typeof answer === "object") { answer.handler = Date.now() - handled; }
-          await view.webview.postMessage({ type: "result", payload: JSON.stringify(answer) });
+          await replyTo(JSON.stringify(answer));
         } catch (error) {
           if (message.call === "localRun") {
             await view.webview.postMessage({ type: "localRunResult", error: error.message });
             return;
           }
-          await view.webview.postMessage({ type: "result", payload: "ERROR:" + error.message });
+          // Only a request the page waits on is answered: an answer to one it does not wait on (reveal, backward, clear...)
+          // would be taken for the answer to its next request, and every answer after it would be one off.
+          if (["debug", "source", "asset"].includes(message.call)) await replyTo("ERROR:" + error.message);
+          else vscode.window.showErrorMessage("VERTEX Visual Debug: " + error.message);
         }
       });
       view.onDidDispose(() => {
@@ -1144,13 +1173,20 @@ function activate(context) {
   }));
   // In the transpiler panel the breakpoints are VS Code's own: a point set or removed in the editor is shown at once.
   context.subscriptions.push(vscode.debug.onDidChangeBreakpoints(() => { if (dockedDebugSource?.local && localDebugAdapter) postDockedPicture(); }));
-  const openVisualDebug = (runOnly = false, again = null) => {
+  const openVisualDebug = async (runOnly = false, again = null) => {
+    if (!again && vscode.window.activeTextEditor?.document?.uri?.scheme === "abap") {
+      try { await sapCode.adopt(vscode.window.activeTextEditor.document); }
+      catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); return; }
+    }
     void vscode.commands.executeCommand("setContext", "vertex.localHistory", false);
     const editor = vscode.window.activeTextEditor;
     const local = require("./local-analysis");
     const localObject = local.isLocalAbap(editor?.document) ? local.sourceObject(editor.document) : null;
     // Clear starts the same panel again, for the object it shows, whichever editor is in front.
     const source = again || (localObject ? { ...localObject, local: true, document: editor.document, entryLine: editor.selection.active.line + 1 } : sapCode.editorContext());
+    // The line the panel was opened at: its variables are those of the routine there, before the cursor is first reported.
+    if (source && !again && editor) { source.cursorLine = editor.selection.active.line + 1; }
+
     if (!source || !source.object_name) {
       vscode.window.showWarningMessage("VERTEX: open a local or SAP ABAP source tab first.");
       return;
@@ -1165,13 +1201,38 @@ function activate(context) {
     localDebugAdapter = source.local ? require("./local-debug-adapter").create(vscode, source.document,
       selection => require("./local-run").launch(vscode, false, { document: source.document, selection, live: true, entryLine: source.entryLine }),
       postDockedPicture, () => require("./local-run").runScope(vscode, source.document),
-      { entry: () => localEntry(source), variants: context.workspaceState }) : null;
+      { entry: () => localEntry(source), variants: context.workspaceState, pathOf: runPathOf, uriOf: runUriOf }) : null;
     if (source.local && latestLocalVariables && dockedDebugView) {
       setTimeout(() => void dockedDebugView?.webview.postMessage({ type: "localVariables", state: latestLocalVariables }), 150);
     }
+    // A program run to see what it does opens as SAP GUI shows a report: its own window, screen and list (program-window.js).
+    // Visual Debug stays behind it, with the record of each run, until See flow history or a breakpoint brings it up.
+    // A method or a function module shows the screen of its parameters there.
+    if (runOnly === true && source.local) {
+      // The panel only follows the window's runs: no automatic run of its own, no run screen of its own.
+      dockedDebugSource.autoRun = false;
+      dockedDebugSource.runOnly = false;
+      require("./program-window").open(vscode, { name: source.object_name, host: {
+        selection: () => localDebugAdapter.command("selection"),
+        adapter: (command, args) => localDebugAdapter.command(command, args),
+        run: async selection => {
+          clearLocalHistoryMark();
+          const result = await localDebugAdapter.command("run", { selection });
+          // Visual Debug follows every run of the window: the run just made, never an earlier one.
+          if (!result.ended) await showFlow();
+          else refreshFlow();
+          return result;
+        },
+        flow: showFlow,
+        recompile: dockedDebugSource.sapCopies?.root ? recompileSap : null,
+        builtAt: dockedDebugSource.sapCopies?.builtAt || "" } });
+      // Written after the window opens, so the panel knows the window holds the run (its Run brings the window back).
+      if (dockedDebugView) setDockedHtml(require("./tools-window").debugHtml(dockedDebugInitial()) + "<!-- " + Date.now() + " -->");
+      return;
+    }
     if (dockedDebugView) {
       // A page the same as the one shown is not loaded again by VS Code: the mark of this opening makes it new.
-      dockedDebugView.webview.html = require("./tools-window").debugHtml(dockedDebugInitial()) + "<!-- " + Date.now() + " -->";
+      setDockedHtml(require("./tools-window").debugHtml(dockedDebugInitial()) + "<!-- " + Date.now() + " -->");
       dockedDebugView.show(true);
       postDockedPicture();
     } else {
@@ -1179,21 +1240,100 @@ function activate(context) {
         vscode.window.showErrorMessage("VERTEX: could not open Debug panel: " + error.message));
     }
   };
+  // Visual Debug on the record of the program window's runs: the whole panel - the debugger, not the plain run - taking the
+  // run as it stands.
+  const refreshFlow = () => {
+    if (!dockedDebugView || !localDebugAdapter?.hasTrace()) return false;
+    if (dockedDebugSource) dockedDebugSource.runOnly = false;
+    setDockedHtml(require("./tools-window").debugHtml(dockedDebugInitial()) + "<!-- " + Date.now() + " -->");
+    postDockedPicture();
+    return true;
+  };
+  const showFlow = async () => {
+    if (!localDebugAdapter?.hasTrace()) throw new Error("No run has been recorded yet.");
+    if (refreshFlow()) dockedDebugView.show(true);
+    else {
+      if (dockedDebugSource) dockedDebugSource.runOnly = false;
+      await vscode.commands.executeCommand("workbench.view.extension.vertex-debug");
+    }
+    return {};
+  };
+  // Recompile: the SAP object of this run read and transpiled again, and opened on that build.
+  const recompileSap = async () => {
+    const sap = dockedDebugSource?.sapCopies;
+    if (!sap?.root) throw new Error("This run was not read from SAP.");
+    localDebugAdapter?.dispose();
+    await runSapTranspiler(sap.root, { recompile: true, entryLine: sap.root.object_type === "PROG" ? 0 : sap.entryLine });
+    return {};
+  };
   // An SAP program run with the ABAP transpiler: its sources are read into a folder of their own, and Visual Debug turns
   // to the transpiler's panel on the program written there, running at once.
-  const runSapTranspiler = async shown => {
-    if (!shown || String(shown.object_type).toUpperCase() !== "PROG") throw new Error("The transpiler runs an SAP program; open one first.");
-    const read = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "VERTEX: reading " + shown.object_name + " for the transpiler" },
-      report => pinTo(shown.system_name, () => sapCode.transpileSources(shown, name => report.report({ message: name }))));
-    const file = require("./sap-transpile").writeProject(shown.system_name, read.sources, read.dictionary);
-    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
-    openVisualDebug(true, { ...require("./local-analysis").sourceObject(document), local: true, document, entryLine: 1, autoRun: true });
+  // options.recompile: read the object from SAP again and transpile it, rather than run its last build; options.entryLine:
+  // the method's or module's line, as the last run had it, in place of the cursor's.
+  const runSapTranspiler = async (shown, options = {}) => {
+    const kind = String(shown?.object_type || "").toUpperCase();
+    if (!["PROG", "CLAS", "FUNC"].includes(kind)) throw new Error("The transpiler runs an SAP program, a method of an SAP class or a function module; open one first.");
+    // A class runs one method: the one the cursor stands in, in the tab of the class's own source.
+    let entryLine = 1;
+    if (options.entryLine) entryLine = options.entryLine;
+    else if (kind === "CLAS") {
+      const object = { object_name: shown.object_name, object_type: "CLAS", include: "main" };
+      const tab = await pinTo(shown.system_name, () => sapCode.sourceUri(object)), editor = vscode.window.activeTextEditor;
+      const inExtension = editor && editor.document.uri.scheme === "abap" && /\.clas\.abap$/.test(editor.document.uri.path);
+      if (!editor || editor.document.uri.toString() !== tab && !inExtension)
+        throw new Error("Put the cursor in a method of " + shown.object_name + ", in the tab of its class source.");
+      entryLine = editor.selection.active.line + 1;
+    }
+    // A function module runs whole: from the cursor in its tab, else from its first line.
+    if (kind === "FUNC" && !options.entryLine) {
+      const tab = await pinTo(shown.system_name, () => sapCode.sourceUri({ object_name: shown.object_name, object_type: "FUNC", include: "main" }));
+      const editor = vscode.window.activeTextEditor;
+      entryLine = editor && editor.document.uri.toString() === tab ? editor.selection.active.line + 1 : 1;
+    }
+    const read = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+      title: "VERTEX: " + (options.recompile ? "recompiling " : "reading ") + shown.object_name + " for the transpiler" },
+      report => pinTo(shown.system_name, () => sapCode.transpileSources(shown, name => report.report({ message: name }), { recompile: options.recompile === true,
+        // A class's run reads what its method at the cursor reaches; a program and a module start whole.
+        entryLine: kind === "CLAS" ? entryLine : 0 })));
+    // The project is written again only when what was read changed; its fingerprint goes with it, for local-run to
+    // take the transpiled code again (sap-cache.js).
+    const transpile = require("./sap-transpile"), project = path.join(read.folder, "project"), stampFile = path.join(project, "vertex-fingerprint.json");
+    let stamp = null; try { stamp = JSON.parse(fs.readFileSync(stampFile, "utf8")); } catch (_) { /* none yet */ }
+    let file;
+    if (read.cached && stamp && stamp.fingerprint === read.fingerprint && fs.existsSync(stamp.shown)) file = stamp.shown;
+    else {
+      file = transpile.writeProject(shown.system_name, read.sources, read.dictionary, project);
+      fs.writeFileSync(stampFile, JSON.stringify({ fingerprint: read.fingerprint, shown: file }));
+    }
+    // The programs' texts, for the selection screen the panel draws (local-run screenFor).
+    fs.writeFileSync(path.join(project, "vertex-texts.json"), JSON.stringify(read.texts || {}));
+    // Each copy and the SAP tab it was read from: the run steps, marks and stops in the tab, not in the copy.
+    const folder = path.dirname(path.dirname(file)), copies = [];
+    for (const source of read.sources) {
+      // A function group's module is its FUNC tab; its main program and includes have no VERTEX tab and stay copies.
+      if (source.type === "FUGR" && source.kind !== "module") continue;
+      const object = source.type === "FUGR" ? { object_name: source.include, object_type: "FUNC", include: "main" }
+        : { object_name: source.name, object_type: source.type, include: source.include };
+      copies.push({ path: transpile.copyPath(folder, source), object,
+        uri: await pinTo(shown.system_name, () => sapCode.sourceUri(object)) });
+    }
+    const module = kind === "FUNC" && read.sources.find(source => source.kind === "module" && source.include === String(shown.object_name).toUpperCase());
+    if (kind === "FUNC" && !module) throw new Error(shown.object_name + " was not among the modules read of its function group.");
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(module ? transpile.copyPath(folder, module) : file));
+    if (kind === "FUNC") entryLine = Math.max(entryLine, module.signature.firstLine);
+    if (kind !== "PROG" && !require("./local-run").entryScreen(document, entryLine))
+      throw new Error("Line " + entryLine + " of " + shown.object_name + " is in no method: put the cursor in the method to run.");
+    openVisualDebug(true, { ...require("./local-analysis").sourceObject(document), local: true, document, entryLine, autoRun: true,
+      sapCopies: { system: shown.system_name, copies, builtAt: read.builtAt || "",
+        root: { object_name: shown.object_name, object_type: kind, system_name: shown.system_name }, entryLine } });
   };
   // F5-F8 are deliberately scoped in package.json to a VERTEX ABAP editor.
   // A stopped program is shared with Visual Debug, so stepping here redraws
   // the already open visual tab without a second debugger session.
   const stepFromSource = async kind => {
-    if (require("./local-analysis").isLocalAbap(vscode.window.activeTextEditor?.document)) {
+    // A step from a local file, or from the SAP tab of a source the transpiler run took a copy of.
+    const fromRun = dockedDebugSource?.sapCopies && runPathOf(vscode.window.activeTextEditor?.document?.uri);
+    if (require("./local-analysis").isLocalAbap(vscode.window.activeTextEditor?.document) || fromRun) {
       if (localDebugAdapter?.hasTrace() && dockedDebugView) {
         await dockedDebugView.webview.postMessage({ type: "historyStep", kind });
         return;
@@ -1226,7 +1366,10 @@ function activate(context) {
     // breakpoint is set, and the debugger then.
     vscode.commands.registerCommand("vertex.runTranspiler", async () => {
       if (require("./local-analysis").isLocalAbap(vscode.window.activeTextEditor?.document)) return openVisualDebug(true);
-      try { await runSapTranspiler(sapCode.editorContext()); }
+      try {
+        if (vscode.window.activeTextEditor?.document?.uri?.scheme === "abap") await sapCode.adopt(vscode.window.activeTextEditor.document);
+        await runSapTranspiler(sapCode.editorContext());
+      }
       catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
     }),
     vscode.commands.registerCommand("vertex.debugInto", () => stepFromSource("into")),
@@ -1265,25 +1408,36 @@ function activate(context) {
       try { await require("./system-setup").importSystems(vscode, context); }
       catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
     }),
+    vscode.commands.registerCommand("vertex.indexSapSystem", async function () {
+      try { await sapCode.indexCommand(); }
+      catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
+    }),
+    vscode.commands.registerCommand("vertex.importAdtConnections", async function () {
+      try { await adtExtension.importConnections(vscode); }
+      catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
+    }),
     // Each configured system asked with its own user and password, the way every read is made: the answer says
     // which part of the setting is wrong.
     vscode.commands.registerCommand("vertex.testSystems", async function () {
       const all = systems();
       if (!all.length) { vscode.window.showWarningMessage("VERTEX: vertex.systems is empty. VERTEX: Import SAP Systems fills it from SAP Logon."); return; }
       const results = [];
-      for (const system of all) {
-        const gaps = missing(system);
-        if (gaps.length) { results.push(system.name + ": no " + gaps.join(" and ") + " in the setting."); continue; }
-        const pw = await password(context, system);
-        if (!pw) { results.push(system.name + ": not tested - no password given."); continue; }
+      for (const entry of all) {
+        const chosen = auth.systemOf(entry);
+        if (chosen.error) { results.push(entry.name + ": " + chosen.error); continue; }
+        const system = chosen.system;
+        if (adtExtension.viaExtension(system)) {
+          const reached = await adtExtension.state(vscode, system);
+          results.push(system.name + ": " + (reached.ok ? "OK - " : "") + reached.text);
+          continue;
+        }
         try {
-          const res = await request(system, pw, withClient(system, "/sap/bc/adt/discovery"));
-          // A refused password is not kept: the next test or read asks for it again.
-          if (res.status === 401) { await context.secrets.delete(secretKey(system)); }
+          const res = await request(system, "/sap/bc/adt/discovery");
           results.push(system.name + ": " + (res.status === 200 ? "OK - ADT answers for " + system.user + (system.client ? " in client " + system.client : "")
-            : res.status === 401 ? "HTTP 401 - user or password refused; the stored password is dropped, the next test asks again"
+            : res.status === 401 ? "HTTP 401 - " + reasonAndHint(auth.lastRefusal(system))
+              + (system.authType === "basic" ? "; the stored password is dropped, the next test asks again" : "")
             : describeFailure(res.status, res.body)));
-        } catch (error) { results.push(system.name + ": " + describeConnection(error)); }
+        } catch (error) { results.push(system.name + ": " + failureText(system, error)); }
       }
       const failed = results.filter(r => !/: OK - /.test(r)).length;
       vscode.window[failed ? "showWarningMessage" : "showInformationMessage"]("VERTEX: " + results.join("  |  "), { modal: failed > 0 });
@@ -1300,7 +1454,9 @@ function activate(context) {
         all.map(function (s) {
           return {
             label: s.name,
-            description: s.user + "@" + s.url + (s.client ? " client " + s.client : ""),
+            description: adtExtension.viaExtension(s)
+              ? adtExtension.LABEL + " · " + s.destination
+              : s.user + "@" + s.url + (s.client ? " client " + s.client : ""),
             picked: !current.error && current.system.name === s.name
           };
         }),
@@ -1321,9 +1477,9 @@ function activate(context) {
         vscode.window.showWarningMessage("VERTEX: " + chosen.error);
         return;
       }
-      await context.secrets.delete(secretKey(chosen.system));
+      await auth.forget(chosen.system);
       vscode.window.showInformationMessage(
-        "VERTEX: the stored password for " + chosen.system.name + " was removed.");
+        "VERTEX: the stored credentials for " + chosen.system.name + " were removed.");
     }),
     vscode.commands.registerCommand("vertex.configureApiKey", async function () {
       const api = require("./openai-compatible");
@@ -1368,8 +1524,11 @@ function activate(context) {
   return { sapCode };
 }
 
-function deactivate() {
+async function deactivate() {
   if (tools) { tools.stop(); tools = null; }
+  if (stopDebugger) { await stopDebugger(); }
+  if (auth) { await auth.disposeAll(); }
+  if (output) { output.dispose(); output = null; }
 }
 
 exports.activate = activate;

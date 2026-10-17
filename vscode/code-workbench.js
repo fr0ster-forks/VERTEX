@@ -1,6 +1,7 @@
 "use strict";
 
 const { createRepository, TYPES, revision } = require("./sap-code");
+const adtExtension = require("./sap-adt-extension");
 const { hunks, reviewedSource, askPrompt } = require("./code-review");
 // Every tool that reaches SAP takes the system by name: the main chat can read
 // in one and prepare a change for another. review_sap_changes works on the
@@ -54,9 +55,29 @@ async function originStep(log, label, work) {
   }
 }
 
-function register(vscode, context, { active, password, pin, pinned, systems }) {
+function register(vscode, context, { active, auth, pin, pinned, systems }) {
   const events = require("./agent-events").createEmitter();
+  const pendingRepositories = new Map();
   const repositories = new Map(), texts = new Map(), opened = new Map(), drafts = new Map();
+  // Who waits on a walk of an extension system's tree now - a transpiler run - and is told what is walked.
+  const indexWatchers = new Set();
+  const indexOffered = new Set();
+  /* The full index of a system reached through SAP's ADT extension, with progress and Cancel; kept when done. */
+  async function indexSystem(system) {
+    const repo = await repositoryOf(system), started = Date.now();
+    const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, cancellable: true,
+      title: "VERTEX: indexing " + system.name }, (progress, token) => repo.api.indexAll({
+        onProgress: (walked, known, name) => progress.report({ message: walked + " / " + known + " packages - " + name }),
+        cancelled: () => token.isCancellationRequested }));
+    const seconds = Math.round((Date.now() - started) / 1000);
+    if (result.cancelled) {
+      vscode.window.showWarningMessage("VERTEX: indexing " + system.name + " was cancelled after " + result.walked + " packages; nothing was kept. VERTEX: Index SAP System starts it again.");
+    } else {
+      vscode.window.showInformationMessage("VERTEX: " + system.name + " indexed - " + result.walked + " packages, " + result.objects + " objects in " + seconds + " s."
+        + (result.problems.length ? " Not read: " + result.problems.slice(0, 5).join("; ") + (result.problems.length > 5 ? " ..." : "") : ""));
+    }
+    return result;
+  }
   let debuggerApi, breakpointQueue = Promise.resolve(), breakpointListenerAttached = false;
   const nativeBreakpoints = new Map();
   let stopFollow = 0;
@@ -167,7 +188,12 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   let variablesCache = null;
   async function readVariables({ object_name, object_type, line, routine, globals }) {
     if (!object_name) { throw new Error('An object is needed to read its variables.'); }
-    const from = [...opened.values()].find(item => item.repo);
+    // The system is the one of the source in front - another system's tab may be open too - else the active system's.
+    const front = vscode.window.activeTextEditor && opened.get(vscode.window.activeTextEditor.document.uri.toString());
+    const chosen = active();
+    const from = front && front.repo ? front
+      : [...opened.values()].find(item => item.repo && !chosen.error && keyInfo(item.repo.key).name === chosen.system.name)
+      || [...opened.values()].find(item => item.repo);
     if (!from || !from.repo) { throw new Error('Open a VERTEX ABAP source tab so the analysis knows which system to read.'); }
     const type = object_type || 'PROG', entry = await sourceDocument(from.repo, { object_type: type, object_name });
     if (entry.document.lineCount > MAX_VARIABLE_LINES) {
@@ -197,8 +223,16 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     if (routine) {
       focus = declared.find(item => item.name !== 'GLOBAL' && up(item.owner) + '->' + up(item.name) === up(routine)) || null;
     } else if (Number.isInteger(line)) {
-      const starts = up(type) === 'CLAS' && debuggerApi && typeof debuggerApi.classMethods === 'function'
-        ? await debuggerApi.classMethods('/sap/bc/adt/oo/classes/' + encodeURIComponent(String(object_name).toLowerCase()) + '/source/main') : null;
+      // Where each method's implementation starts in the class source: the analysis read the tab's own source, so its lines
+      // are the editor's. ADT's class components are asked only for a method the analysis did not find - and not on a
+      // system reached through SAP's ADT extension, which has no ADT here.
+      const starts = up(type) !== 'CLAS' ? null : Object.fromEntries(declared.filter(item => item.source === loaded.target.source
+        && item.name !== 'GLOBAL' && up(item.owner) === up(object_name)).map(item => [up(item.name), item.first]));
+      const missing = starts && declared.some(item => item.name !== 'GLOBAL' && up(item.owner) === up(object_name) && !(up(item.name) in starts));
+      if (missing && !keyInfo(from.repo.key).viaExtension && debuggerApi && typeof debuggerApi.classMethods === 'function') {
+        const fromAdt = await debuggerApi.classMethods('/sap/bc/adt/oo/classes/' + encodeURIComponent(String(object_name).toLowerCase()) + '/source/main');
+        for (const [method, line] of Object.entries(fromAdt || {})) { if (!(method in starts)) { starts[method] = line; } }
+      }
       focus = require('./value-origin-points').routineAt(declared, { objectType: type, objectName: object_name, targetSource: loaded.target.source, line, starts });
     }
     const global = inTarget.find(item => item.name === 'GLOBAL');
@@ -221,7 +255,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   /* The object and kind of an open VERTEX tab, for whoever follows the reader's cursor. */
   function documentObject(document) {
     const entry = document && (opened.get(document.uri.toString()) || readOnly.get(document.uri.toString()));
-    return entry ? { object_name: entry.data.object_name, object_type: entry.data.object_type } : null;
+    return entry ? { object_name: entry.data.object_name, object_type: entry.data.object_type, system_name: keyInfo(entry.repo.key).name } : null;
   }
   /* The analysis reads SAP through the same session as everything else here, and that session takes one request at a time: a
      second one is refused as busy. The analysis requests - the points, the variables, a link's source - therefore go one after
@@ -247,13 +281,16 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     // Where the reader was goes into VERTEX's navigation history first, so Back returns there.
     { const leaving = shown || visible.find(editor => editor.document && editor.document.uri && editor.document.uri.scheme === "vertex-sap" && editor.viewColumn); if (leaving) { navigation.push({ document: leaving.document, at: leaving.selection.active }); } }
     if (shown) {
-      const editor = await vscode.window.showTextDocument(document, { viewColumn: beside ? vscode.ViewColumn.Beside : shown.viewColumn, preserveFocus: preserveFocus === true, preview: true });
+      // Shown already: in its own group. "Beside" is beside the window that asked (Tools), and would open a new group
+      // next to it while the source stands in another.
+      const editor = await vscode.window.showTextDocument(document, { viewColumn: shown.viewColumn, preserveFocus: preserveFocus === true, preview: true });
       editor.selection = new vscode.Selection(at, at);
       editor.revealRange(new vscode.Range(at, at), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
       return;
     }
     const home = visible.find(editor => editor.document && editor.document.uri && editor.document.uri.scheme === 'vertex-sap' && editor.viewColumn);
-    await vscode.commands.executeCommand('vscode.open', document.uri, { viewColumn: beside ? vscode.ViewColumn.Beside : home ? home.viewColumn : vscode.ViewColumn.One,
+    // The group a SAP source already stands in takes this one too; only with none on screen does it go beside.
+    await vscode.commands.executeCommand('vscode.open', document.uri, { viewColumn: home ? home.viewColumn : beside ? vscode.ViewColumn.Beside : vscode.ViewColumn.One,
       selection: new vscode.Range(at, at), preview: true, preserveFocus: preserveFocus === true });
   }
   async function openToolSource(args) {
@@ -261,11 +298,41 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const entry = [...opened.values()].find(item=>item.repo===repo&&item.document&&!item.document.isClosed&&String(item.data.object_name).toUpperCase()===String(args.name).toUpperCase())
       || await sourceDocument(repo, { object_name: args.name, object_type: args.type || 'CLAS' });
     const lines = entry.document.getText().split(/\r?\n/);
-    const routine = String(args.method || '').toUpperCase();
-    let row = routine ? lines.findIndex(text => {
+    const routine = String(args.method || '').toUpperCase(), included = String(args.include || '').toUpperCase();
+    // A local class's method is looked for in that class's IMPLEMENTATION only: many classes share a method's name.
+    const owner = String(args.localClass || '').toUpperCase();
+    let from = 0, to = lines.length;
+    if (owner) {
+      from = lines.findIndex(text => { const hit = /^\s*CLASS\s+(\S+)\s+IMPLEMENTATION\b/i.exec(text); return hit && hit[1].replace(/\.$/, '').toUpperCase() === owner; });
+      // Only a method needs the IMPLEMENTATION: the class and its other members are in the DEFINITION.
+      if (from < 0 && routine) throw new Error('No CLASS ' + owner + ' IMPLEMENTATION in ' + args.name + '.');
+      to = lines.findIndex((text, index) => index > from && /^\s*ENDCLASS\b/i.test(text));
+      if (to < 0) to = lines.length;
+    }
+    let row = routine ? lines.findIndex((text, index) => {
+      if (index < from || index > to) return false;
       const match = /^\s*(?:METHOD|FORM|FUNCTION)\s+([^\s.]+)/i.exec(text);
       return match && match[1].toUpperCase() === routine;
     }) : -1;
+    if (owner && routine && row < 0) throw new Error('No METHOD ' + routine + ' in CLASS ' + owner + ' IMPLEMENTATION of ' + args.name + '.');
+    // The class itself, or a member of it: in its DEFINITION - the CLASS line, or the first line there naming the
+    // member. Its methods go to its IMPLEMENTATION, above.
+    if (owner && !routine) {
+      const start = lines.findIndex(text => { const hit = /^\s*CLASS\s+(\S+)\s+DEFINITION\b(?!.*\b(?:DEFERRED|LOAD)\b)/i.exec(text); return hit && hit[1].replace(/\.$/, '').toUpperCase() === owner; });
+      if (start < 0) throw new Error('No CLASS ' + owner + ' DEFINITION in ' + args.name + '.');
+      row = start;
+      const member = String(args.member || '').toUpperCase();
+      if (member) {
+        const word = new RegExp('(^|[^\\w/$~-])' + member.replace(/[/$]/g, '\\$&') + '(?![\\w/$])', 'i');
+        row = lines.findIndex((text, index) => index > start && word.test(text.replace(/".*$/, '')));
+        const end = lines.findIndex((text, index) => index > start && /^\s*ENDCLASS\b/i.test(text));
+        if (row < 0 || (end >= 0 && row > end)) throw new Error('No ' + member + ' in CLASS ' + owner + ' DEFINITION of ' + args.name + '.');
+      }
+    }
+    if (included) row = lines.findIndex(text => {
+      const match = /^\s*INCLUDE\s+([^\s.]+)/i.exec(text);
+      return match && match[1].toUpperCase() === included;
+    });
     if (row < 0 && routine) row = lines.findIndex(text => {
       const match = /^\s*(?:CLASS-)?METHODS\s+([^\s.(]+)/i.exec(text);
       return match && match[1].toUpperCase() === routine;
@@ -358,34 +425,149 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   let sequence = 0;
   const provider = { provideTextDocumentContent: uri => texts.get(uri.toString()) || "" };
   context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider("vertex-source", provider));
-  async function repository(savedKey) {
-    const chosen = active();
-    if (savedKey) {
-      const [url, client, user, name, allowInsecureCertificate] = JSON.parse(savedKey);
-      chosen.system = { url, client, user, name, allowInsecureCertificate };
-      chosen.error = undefined;
+  const { connectionKey, keyInfo } = require("./auth/systems");
+  async function repository(saved) {
+    const current = auth.currentSystems();
+    for (const [key, repo] of repositories) {
+      if (!current.some(system => connectionKey(system) === key)) {
+        repositories.delete(key);
+        for (const [uri, entry] of opened) { if (entry.repo === repo) opened.delete(uri); }
+        for (const [id, entry] of drafts) { if (entry.repo === repo) drafts.delete(id); }
+        await repo.client?.dispose();
+      }
     }
-    if (chosen.error) { throw new Error(chosen.error); }
-    const system = { ...chosen.system };
-    const key = JSON.stringify([system.url, system.client || "", system.user, system.name,
-      system.allowInsecureCertificate === true]);
-    if (!repositories.has(key)) {
-      const pw = await password(context, system);
-      if (!pw) { throw new Error("SAP password was not supplied."); }
-      const { ADTClient } = require("abap-adt-api");
-      const client = new ADTClient(system.url, system.user, pw, system.client || "", "EN", { timeout: 60000 });
-      client.httpClient.httpclient = require("./sap-http").create(system);
-      repositories.set(key, { key, label: `${system.name} / ${system.user} / ${system.client || "default"}`,
-        api: createRepository({ client, systemId: key,
+    let system;
+    if (saved) {
+      const name = saved.name || keyInfo(saved.key).name;
+      system = current.find(system => connectionKey(system) === saved.key);
+      if (!system) {
+        const matches = current.filter(system => system.name === name);
+        if (matches.length > 1) { throw new Error("several systems are named " + name + "; this tab cannot tell which one it belongs to"); }
+        if (!matches.length) { throw new Error(name + " is no longer in vertex.systems"); }
+        system = matches[0];
+      }
+    } else {
+      const chosen = active();
+      if (chosen.error) { throw new Error(chosen.error); }
+      system = current.find(system => connectionKey(system) === connectionKey(chosen.system));
+      if (!system) { throw new Error(chosen.system.name + " is no longer in vertex.systems"); }
+    }
+    const key = connectionKey(system);
+    const viaExtension = adtExtension.viaExtension(system);
+    // A system reached through SAP's ADT extension: read and written through its abap: file system, no password here.
+    if (viaExtension && !repositories.has(key)) {
+      const state = await adtExtension.state(vscode, system);
+      if (!state.ok) { throw new Error("System " + system.name + ": " + state.text + "."); }
+      const progress = text => { vscode.window.setStatusBarMessage("VERTEX: " + text, 3000); indexWatchers.forEach(watch => watch(text)); };
+      repositories.set(key, { key, system, label: system.name + " / " + adtExtension.LABEL,
+        api: require("./sap-adt-extension-repository").createExtensionRepository({ system,
+          host: adtExtension.host(vscode, system.destination, progress), store: indexStore(system.destination),
           emit: event => events.emit({ ...event, system: system.name }) }) });
       const api = repositories.get(key).api, apply = api.apply;
       api.apply = async (...args) => {
         try { return await apply(...args); }
         finally { require('./frontend-analysis').invalidate(api); }
       };
+      // No index kept for this destination yet: the reader is asked, once a session, whether to build it now.
+      if (!api.indexKept() && !indexOffered.has(system.destination)) {
+        indexOffered.add(system.destination);
+        void vscode.window.showInformationMessage("VERTEX: " + system.name + " has no index of its objects yet. Without one an object is found by name only near the objects you work on. Index every customer package now - once, in the background?",
+          "Index now", "Later").then(answer => { if (answer === "Index now") void indexSystem(system); });
+      }
+    }
+    if (!repositories.has(key)) {
+      if (pendingRepositories.has(key)) return pendingRepositories.get(key);
+      const pending = (async () => {
+        const client = await auth.makeClient(system, "repository");
+        const api = createRepository({ client, systemId: key,
+          emit: event => events.emit({ ...event, system: system.name }) });
+        // Returned readers use the same error boundary as repository methods.
+        const wrap = method => (...args) => {
+          const explain = error => {
+            if (error && typeof error === "object") {
+              error.message = auth.explain(system, error);
+              throw error;
+            }
+            throw new Error(auth.explain(system, error), { cause: error });
+          };
+          const resultOf = result => typeof result === "function" ? wrap(result) : result;
+          try {
+            const result = method(...args);
+            return result && typeof result.then === "function" ? result.then(resultOf, explain) : resultOf(result);
+          } catch (error) { return explain(error); }
+        };
+        for (const name of Object.keys(api)) {
+          if (typeof api[name] === "function") api[name] = wrap(api[name]);
+        }
+        repositories.set(key, { key, system, client,
+          label: `${system.name} / ${system.user} / ${system.client || "default"}`, api });
+        const apply = api.apply;
+        api.apply = async (...args) => {
+          try { return await apply(...args); }
+          finally { require('./frontend-analysis').invalidate(api); }
+        };
+        return repositories.get(key);
+      })();
+      pendingRepositories.set(key, pending);
+      try { return await pending; }
+      finally { if (pendingRepositories.get(key) === pending) pendingRepositories.delete(key); }
     }
     return repositories.get(key);
   }
+  /* Where the index of an extension system's objects is kept between sessions. Not readable is no index; not writable
+     is said - the next session would walk the packages again without saying why. */
+  function indexStore(destination) {
+    const folder = context.globalStorageUri && context.globalStorageUri.fsPath;
+    if (!folder) { return null; }
+    const file = require("path").join(folder, "sap-adt-index", encodeURIComponent(destination) + ".json");
+    return {
+      load: () => { try { return JSON.parse(require("fs").readFileSync(file, "utf8")); } catch (_) { return null; } },
+      save: value => {
+        try { require("fs").mkdirSync(require("path").dirname(file), { recursive: true }); require("fs").writeFileSync(file, JSON.stringify(value)); }
+        catch (error) { vscode.window.showWarningMessage("VERTEX: the index of " + destination + " could not be kept in " + file + ": " + error.message); }
+      }
+    };
+  }
+  /* A document or folder of SAP's ADT extension (abap:/repotree-v1/<destination>/...): the system of vertex.systems with
+     that destination, and what the path stands for. */
+  function abapTarget(uri) {
+    const parts = String(uri.path || "").split("/").filter(Boolean);
+    if (uri.scheme !== "abap" || parts[0] !== "repotree-v1" || !parts[1]) { return null; }
+    const segments = parts.slice(1).map(part => { try { return decodeURIComponent(part); } catch (_) { return part; } });
+    const system = systems().find(s => adtExtension.viaExtension(s) && s.destination === segments[0]);
+    if (!system) {
+      throw new Error("Destination " + segments[0] + " of SAP ADT extension is not in vertex.systems. Add it with VERTEX: Get Connections from SAP ADT for VS Code.");
+    }
+    return { system, segments, info: require("./sap-adt-extension-repository").objectAt(segments) };
+  }
+  const repositoryOf = system => repository({ name: system.name, key: connectionKey(system) });
+  /* An open abap: document taken in as a VERTEX tab of its system, so what works on a VERTEX tab - Tools, the analysis,
+     the transpiler, breakpoints - works on it. Saving, activating and SAP's navigation stay the extension's. */
+  async function adopt(document) {
+    if (!document || !document.uri || document.uri.scheme !== "abap") { return null; }
+    const key = document.uri.toString();
+    if (opened.has(key)) { return opened.get(key); }
+
+    const target = abapTarget(document.uri);
+    const info = target && target.info;
+
+    if (!info || info.kind !== "object" || !["PROG", "INCL", "CLAS", "INTF", "FUNC"].includes(info.type)) {
+      throw new Error(document.uri.path.split("/").pop() + " is no ABAP source VERTEX works on (a program, include, class, interface or function module).");
+    }
+    const repo = await repositoryOf(target.system);
+    repo.api.seed(info);
+    const data = await repo.api.execute("read_sap_object", { object_type: info.type, object_name: info.name, include: info.include });
+    const entry = { repo, data, document };
+    opened.set(key, entry);
+
+    return entry;
+  }
+  // Taken in as they open; one that cannot be - not logged on, no such system - is said when a command is asked for it.
+  context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(document => { void adopt(document).catch(e => {  }); }));
+  for (const document of vscode.workspace.textDocuments || []) { void adopt(document).catch(() => {}); }
+  context.subscriptions.push(vscode.workspace.onDidCloseTextDocument(document => {
+    if (document.uri.scheme === "abap") { opened.delete(document.uri.toString()); }
+  }));
   const fileEvents = new vscode.EventEmitter();
   const savedEntries = context.workspaceState.get("sapEditors", {});
   // Those keys come from a previous window: their text is what SAP had when the
@@ -395,16 +577,41 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   // the first time it is asked for.
   const fromLastSession = new Set(Object.keys(savedEntries));
   async function rememberEditor(uri, entry) {
-    savedEntries[uri.toString()] = { key: entry.repo.key, data: entry.data };
+    savedEntries[uri.toString()] = { ...savedEntries[uri.toString()], key: entry.repo.key, name: entry.repo.system.name, data: entry.data,
+      ...(entry.needsRead ? { reread: true } : {}) };
     await context.workspaceState.update("sapEditors", savedEntries);
   }
   async function fileEntry(uri) {
     const key = uri.toString();
+    const existing = opened.get(key);
+    if (existing && !auth.currentSystems().some(system => connectionKey(system) === existing.repo.key)) {
+      await repository(savedEntries[key] || { key: existing.repo.key, name: existing.repo.system.name });
+    }
     if (!opened.has(key)) {
       const saved = savedEntries[key];
       if (!saved) { throw vscode.FileSystemError.FileNotFound(uri); }
-      const repo = await repository(saved.key);
+      const repo = await repository(saved);
       let data = saved.data && { ...saved.data };
+      const needsRead = saved.reread || saved.key !== repo.key;
+      if (needsRead) {
+        const object = saved.object || data;
+        saved.reread = true;
+        saved.object = { object_name: object.object_name, object_type: object.object_type, include: object.include || "main" };
+        await context.workspaceState.update("sapEditors", savedEntries);
+        try {
+          data = await repo.api.execute("read_sap_object", {
+            ...saved.object
+          });
+          saved.data = data;
+          await context.workspaceState.update("sapEditors", savedEntries);
+          fromLastSession.delete(key);
+        } catch (error) {
+          delete saved.data;
+          fromLastSession.delete(key);
+          await context.workspaceState.update("sapEditors", savedEntries);
+          throw vscode.FileSystemError.Unavailable(error.message);
+        }
+      }
       // A tab can outlive an extension reload, including an upgrade from a
       // version which stored only its object metadata.  Do not let that stale
       // entry make VS Code show its generic "editor could not be opened" page:
@@ -417,7 +624,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
           object_name: data.object_name, object_type: data.object_type,
           include: data.include || "main"
         });
-        savedEntries[key] = { key: repo.key, data };
+        savedEntries[key] = { ...savedEntries[key], key: repo.key, name: repo.system.name, data };
         await context.workspaceState.update("sapEditors", savedEntries);
       }
       if (fromLastSession.delete(key) && data.object_name && data.object_type) {
@@ -426,7 +633,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
             object_name: data.object_name, object_type: data.object_type,
             include: data.include || "main"
           });
-          savedEntries[key] = { key: repo.key, data };
+          savedEntries[key] = { ...savedEntries[key], key: repo.key, name: repo.system.name, data };
           await context.workspaceState.update("sapEditors", savedEntries);
         } catch (error) {
           // Kept rather than lost, and said rather than hidden: the tab is the
@@ -436,7 +643,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
             + (error && error.message || error));
         }
       }
-      opened.set(key, { repo, data });
+      opened.set(key, { repo, data, needsRead });
     }
     return opened.get(key);
   }
@@ -448,9 +655,20 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       return { type: vscode.FileType.File, ctime: 0, mtime: entry.mtime || 0,
         size: Buffer.byteLength(entry.data.source) };
     },
-    async readFile(uri) { return Buffer.from((await fileEntry(uri)).data.source); },
+    async readFile(uri) {
+      const entry = await fileEntry(uri);
+      const content = Buffer.from(entry.data.source);
+      if (entry.needsRead) {
+        await rememberEditor(uri, entry);
+        delete savedEntries[uri.toString()].reread;
+        await context.workspaceState.update("sapEditors", savedEntries);
+        entry.needsRead = false;
+      }
+      return content;
+    },
     async writeFile(uri, content) {
       const entry = await fileEntry(uri), source = Buffer.from(content).toString("utf8");
+      await guardSourceWrite(entry, uri);
       // Review has already activated exactly these bytes. Let VS Code mark
       // the document clean without writing SAP again or saving declined hunks.
       if (entry.acknowledged) {
@@ -505,12 +723,15 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     }
     return null;
   }
-  const blockOpen = { DO: "ENDDO", LOOP: "ENDLOOP", METHOD: "ENDMETHOD", FORM: "ENDFORM", IF: "ENDIF", CASE: "ENDCASE" };
+  const blockOpen = { DO: "ENDDO", LOOP: "ENDLOOP", METHOD: "ENDMETHOD", FORM: "ENDFORM", IF: "ENDIF", CASE: "ENDCASE",
+    CLASS: "ENDCLASS", INTERFACE: "ENDINTERFACE" };
+  // CLASS ... DEFINITION DEFERRED / LOAD / LOCAL FRIENDS and INTERFACE ... DEFERRED / LOAD have no end of their own.
+  const noBlock = /^\s*(?:CLASS|INTERFACE)\s+\S+\s+(?:DEFINITION\s+)?(?:DEFERRED|LOAD|LOCAL\s+FRIENDS)\b/i;
   const blockClose = Object.fromEntries(Object.entries(blockOpen).map(([open, close]) => [close, open]));
   function structuralAnchor(document, at) {
     const line = document.getText().split(/\r?\n/)[at.line] || "";
-    const match = /^\s*(DO|ENDDO|LOOP|ENDLOOP|METHOD|ENDMETHOD|FORM|ENDFORM|IF|ELSEIF|ELSE|ENDIF|CASE|WHEN|ENDCASE)\b/i.exec(line);
-    if (!match) return null;
+    const match = /^\s*(DO|ENDDO|LOOP|ENDLOOP|METHOD|ENDMETHOD|FORM|ENDFORM|IF|ELSEIF|ELSE|ENDIF|CASE|WHEN|ENDCASE|CLASS|ENDCLASS|INTERFACE|ENDINTERFACE)\b/i.exec(line);
+    if (!match || noBlock.test(line)) return null;
     const from = match.index + match[0].indexOf(match[1]), to = from + match[1].length;
     if (at.character < from || at.character > to) return null;
     return { name: match[1].toUpperCase(), from, to, line: at.line };
@@ -523,8 +744,8 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     if (!anchor) return undefined;
     const lines = document.getText().split(/\r?\n/), frames = [], targets = new Map();
     lines.forEach((line, index) => {
-      const hit = /^\s*(DO|ENDDO|LOOP|ENDLOOP|METHOD|ENDMETHOD|FORM|ENDFORM|IF|ELSEIF|ELSE|ENDIF|CASE|WHEN|ENDCASE)\b/i.exec(line);
-      if (!hit) return;
+      const hit = /^\s*(DO|ENDDO|LOOP|ENDLOOP|METHOD|ENDMETHOD|FORM|ENDFORM|IF|ELSEIF|ELSE|ENDIF|CASE|WHEN|ENDCASE|CLASS|ENDCLASS|INTERFACE|ENDINTERFACE)\b/i.exec(line);
+      if (!hit || noBlock.test(line)) return;
       const word = hit[1].toUpperCase(), column = hit.index + hit[0].indexOf(hit[1]);
       if (blockOpen[word]) { frames.push({ kind: word, start: { index, column, word }, branches: [] }); return; }
       if (word === "ELSEIF" || word === "ELSE" || word === "WHEN") {
@@ -968,7 +1189,23 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     }
     return null;
   }
+  async function guardSourceWrite(entry, uri) {
+    uri = uri || entry.document && entry.document.uri
+      || [...opened].find(([, value]) => value === entry)?.[0];
+    if (typeof uri === "string") { uri = vscode.Uri.parse(uri); }
+    if (!uri || uri.scheme !== "vertex-sap") { return; }
+    const current = await fileEntry(uri);
+    if (current !== entry || current.needsRead || savedEntries[uri.toString()]?.reread) {
+      fileEvents.fire([{ type: vscode.FileChangeType.Changed, uri }]);
+      throw vscode.FileSystemError.Unavailable("This tab's system changed and it was re-read. Read the tab again before saving.");
+    }
+  }
+  async function applySource(entry, id, payload) {
+    await guardSourceWrite(entry);
+    return entry.repo.api.apply(id, payload);
+  }
   async function saveSource(entry, source) {
+    await guardSourceWrite(entry);
     if (entry.saving) { throw new Error("This SAP object is already being saved."); }
     entry.saving = true;
     let draft;
@@ -979,9 +1216,10 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       const yes = await vscode.window.showWarningMessage(`Save & Activate ${entry.data.object_name} in ${entry.repo.label}?`,
         { modal: true, detail: "SAP will check syntax, save and activate the editor contents." }, "Save & Activate");
       if (yes !== "Save & Activate") { throw new Error("Save & Activate cancelled."); }
+      await guardSourceWrite(entry);
       draft = await entry.repo.api.execute("modify_sap_object", { ...entry.data,
         base_revision: entry.data.revision, source });
-      const result = await entry.repo.api.apply(draft.change_id, { source, transport: transport.trim().toUpperCase() });
+      const result = await applySource(entry, draft.change_id, { source, transport: transport.trim().toUpperCase() });
       entry.data = { ...entry.data, source, revision: result.revision, active_revision: result.revision };
       entry.transport = transport;
       vscode.window.showInformationMessage(entry.data.object_name + " saved and activated.");
@@ -1030,30 +1268,40 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   }
   async function breakpointTarget(point) {
     const location = point && point.location;
-    if (!location || location.uri.scheme !== 'vertex-sap') return null;
+    if (!location || !['vertex-sap', 'abap'].includes(location.uri.scheme)) return null;
+    if (location.uri.scheme === 'abap') { await adopt(await vscode.workspace.openTextDocument(location.uri)); }
     // VS Code retains native points across an extension reload, while our
     // in-memory map is new. Rehydrate the editor entry from workspace state
     // so those existing points can be sent back to SAP without a manual
     // remove/add click.
     const entry = opened.get(location.uri.toString()) || await fileEntry(location.uri).catch(() => null);
     if (!entry || !['PROG', 'CLAS', 'FUNC'].includes(entry.data.object_type)) return null;
+    // A system reached through SAP's ADT extension has no ADT debugger here: its points stay VS Code's, for the
+    // analysis between breakpoints and the transpiler's local debugging, and go to no SAP.
+    const local = keyInfo(entry.repo.key).viaExtension ? keyInfo(entry.repo.key).name : "";
     const line = location.range.start.line + 1;
     if (entry.data.object_type !== 'CLAS' || entry.data.include === 'main') {
-      return { url: entry.data.source_url, line };
+      return { url: entry.data.source_url, line, local };
     }
     // The normal class editor can show definitions/implementations, whereas
     // ADT debugger points are anchored in the class main source.  Locate the
     // same source line there before handing it to SAP.
     const main = await sourceDocument(entry.repo, { object_type: 'CLAS', object_name: entry.data.object_name });
-    return { url: main.data.source_url, line: sourceLineIn(entry.document.getText(), line, main.document.getText()) };
+    return { url: main.data.source_url, line: sourceLineIn(entry.document.getText(), line, main.document.getText()), local };
   }
+  const toldLocalPoints = new Set();
   async function addNativeBreakpoint(point) {
     const target = await breakpointTarget(point); if (!target || !debuggerApi) return;
+    if (target.local && !toldLocalPoints.has(target.local)) {
+      toldLocalPoints.add(target.local);
+      vscode.window.showInformationMessage('VERTEX: ' + target.local + ' is connected only with SAP ADT extension, so breakpoints are not set in SAP and Run in SAP does not stop at them.'
+        + ' They serve the analysis between breakpoints and debugging with the ABAP transpiler.');
+    }
     const old = nativeBreakpoints.get(point.id);
     if (old) { nativeBreakpoints.delete(point.id); await debuggerApi.clearBreakpoints(old); }
     let placed;
     try {
-      placed = await debuggerApi.setBreakpointAt({ url: target.url, line: target.line,
+      placed = await debuggerApi.setBreakpointAt({ url: target.url, line: target.line, local: !!target.local,
         condition: point.condition || '', mode: point.logMessage ? 'log' : 'stop' });
     } catch (error) {
       // A point SAP refused is not a point: the gutter must not show one the
@@ -1092,7 +1340,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const natives = vscode.debug.breakpoints || [];
     const visibleUris = new Set((vscode.window.visibleTextEditors || []).map(e => e.document.uri.toString()));
     const entryFor = point => [...opened.values()].filter(e => e.document && !e.document.isClosed
-      && (!picture.system || JSON.parse(e.repo.key)[3] === picture.system)
+      && (!picture.system || e.repo.system.name === picture.system)
       && String(e.data.source_url || '').split('#')[0].toLowerCase() === String(point.url || '').split('#')[0].toLowerCase())
       .sort((a, b) => Number(visibleUris.has(b.document.uri.toString())) - Number(visibleUris.has(a.document.uri.toString())))[0];
     for (const [nativeId, sapId] of [...nativeBreakpoints]) {
@@ -1329,9 +1577,11 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
   async function methodCounterpart(document, at) {
     const entry = opened.get(document.uri.toString()) || [...opened.values()].find(item => item.document === document)
       || readOnly.get(document.uri.toString());
-    if (!entry || entry.data.object_type !== "CLAS") { return undefined; }
+    if (!entry) { return undefined; }
     const anchor = methodAnchor(document, at);
     if (!anchor) { return undefined; }
+    // A local class in a program, an include or a module: its other half is in the same source.
+    if (entry.data.object_type !== "CLAS") { return anchor.call ? undefined : localMethodCounterpart(document, at, anchor); }
     // A class main source already contains its global declaration and
     // implementation.  This is the normal VERTEX editor and navigation must
     // be instant there; do not make four ADT requests just to move a cursor.
@@ -1352,6 +1602,63 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const column = text.toUpperCase().indexOf(anchor.name);
     return { document: target.document, target: location(target.document.uri, line,
       Math.max(0, column), anchor.name.length) };
+  }
+  function ownDeclaration(document, at) {
+    const word = wordAt(document, at);
+    if (!word) return undefined;
+    const lines = document.getText().split(/\r?\n/), name = String(word.name).toUpperCase();
+    // A call of a method of a class this source declares - lcl=>m( ), or lo->m( ) with lo TYPE REF TO lcl - goes to
+    // its METHOD in that class's IMPLEMENTATION here; SAP knows no such global class.
+    const call = externalCallAnchor(document, at);
+    if (call && call.method && name === call.method && ["method", "instance-method"].includes(call.kind)) {
+      const owner = call.kind === "method" ? call.object_name : String(instanceClass(document, at, call.instance) || "").toUpperCase();
+      const start = owner ? lines.findIndex(text => { const hit = /^\s*CLASS\s+(\S+)\s+IMPLEMENTATION\b/i.exec(text); return hit && hit[1].replace(/\.$/, '').toUpperCase() === owner; }) : -1;
+      if (start >= 0) {
+        let end = start;
+        while (end < lines.length && !/^\s*ENDCLASS\b/i.test(lines[end])) end++;
+        const found = require("./value-origin-open").methodLine(lines.slice(start, end + 1).join("\n"), name, true);
+        if (found >= 0) {
+          const line = start + found;
+          return { document, target: location(document.uri, line, Math.max(0, lines[line].toUpperCase().indexOf(name)), name.length) };
+        }
+      }
+    }
+    const line = lines.findIndex(text => {
+      const hit = /^\s*(?:CLASS\s+(\S+)\s+DEFINITION\b(?!.*\b(?:DEFERRED|LOAD)\b)|INTERFACE\s+(\S+)(?!.*\b(?:DEFERRED|LOAD)\b)|FORM\s+(\S+))/i.exec(text);
+      return hit && String(hit[1] || hit[2] || hit[3]).replace(/\.$/, '').toUpperCase() === name;
+    });
+    if (line < 0) return undefined;
+    // On a class's own DEFINITION line, its name goes to its IMPLEMENTATION; on the IMPLEMENTATION line the search
+    // above already leads to the DEFINITION.
+    let goal = line;
+    if (line === at.line) {
+      goal = lines.findIndex(text => { const hit = /^\s*CLASS\s+(\S+)\s+IMPLEMENTATION\b/i.exec(text); return hit && hit[1].replace(/\.$/, '').toUpperCase() === name; });
+      if (goal < 0) return undefined;
+    }
+    const column = lines[goal].toUpperCase().indexOf(name);
+    return { document, target: location(document.uri, goal, Math.max(0, column), name.length) };
+  }
+  /* The METHOD of a METHODS line, or the other way round, within the local class the cursor stands in: the
+     declaration in CLASS x DEFINITION, the implementation in CLASS x IMPLEMENTATION, so a name two classes share
+     goes to its own class. */
+  function localMethodCounterpart(document, at, anchor) {
+    const lines = document.getText().split(/\r?\n/);
+    let owner;
+    for (let index = at.line; index >= 0 && !owner; index--) {
+      if (/^\s*ENDCLASS\b/i.test(lines[index]) && index !== at.line) return undefined;
+      const hit = /^\s*CLASS\s+(\S+)\s+(DEFINITION|IMPLEMENTATION)\b/i.exec(lines[index]);
+      if (hit && !noBlock.test(lines[index])) owner = hit[1].replace(/\.$/, "").toUpperCase();
+    }
+    if (!owner) return undefined;
+    const kind = anchor.implementation ? "DEFINITION" : "IMPLEMENTATION";
+    const start = lines.findIndex(text => new RegExp("^\\s*CLASS\\s+" + owner.replace(/[/$]/g, "\\$&") + "\\s+" + kind + "\\b", "i").test(text) && !noBlock.test(text));
+    if (start < 0) return undefined;
+    let end = start;
+    while (end < lines.length && !/^\s*ENDCLASS\b/i.test(lines[end])) end++;
+    const found = require("./value-origin-open").methodLine(lines.slice(start, end + 1).join("\n"), anchor.name, !anchor.implementation);
+    if (found < 0) return undefined;
+    const line = start + found, column = lines[line].toUpperCase().indexOf(anchor.name);
+    return { document, target: location(document.uri, line, Math.max(0, column), anchor.name.length) };
   }
   async function externalCallTarget(document, at) {
     const current = opened.get(document.uri.toString()) || [...opened.values()].find(item => item.document === document)
@@ -1497,6 +1804,10 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     // F12 walks the branches; the double-click (QUIET) jumps to the end.
     const structure = structuralTarget(editor.document, at, !quiet);
     if (structure) { await moveTo(editor, structure); return; }
+    // A class, an interface or a form this source declares itself is found in it - no SAP request, so a source
+    // too large to send to SAP still navigates to its own declarations.
+    const own = ownDeclaration(editor.document, at);
+    if (own) { await moveTo(editor, own); return; }
     const method = await methodCounterpart(editor.document, at) || await interfaceImplementation(editor.document, at);
     // Resolve an ABAP call before asking ADT for a declaration.  ADT's
     // definition of LO_STRATEGY->CALCULATE_BASE is the interface METHODS
@@ -1819,6 +2130,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       applying = true;
       let draft;
       try {
+      await guardSourceWrite(entry);
       if (entry.saving || entry.data.revision !== baseRevision) { throw new Error("SAP editor base changed. Open a new review before applying."); }
       const approved = Array.isArray(message.approved) ? [...new Set(message.approved.filter(i => Number.isInteger(i) && i >= 0 && i < parts.length))] : [];
       if (!approved.length) { throw new Error("Approve at least one block."); }
@@ -1835,7 +2147,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
         { modal: true, detail: "SAP will check syntax, save and activate." }, "Apply");
       if (yes !== "Apply") { await panel.webview.postMessage({ action: "cancelled" }); return; }
       if (entry.saving || entry.data.revision !== baseRevision) { throw new Error("SAP editor base changed. Open a new review before applying."); }
-      const result = await entry.repo.api.apply(draft.change_id, { source, transport: transport.trim().toUpperCase() });
+      const result = await applySource(entry, draft.change_id, { source, transport: transport.trim().toUpperCase() });
       finished = true;
       // The open editor may still contain declined hunks. Move its SAP base
       // forward only to the reviewed source, so a later review shows exactly
@@ -1888,6 +2200,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     const editor = vscode.window.activeTextEditor;
     const current = editor && opened.get(editor.document.uri.toString());
     if (!current) { throw new Error("Open an object with VERTEX: Search SAP Code or Read SAP Code first."); }
+    await guardSourceWrite(current, editor.document.uri);
     const draft = await current.repo.api.execute("modify_sap_object", {
       ...current.data, base_revision: current.data.revision, source: current.data.source
     });
@@ -2349,7 +2662,10 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       { modal: true, detail: "SAP will check syntax, save and activate. A failed creation may leave an inactive object to inspect." }, "Apply");
     if (approved !== "Apply") { return; }
     if (document.version !== version || document.isClosed) { throw new Error("Draft changed during confirmation. Review it again."); }
-    const result = await repo.api.apply(draft.change_id, { source, transport: transport.trim().toUpperCase() });
+    const entry = [...opened.values()].find(entry => entry.repo === repo
+      && entry.data.object_name === draft.object_name && entry.data.object_type === draft.object_type
+      && (entry.data.include || "main") === (draft.include || "main")) || { repo, document };
+    const result = await applySource(entry, draft.change_id, { source, transport: transport.trim().toUpperCase() });
     drafts.delete(draft.change_id);
     repo.api.discard(draft.change_id);
     vscode.window.showInformationMessage(`${draft.object_name} saved and activated in ${repo.label}.`);
@@ -2360,7 +2676,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
     if (selected) { selected.repo.api.discard(selected.draft.change_id); drafts.delete(selected.draft.change_id); }
   });
   context.subscriptions.push({ dispose() {
-    for (const repo of repositories.values()) { void repo.api.dispose().catch(() => {}); }
+    for (const repo of repositories.values()) { void repo.client?.dispose().catch(() => {}); }
     repositories.clear(); texts.clear(); opened.clear(); drafts.clear();
   } });
   // Where reviews are kept: vertex.review.storage, and the folder of the files. A system without VERTEX's ABAP keeps
@@ -2387,7 +2703,63 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       write: async (trkorr, remote, text) => { const at = file(trkorr, remote); await fs.promises.mkdir(path.dirname(at), { recursive: true }); await fs.promises.writeFile(at, text, 'utf8'); return at; } };
   }
   // Host/agent interface: create/modify only PREPARE and open a diff. Apply is UI-only.
-  return { frontendRequest: async (resource, progress, cancelled) => require('./frontend-analysis').request((await repository()).api, resource, progress, cancelled),
+  // The sources of a transpiler run of an SAP program: its active version and what it names (sap-transpile.js).
+  async function transpileSourcesOf({ object_name, object_type }, progress, options = {}) {
+    const repo = await repository(), read = repo.api.analysisReader(), query = (sql, rows) => repo.api.query(sql, rows);
+    const cache = require('./sap-cache'), folder = cache.cacheFolder(repo.key, { object_name, object_type });
+    const textsOf = async sources => {
+      const texts = {};
+      for (const source of sources.filter(source => source.type === 'PROG')) {
+        const base = '/sap/bc/adt/textelements/programs/' + encodeURIComponent(source.name.toLowerCase()) + '/source/';
+        try { texts[source.name] = require('./selection-screen').adtTexts(await repo.api.sourceAt(base + 'selections'), await repo.api.sourceAt(base + 'symbols')); }
+        catch (error) { texts[source.name] = { selections: {}, symbols: {}, error: error.message }; }
+      }
+      return texts;
+    };
+    // A build read for another entry is another set of objects: it is read again.
+    const kept = options.recompile ? null : (k => k && (k.entryLine || 0) === (options.entryLine || 0) ? k : null)(cache.readKept(folder));
+    if (kept) return { system: repo.label, sources: kept.sources, dictionary: kept.dictionary, texts: await textsOf(kept.sources),
+      folder, fingerprint: kept.fingerprint, builtAt: kept.builtAt, cached: true };
+    const first = await read({ object_name, object_type });
+    const open = [...opened.values()].find(e => e.repo === repo && e.data.object_url === first.object_url
+      && (e.data.include || 'main') === 'main' && e.document && !e.document.isClosed);
+    if (open && (open.document.isDirty || revision(open.document.getText()) !== revision(first.source))) {
+      throw new Error(first.object_name + ': save and activate the source first - the transpiler runs the active version.');
+    }
+    // A function module called brings its function group, read through ADT and TFDIR.
+    const fugr = require('./sap-fugr');
+    // Through SAP's ADT extension the group of a module and the modules of a group come from its tree, not from TFDIR.
+    const groups = { of: module => repo.api.groupOf ? repo.api.groupOf(module) : fugr.groupOf(query, module),
+      read: group => fugr.readFunctionGroup({ sourceAt: repo.api.sourceAt, query, modules: repo.api.groupModules }, group, progress) };
+    // Through SAP's ADT extension standard SAP cannot be read, and only the system's own namespaces are customer code.
+    const sources = await require('./sap-transpile').collect(read, { name: first.object_name, type: first.object_type },
+      { progress, groups, entryLine: options.entryLine || 0, ...(repo.api.customerName ? { customer: repo.api.customerName } : {}) });
+    // The dictionary objects the sources use, beside open-abap-core's and the classes read.
+    const ddic = require('./sap-ddic'), named = new Set();
+    for (const source of sources) for (const name of ddic.dictionaryNames(source.text)) named.add(name);
+    progress('dictionary');
+    // Known without the dictionary: open-abap-core's, the objects read, and the types the sources declare themselves.
+    const core = ddic.coreNames();
+    const known = new Set([...core, ...sources.map(source => source.name), ...sources.flatMap(source => [...ddic.declaredTypes(source.text)])]);
+    known.domains = core.domains;
+    // The selection texts and text symbols of each program, for its selection screen - read at every run, as a text pool
+    // changes without its source; why they could not be read, if so.
+    // Through SAP's ADT extension the dictionary comes from its DDIC sources, not from the data preview.
+    const dictionary = await ddic.readDictionary(repo.api.dictionaryQuery || query, named, known);
+    // The build is named by when it was read: a project written from another build is written again.
+    const builtAt = new Date().toISOString();
+    cache.keep(folder, { sources, dictionary, fingerprint: builtAt, builtAt, entryLine: options.entryLine || 0 });
+    return { system: repo.label, sources, texts: await textsOf(sources), dictionary, folder, fingerprint: builtAt, builtAt, cached: false };
+  }
+  return { // ADT's quick search, for a system whose repository answers it from its own index (SAP's ADT extension).
+    quickSearch: async (adtType, query, limit) => {
+      const repo = await repository();
+      const objectType = Object.keys(TYPES).find(key => TYPES[key] === adtType);
+      if (!objectType) { throw new Error("Searching " + adtType + " is not available: only " + Object.values(TYPES).join(", ") + " are indexed."); }
+      return (await repo.api.execute("search_sap_objects", { query, object_type: objectType, limit })).objects
+        .map(o => ({ name: o.object_name, type: adtType, uri: o.object_url, packageName: o.package, description: o.description }));
+    },
+    frontendRequest: async (resource, progress, cancelled) => require('./frontend-analysis').request((await repository()).api, resource, progress, cancelled),
     selectorQuery: async (sql, rows) => (await repository()).api.query(sql, rows),
     // SelecTor's table and join (the pivot not yet) answered over ADT's data preview; null for what is not theirs.
     tableRequest: async (resource, progress) => { const api = (await repository()).api;
@@ -2399,23 +2771,51 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       return require('./review-front').write(api, resource, body, await reviewIo(api)); },
     // The sources of a transpiler run of an SAP program: its active version and what it names. An open tab that is not
     // the active version stops it, as the run would not be of the code the reader sees.
-    transpileSources: async ({ object_name, object_type }, progress) => {
-      const repo = await repository(), read = repo.api.analysisReader();
-      const first = await read({ object_name, object_type });
-      const open = [...opened.values()].find(e => e.repo === repo && e.data.object_url === first.object_url
-        && (e.data.include || 'main') === 'main' && e.document && !e.document.isClosed);
-      if (open && (open.document.isDirty || revision(open.document.getText()) !== revision(first.source))) {
-        throw new Error(first.object_name + ': save and activate the source first - the transpiler runs the active version.');
-      }
-      const sources = await require('./sap-transpile').collect(read, { name: first.object_name, type: first.object_type }, { progress });
-      // The dictionary objects the sources use, beside open-abap-core's and the classes read.
-      const ddic = require('./sap-ddic'), named = new Set();
-      for (const source of sources) for (const name of ddic.dictionaryNames(source.text)) named.add(name);
-      progress('dictionary');
-      const known = new Set([...ddic.coreNames(), ...sources.map(source => source.name)]);
-      return { system: repo.label, sources, dictionary: await ddic.readDictionary((sql, rows) => repo.api.query(sql, rows), named, known) };
+    // As SAP runs a program's load, not its text, a run takes what the last build of this object read (sap-cache.js);
+    // only Recompile (options.recompile), or no build yet, reads it from SAP again.
+    // A run waiting on a walk of the extension's tree hears what is walked, where it reports its own progress.
+    transpileSources: async (object, progress, options = {}) => {
+      indexWatchers.add(progress);
+      try { return await transpileSourcesOf(object, progress, options); }
+      finally { indexWatchers.delete(progress); }
     },
+    // The address of an object's VERTEX tab, open or not, as sourceDocument makes it; and that tab's document.
+    sourceUri: async ({ object_name, object_type, include = 'main' }) => {
+      const system = require('crypto').createHash('sha256').update((await repository()).key).digest('hex').slice(0, 16);
+      return vscode.Uri.parse('vertex-sap:/' + system + '/' + object_type + '/' + encodeURIComponent(object_name)
+        + (include === 'main' ? '' : '.' + include) + '.abap').toString();
+    },
+    sourceOf: async args => (await sourceDocument(await repository(), args)).document,
     schemas, onEvent: events.on, runUnitTests: unitTestsOf, runAtc: atcOf, attachDebugger, revealFrame, originPath, forgetOrigin: () => { lastOriginGraph = null; }, openToolSource, originPoints, originOpen, originVariables, documentObject,
+    adopt, abapTarget,
+    /* VERTEX: Index SAP System - the active system, or the one picked, of those reached through SAP's ADT extension. */
+    async indexCommand() {
+      const all = systems().filter(adtExtension.viaExtension);
+      if (!all.length) { throw new Error("No system in vertex.systems is connected through SAP ADT extension."); }
+      const chosen = active();
+      let system = !chosen.error && adtExtension.viaExtension(chosen.system) ? chosen.system : null;
+      if (!system) {
+        const picked = all.length === 1 ? { system: all[0] } : await vscode.window.showQuickPick(all.map(s => ({ label: s.name, description: s.destination, system: s })),
+          { title: "VERTEX: index which system?" });
+        if (!picked) { return; }
+        system = picked.system;
+      }
+      await indexSystem(system);
+    },
+    /* A folder or file of the extension's tree, for a VERTEX Tools window: its object, or its package with the package's
+       objects indexed from the tree alone. */
+    async abapTools(uri) {
+      const target = abapTarget(uri);
+      if (!target || !target.info) { throw new Error("Pick a package or an ABAP object in the tree of SAP ADT extension."); }
+      const repo = await repositoryOf(target.system), info = target.info;
+      if (info.kind === "package") {
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: "VERTEX: reading package " + info.name },
+          () => repo.api.addPackage(info.path, info.name));
+        return { object_name: info.name, object_type: "DEVC", system_name: target.system.name };
+      }
+      repo.api.seed(info);
+      return { object_name: info.name, object_type: info.type, system_name: target.system.name };
+    },
     editorContext() {
       const editor = vscode.window.activeTextEditor;
       if (!editor || !editor.document) { return null; }
@@ -2435,7 +2835,7 @@ function register(vscode, context, { active, password, pin, pinned, systems }) {
       // explicit selection is nevertheless exactly what the user asked chat
       // about and is safe, useful context to hand over.
       if (!entry) { return selected_fragment ? { selected_fragment } : null; }
-      return { system: entry.repo.label, system_name: JSON.parse(entry.repo.key)[3], object_name: entry.data.object_name,
+      return { system: entry.repo.label, system_name: entry.repo.system.name, object_name: entry.data.object_name,
         object_type: entry.data.object_type, include: entry.data.include,
         base_revision: entry.data.revision, source: editor.document.getText(), selected_fragment };
     },

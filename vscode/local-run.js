@@ -50,11 +50,43 @@ async function startSelectorBridge(query = selectorQuery) {
 }
 
 function modulePath(root, name) { return path.join(root, "node_modules", ...name.split("/")); }
+/* The program's selection screen 1000 (selection-screen.js) and the texts it is shown with: the radio groups, the other
+   PARAMETERS and the SELECT-OPTIONS are each taken from it. */
+const screenModel = document => require("./selection-screen").selectionScreen(document.getText()).elements;
 function scenariosFor(document) {
-  return require("./value-origin-model").radioGroups([{ id: document.uri.fsPath, text: document.getText() }]);
+  const groups = new Map();
+  for (const element of screenModel(document)) {
+    if (element.kind !== "parameter" || !element.radio) continue;
+    if (!groups.has(element.radio)) groups.set(element.radio, { group: element.radio, choices: [], default: "" });
+    const group = groups.get(element.radio);
+    group.choices.push({ name: element.name, label: element.name });
+    if (element.default && element.default.toUpperCase() === "X") group.default = element.name;
+  }
+  return [...groups.values()];
 }
 function parametersFor(document) {
-  return require("./value-origin-model").selectionParameters([{ id: document.uri.fsPath, text: document.getText() }]);
+  return screenModel(document).filter(element => element.kind === "parameter" && !element.radio).map(element => ({
+    name: element.name, kind: element.checkbox ? "checkbox" : "value",
+    default: element.checkbox ? (element.default.toUpperCase() === "X" ? "X" : "") : element.defaultName ? "" : element.default,
+    numeric: element.numeric, upper: element.upper }));
+}
+function rangesFor(document) { return screenModel(document).filter(element => element.kind === "select-option"); }
+/* The selection screen as the panel draws it, with its texts: abapGit's text pool beside a local file, or the texts an
+   SAP run read with the program (vertex-texts.json in its folder). */
+function screenFor(document) {
+  const file = document.uri.fsPath, texts = { selections: {}, symbols: {} };
+  const pool = file.replace(/\.abap$/i, ".xml");
+  if (fs.existsSync(pool)) Object.assign(texts, require("./selection-screen").textPoolOf(fs.readFileSync(pool, "utf8")));
+  for (let dir = path.dirname(file); ; dir = path.dirname(dir)) {
+    const read = path.join(dir, "vertex-texts.json");
+    if (fs.existsSync(read)) {
+      const all = JSON.parse(fs.readFileSync(read, "utf8")), own = all[path.basename(file).split(".")[0].toUpperCase()];
+      if (own) Object.assign(texts, own);
+      break;
+    }
+    if (path.dirname(dir) === dir) break;
+  }
+  return { elements: screenModel(document), texts };
 }
 
 function automaticInputFilter(file, inputRoot) {
@@ -258,7 +290,12 @@ function projectFor(document, workspaceRoot, driver) {
       if (!fs.existsSync(cli)) {
         throw new Error("The VERTEX transpiler is missing. Reinstall the VS Code extension.");
       }
-      if (driver) throw new Error("A method or function module of a project with its own abap_transpile.json cannot be run yet: its inputs are the project's.");
+      // The folder VERTEX wrote for an SAP object's run is VERTEX's own: the program that calls a method goes into its inputs.
+      if (driver && fs.existsSync(path.join(dir, "vertex-includes.json"))) {
+        config.input_folder = [...new Set([].concat(config.input_folder, path.dirname(driver)))];
+        config.input_filter = [...new Set(config.input_filter.concat("(?:^|[/\\\\])" + path.basename(driver).replace(/[.]/g, "\\.") + "$"))];
+        fs.writeFileSync(configFile, JSON.stringify(config));
+      } else if (driver) throw new Error("A method or function module of a project with its own abap_transpile.json cannot be run yet: its inputs are the project's.");
       return { root: dir, configFile, cli, entry: path.resolve(dir, config.output_folder, "index.mjs") };
     }
     const parent = path.dirname(dir);
@@ -290,8 +327,17 @@ function projectFor(document, workspaceRoot, driver) {
     write_unit_tests: true, write_source_map: true, options: { addFilenames: true } }));
   const cli = path.join(modulePath(__dirname, "@abaplint/transpiler-cli"), "abap_transpile");
   if (!fs.existsSync(cli)) throw new Error("The VERTEX transpiler is missing. Reinstall the VS Code extension.");
+  // A local file's build is taken again while no source of its folder changed: the stamp is every ABAP and XML file
+  // there - its path, size and last change - and the configuration, so an edit, a new file or a removed one transpiles.
+  const stampParts = [JSON.stringify(fs.readFileSync(configFile, "utf8"))];
+  const stampOf = dir => { for (const item of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const at = path.join(dir, item.name);
+    if (item.isDirectory()) { if (!["node_modules", ".git"].includes(item.name)) stampOf(at); }
+    else if (/\.(?:abap|xml)$/i.test(item.name)) { const stat = fs.statSync(at); stampParts.push(at + " " + stat.size + " " + stat.mtimeMs); }
+  } };
+  stampOf(path.join(root, input));
   return { root, configFile, cli, entry: path.join(outputFolder, "index.mjs"), automatic: true,
-    includedClasses: dependencyList.classes };
+    includedClasses: dependencyList.classes, stamp: crypto.createHash("sha256").update(stampParts.join("\n")).digest("hex") };
 }
 
 function stageRuntime(project) {
@@ -342,7 +388,8 @@ function initializeSelectorDatabase(project) {
     "      } catch (_) {}\n" +
     "    });\n" +
     "  }\n" +
-    "  abap.context.databaseConnections.DEFAULT = { async select(input) {\n" +
+    // Each SELECT goes into the run's record too, with the rows it brought or why it failed.
+    "  const selectorRows = async input => {\n" +
     "    if (process.env.VERTEX_SELECTOR_PIPE) return await new Promise((resolve, reject) => {\n" +
     "      const id = ++selectorNext; selectorPending.set(id, { resolve, reject });\n" +
     "      process.stdout.write('VERTEX_SELECTOR_REQUEST:' + JSON.stringify({ id, input }) + '\\n');\n" +
@@ -355,6 +402,11 @@ function initializeSelectorDatabase(project) {
     "    const data = await response.json();\n" +
     "    if (!response.ok) throw new Error(data.error || 'SAP SelecTor SELECT failed.');\n" +
     "    return data;\n" +
+    "  };\n" +
+    "  abap.context.databaseConnections.DEFAULT = { async select(input) {\n" +
+    "    try { const data = await selectorRows(input);\n" +
+    "      globalThis.__vertexTrace?.sql?.push({ select: input.select, rows: (data.rows || []).length }); return data; }\n" +
+    "    catch (error) { globalThis.__vertexTrace?.sql?.push({ select: input.select, error: error.message }); throw error; }\n" +
     "  } };\n";
   fs.writeFileSync(init, source.replace(anchor, setup + anchor));
 }
@@ -392,6 +444,72 @@ function repairInlineProgramDeclarations(source, lines) {
   if (declarations.length) lines[0] += " " + declarations.join(" ");
 }
 
+/* The transpiler leaves two things of a selection screen as a throw in the program it writes: every SELECTION-SCREEN
+   statement ("transpiler todo"), and a PARAMETERS with LENGTH or DECIMALS ("not supported", since it would cut a value
+   silently). SELECTION-SCREEN only lays the screen out, which the panel draws: its throw goes. Such a parameter is
+   declared with its length and decimals and given its DEFAULT. The line each stands on is kept, so the map still holds;
+   a parameter of another type, or with a DEFAULT that is no literal, stays a throw that says so. */
+function repairSelectionScreen(file) {
+  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+  const SCREEN = 'throw new Error("SelectionScreen, transpiler todo");', SIZED = 'throw new Error("Parameter, not supported, transpiler");';
+  if (!lines.some(line => line.includes(SCREEN) || line.includes(SIZED))) return;
+  let map = null;
+  try { map = JSON.parse(fs.readFileSync(file + ".map", "utf8")); } catch (_) { /* none: a sized parameter is then not placed */ }
+  const places = map ? require("./local-trace").mappedPlaces(map) : [], models = new Map(), used = new Map();
+  const modelOf = source => {
+    if (!models.has(source)) models.set(source, require("./selection-screen").selectionScreen(fs.readFileSync(source, "utf8")).elements);
+    return models.get(source);
+  };
+  for (let index = 0; index < lines.length; index++) {
+    if (lines[index].includes(SCREEN)) lines[index] = lines[index].replace(SCREEN, "");
+    if (!lines[index].includes(SIZED)) continue;
+    const place = places[index], source = place && map.sources?.[place[0]] && path.resolve(path.dirname(file), map.sources[place[0]]);
+    if (!source || !fs.existsSync(source)) continue;
+    // The pieces of a chain all start on the chain's line: each throw there is the next sized piece.
+    const key = source + ":" + place[1], taken = used.get(key) || 0;
+    const sized = modelOf(source).filter(e => e.kind === "parameter" && e.start === place[1] && (e.length !== undefined || e.decimals !== undefined));
+    const element = sized[taken];
+    used.set(key, taken + 1);
+    if (!element) continue;
+    const name = element.name.toLowerCase(), length = element.length || 1, decimals = element.decimals || 0;
+    const declared = { C: `new abap.types.Character(${length}, {})`, N: `new abap.types.Numc({length: ${length}})`,
+      P: `new abap.types.Packed({length: ${length}, decimals: ${decimals}})`, X: `new abap.types.Hex({length: ${length}})` }[element.type];
+    let replacement;
+    if (!declared) replacement = `throw new Error(${JSON.stringify("Parameter " + element.name + " TYPE " + element.type + " with LENGTH or DECIMALS is not run by the transpiler.")});`;
+    else if (element.default && element.defaultName) replacement = `throw new Error(${JSON.stringify("Parameter " + element.name + ": its DEFAULT " + element.default + " is no literal, and the transpiler cannot give it.")});`;
+    else replacement = `let ${name} = ${declared};` + (element.default ? ` ${name}.set(${JSON.stringify(element.upper ? element.default.toUpperCase() : element.default)});` : "");
+    lines[index] = lines[index].replace(SIZED, replacement);
+  }
+  fs.writeFileSync(file, lines.join("\n"));
+}
+
+/* The SELECT-OPTIONS the screen was given, as rows of their range tables in place of the DEFAULT's: after the lines
+   where the program declares and fills each, on the last of them. */
+function setRanges(file, document, given) {
+  const ranges = rangesFor(document).filter(range => Object.prototype.hasOwnProperty.call(given, range.name));
+  if (!ranges.length) return;
+  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+  for (const range of ranges) {
+    const name = range.name.toLowerCase();
+    let at = lines.findIndex(line => line.includes("let " + name + " = abap.types.TableFactory.construct("));
+    if (at < 0) throw new Error("Generated SELECT-OPTIONS " + range.name + " was not found.");
+    while (at < lines.length && !/withHeader/.test(lines[at])) at++;
+    while (lines[at + 1] && (lines[at + 1].trimStart().startsWith(name + ".") || lines[at + 1].trim() === "abap.statements.append({source: " + name + "});")) at++;
+    const rows = (given[range.name] || []).map(row => {
+      const value = text => { let v = String(text ?? "");
+        if (range.numeric) { if (!/^-?\d+(?:\.\d+)?$/.test(v.trim() || "0")) throw new Error("SELECT-OPTIONS " + range.name + " needs numbers, not " + JSON.stringify(v) + "."); return String(Number(v.trim() || "0")); }
+        return JSON.stringify(range.upper ? v.toUpperCase() : v); };
+      const option = String(row.option || (row.high ? "BT" : "EQ")).toUpperCase(), sign = String(row.sign || "I").toUpperCase();
+      if (!["EQ", "NE", "GT", "GE", "LT", "LE", "BT", "NB", "CP", "NP"].includes(option) || !["I", "E"].includes(sign))
+        throw new Error("SELECT-OPTIONS " + range.name + ": " + sign + " " + option + " is no range row.");
+      return `${name}.get().sign.set(${JSON.stringify(sign)});${name}.get().option.set(${JSON.stringify(option)});` +
+        `${name}.get().low.set(${value(row.low)});${name}.get().high.set(${value(row.high)});abap.statements.append({source: ${name}});`;
+    });
+    lines[at] += ` ${name}.clear();` + rows.join("");
+  }
+  fs.writeFileSync(file, lines.join("\n"));
+}
+
 function entryFor(project, document, selection = {}) {
   const filename = path.basename(document.uri.fsPath);
   const source = document.getText();
@@ -421,6 +539,8 @@ function entryFor(project, document, selection = {}) {
   if (candidates.length !== 1) {
     throw new Error("Expected one generated program for " + filename + "; found " + candidates.length + ".");
   }
+  repairSelectionScreen(candidates[0]);
+  setRanges(candidates[0], document, selection.$ranges || {});
   const groups = scenariosFor(document);
   // Plain PARAMETERS and checkboxes: the value the selection screen was given, set after the program's own DEFAULT and
   // upper-cased as SAP would.
@@ -532,8 +652,20 @@ async function launch(vscode, debug, options = {}) {
   }
   const project = projectFor(document, workspaceRoot, driver);
   const output = vscode.window.createOutputChannel("VERTEX Local ABAP");
-  output.appendLine("Transpiling " + project.root);
-  try {
+  // A run unchanged since its last transpiling - an SAP object's same build (sap-cache.js), or a local file whose folder
+  // has not changed (projectFor's stamp) - and no call program of its own takes that transpiled code again, from its
+  // untouched copy: the record's instrumentation and the
+  // screen's values change the code in place.
+  const root = path.dirname(project.configFile), outputRoot = path.dirname(project.entry);
+  const stampFile = path.join(root, "vertex-fingerprint.json"), builtFile = path.join(root, "vertex-built.json"), pristine = path.join(root, "output-pristine");
+  const readJson = file => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { return null; } };
+  const stamp = !driver && (project.stamp || readJson(stampFile)?.fingerprint);
+  const reuse = !!stamp && fs.existsSync(pristine) && readJson(builtFile)?.fingerprint === stamp;
+  output.appendLine((reuse ? "Unchanged since the last run, transpiled code taken again: " : "Transpiling ") + project.root);
+  if (reuse) {
+    // Only the modules of the user's code are changed in place: those are put back, the rest of the output stays.
+    for (const relative of readJson(path.join(pristine, "files.json")) || []) fs.copyFileSync(path.join(pristine, relative), path.join(outputRoot, relative));
+  } else try {
     await prepareFlow(project, document, output);
     if (project.automatic) output.appendLine("Included classes/interfaces: " +
       (project.includedClasses.length ? project.includedClasses.join(", ") : "none"));
@@ -541,10 +673,34 @@ async function launch(vscode, debug, options = {}) {
     // An SAP program's run: its includes were written into it, and its map is pointed back at them.
     if (fs.existsSync(path.join(path.dirname(project.configFile), "vertex-includes.json")))
       require("./sap-transpile").remapIncludes(path.dirname(project.configFile), path.dirname(project.entry));
+    // An SAP run's function modules get the DEFAULTs the transpiler leaves unset.
+    const defaults = path.join(path.dirname(project.configFile), "vertex-defaults.json");
+    if (fs.existsSync(defaults)) require("./sap-fugr").applyModuleDefaults(path.dirname(project.entry), JSON.parse(fs.readFileSync(defaults, "utf8")));
     output.appendLine("Transpilation complete; staging runtime.");
     stageRuntime(project);
     output.appendLine("Runtime staged; preparing local execution.");
     initializeSelectorDatabase(project);
+    if (stamp) {
+      // The untouched copy of what a run changes in place: each module whose map names ABAP of the user's (open-abap-core's
+      // is never instrumented), with _init.mjs.
+      fs.rmSync(pristine, { recursive: true, force: true });
+      const kept = [];
+      const visit = dir => { for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+        const at = path.join(dir, item.name);
+        if (item.isDirectory()) { if (item.name !== "node_modules") visit(at); continue; }
+        if (!item.name.endsWith(".mjs")) continue;
+        let own = item.name === "_init.mjs";
+        if (!own && fs.existsSync(at + ".map")) {
+          const sources = (readJson(at + ".map") || {}).sources || [];
+          own = sources.some(source => /\.abap$/i.test(source) && !String(source).toLowerCase().split(/[\\/]/).includes("open-abap-core"));
+        }
+        if (own) kept.push(path.relative(outputRoot, at));
+      } };
+      visit(outputRoot);
+      for (const relative of kept) { fs.mkdirSync(path.dirname(path.join(pristine, relative)), { recursive: true }); fs.copyFileSync(path.join(outputRoot, relative), path.join(pristine, relative)); }
+      fs.writeFileSync(path.join(pristine, "files.json"), JSON.stringify(kept));
+      fs.writeFileSync(builtFile, JSON.stringify({ fingerprint: stamp }));
+    }
     output.hide?.();
   } catch (error) {
     output.show(true);
@@ -600,6 +756,14 @@ async function launch(vscode, debug, options = {}) {
         while ((end = buffer.indexOf("\n")) >= 0) {
           const line = buffer.slice(0, end).replace(/\r$/, ""); buffer = buffer.slice(end + 1);
           // WRITE leaves its text without a newline, so a record can follow program output on the same line.
+          // The last statement's SELECTs, after the program: they belong to the last record.
+          const tailAt = line.indexOf("VERTEX_TRACE_TAIL:");
+          if (tailAt >= 0) {
+            stdout += line.slice(0, tailAt);
+            const last = records[records.length - 1];
+            if (last) last.sql = (last.sql || []).concat(JSON.parse(line.slice(tailAt + "VERTEX_TRACE_TAIL:".length)));
+            continue;
+          }
           const recordAt = line.indexOf("VERTEX_TRACE_RECORD:");
           if (recordAt >= 0) {
             stdout += line.slice(0, recordAt);
@@ -644,7 +808,9 @@ async function launch(vscode, debug, options = {}) {
         closed = true; bridge?.close();
         // The last WRITE ends without a line break: what is left in the buffer is output too.
         if (buffer) { const at = buffer.indexOf("VERTEX_TRACE_RECORD:"); stdout += at >= 0 ? buffer.slice(0, at) : buffer; buffer = ""; }
-        if (code !== 0) { fail(new Error(stderr || "Local ABAP exited with code " + code)); return; }
+        // A failure is said at the ABAP line it happened on; Node's own text stays in the output channel.
+        if (code !== 0) { const said = require("./local-trace").abapFailure(stderr); if (said) output.appendLine(stderr);
+          fail(new Error(said || stderr || "Local ABAP exited with code " + code)); return; }
         if (initial === undefined) firstReject(new Error("Local ABAP completed without a recorded statement."));
         if (pending) { const done = pending; pending = null; done.resolve({ records: done.records, ended: true }); }
       });
@@ -691,7 +857,12 @@ async function launch(vscode, debug, options = {}) {
         });
         child.stderr.on("data", chunk => { stderr += chunk; });
         child.on("error", reject);
-        child.on("close", code => code === 0 ? resolve({ stdout: stdout + pending, stderr }) : reject(new Error(stderr || "Local ABAP exited with code " + code)));
+        child.on("close", code => {
+          if (code === 0) { resolve({ stdout: stdout + pending, stderr }); return; }
+          const said = require("./local-trace").abapFailure(stderr);
+          if (said) output.appendLine(stderr);
+          reject(new Error(said || stderr || "Local ABAP exited with code " + code));
+        });
       });
       return { records: JSON.parse(fs.readFileSync(traceFile, "utf8")), output: result.stdout,
         durationMs: Date.now() - startedAt };
@@ -745,6 +916,6 @@ function register(vscode, context) {
   }
 }
 
-module.exports = { localDdicAliases, coreDdicNames, projectFor, runScope, scenariosFor, parametersFor, entryScreen, transpile, stageRuntime, initializeSelectorDatabase, startSelectorBridge,
+module.exports = { screenFor, rangesFor, repairSelectionScreen, localDdicAliases, coreDdicNames, projectFor, runScope, scenariosFor, parametersFor, entryScreen, transpile, stageRuntime, initializeSelectorDatabase, startSelectorBridge,
   selectorSql, setSelectorQuery, entryFor, debugConfiguration,
   flowClasses, prepareFlow, repairSelectLoops, launch, register };

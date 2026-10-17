@@ -84,3 +84,33 @@ test("the panel sees only the breakpoints of its own object's sources, and Clear
   await adapter.command("allBreakpoints", { on: true });
   assert.deepEqual(adapter.picture().breakpoints.map(b => b.id), ["A", "B"], "All BP: every ABAP breakpoint");
 });
+
+test("an SAP program's run takes the breakpoints of its SAP tabs, and a point set from the panel goes to the tab", async () => {
+  const copy = "C:/TMP/vertex-sap-abap/A4H-1/src/zcl_x.clas.abap", tab = "vertex-sap:/abc/CLAS/ZCL_X.abap";
+  const at = (id, uri, line) => ({ id, enabled: true, location: { uri, range: { start: { line: line - 1 } } } });
+  const added = [];
+  const vscode = { debug: { breakpoints: [at("S", { scheme: "vertex-sap", toString: () => tab }, 7),
+    at("O", { scheme: "vertex-sap", toString: () => "vertex-sap:/abc/CLAS/ZCL_OTHER.abap" }, 2)], addBreakpoints: list => added.push(...list) },
+    Uri: { file: p => ({ scheme: "file", fsPath: p }) }, SourceBreakpoint: function (location) { this.location = location; },
+    Location: function (uri, position) { this.uri = uri; this.range = { start: position }; }, Position: function (line) { this.line = line; } };
+  const more = { pathOf: uri => uri.scheme === "file" ? uri.fsPath : uri.toString() === tab ? copy : null,
+    uriOf: file => file === copy ? { scheme: "vertex-sap", toString: () => tab } : vscode.Uri.file(file) };
+  const adapter = create(vscode, { uri: { fsPath: "C:/TMP/vertex-sap-abap/A4H-1/sap/zp.prog.abap" } }, async () => {}, () => {},
+    () => ({ root: "C:/TMP/vertex-sap-abap/A4H-1" }), more);
+  assert.deepEqual(adapter.picture().breakpoints.map(b => [b.id, b.url, b.line]), [["S", copy, 7]]);
+  await adapter.command("set", { url: copy, line: 3 });
+  assert.equal(added[0].location.uri.toString(), tab);
+});
+
+test("a run still alive is handed to a page opened again", async () => {
+  const records = [{ file: "z.prog.abap", line: 1 }, { file: "z.prog.abap", line: 2 }];
+  const live = { next: async () => ({ records: [{ file: "z.prog.abap", line: 3 }], ended: false }), stop() {}, output: "Hello" };
+  const adapter = create({ debug: { breakpoints: [{ id: "B", enabled: true, location: { uri: { scheme: "file", fsPath: "z.prog.abap" },
+    range: { start: { line: 0 } } } }] } }, { uri: { fsPath: "z.prog.abap" } }, async () => ({ records: records.slice(), live }), () => {});
+  await adapter.command("run", { selection: {} });
+  await adapter.command("step", { live: true, kind: "into" });
+  const restored = await adapter.command("restore");
+  assert.deepEqual(restored.trace.map(r => r.line), [1, 2, 3]);
+  assert.equal(restored.ended, false);
+  assert.equal(restored.output, "Hello");
+});

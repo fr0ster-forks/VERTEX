@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Object Navigator</title>
+<style>
+:root{color-scheme:light dark}
+body{margin:0;background:var(--vscode-editor-background,Canvas);color:var(--vscode-editor-foreground,CanvasText);font:13px var(--vscode-font-family,"Segoe UI",sans-serif)}
+#status{padding:6px 10px;color:var(--vscode-descriptionForeground,GrayText)}#status:empty{display:none}
+#tree{padding:4px 0 12px}
+ul{list-style:none;margin:0;padding:0 0 0 16px}#tree>ul{padding-left:6px}
+li>.row{display:flex;align-items:center;gap:4px;padding:1px 4px;white-space:nowrap;cursor:default}
+li>.row:hover{background:var(--vscode-list-hoverBackground,#8882)}
+.twist{width:14px;flex:none;text-align:center;cursor:pointer;color:var(--vscode-icon-foreground,inherit)}
+.label{font-family:var(--vscode-editor-font-family,Consolas,monospace)}
+.group>.row>.label{font-family:inherit;font-weight:600}
+.link>.row>.label{cursor:pointer;color:var(--vscode-textLink-foreground,LinkText)}
+.link>.row>.label:hover{text-decoration:underline}
+.desc{opacity:.7;margin-left:8px;overflow:hidden;text-overflow:ellipsis}
+.mark{display:inline-block;width:8px;height:8px;flex:none}
+.mark.public{background:#2e9e44}.mark.protected{background:#d9a400;width:7px;height:7px;transform:rotate(45deg)}.mark.private{background:#d33a2c;border-radius:50%}
+li.closed>ul{display:none}
+</style></head><body>
+<div id="status" role="status"></div><div id="tree" role="tree"></div>
+<script>
+const initial = /*INIT*/null/*INIT*/;
+const status = document.getElementById("status");
+/* One answer at a time comes back through sdeReady; each request waits its turn here. */
+const waiting = [];
+function load(name, type, then, node) { waiting.push(then); sdeLoad(name, type, node || ""); }
+function sdeReady() {
+  const raw = sdeTake(), then = waiting.shift();
+  if (!then) return;
+  if (typeof raw !== "string" || raw.indexOf("ERROR:") === 0) { then(null, String(raw).substring(6)); return; }
+  try { then(JSON.parse(raw)); } catch (e) { then(null, e.message); }
+}
+/* A component opens in the editor at its line, an object at its start. */
+function open(target) {
+  if (typeof sdeOpenUmlSource !== "function") { status.textContent = "This window cannot open source."; return; }
+  // Beside the tree, the focus kept on it: the next click needs no way back.
+  sdeOpenUmlSource(Object.assign({ beside: true, preserveFocus: true }, target));
+}
+function item(node) {
+  const li = document.createElement("li"), row = document.createElement("div");
+  row.className = "row"; li.appendChild(row);
+  const twist = document.createElement("span"); twist.className = "twist"; row.appendChild(twist);
+  if (node.visibility) { const mark = document.createElement("span"); mark.className = "mark " + node.visibility; mark.title = node.visibility; row.appendChild(mark); }
+  const label = document.createElement("span"); label.className = "label"; label.textContent = node.label; row.appendChild(label);
+  if (node.description) { const d = document.createElement("span"); d.className = "desc"; d.textContent = node.description; row.appendChild(d); }
+  if (!node.open && !node.expand) li.classList.add("group");
+  if (node.open) { li.classList.add("link"); label.title = "Open " + node.open.name + " in the editor"; label.onclick = () => open(node.open); }
+  const list = document.createElement("ul");
+  let loaded = !!node.children;
+  if (node.children) node.children.forEach(child => list.appendChild(item(child)));
+  if (node.children || node.expand) {
+    li.appendChild(list);
+    li.classList.add("closed"); twist.textContent = "›";
+    const toggle = () => {
+      const closing = !li.classList.contains("closed");
+      li.classList.toggle("closed", closing); twist.textContent = closing ? "›" : "⌄";
+      if (closing || loaded) return;
+      loaded = true; twist.textContent = "…";
+      load(node.expand.name, node.expand.type, (data, error) => {
+        twist.textContent = "⌄";
+        if (error) { loaded = false; li.classList.add("closed"); twist.textContent = "›"; status.textContent = node.expand.name + ": " + error; return; }
+        data.forEach(child => list.appendChild(item(child)));
+        if (!data.length) { const empty = document.createElement("li"); empty.className = "desc"; empty.textContent = "(empty)"; list.appendChild(empty); }
+      }, node.expand.node);
+    };
+    twist.onclick = toggle;
+    if (!node.open) label.onclick = toggle;
+  }
+  return li;
+}
+function show(state) {
+  status.textContent = "Reading " + state.name + "…";
+  document.getElementById("tree").replaceChildren();
+  load(state.name, state.type, (data, error) => {
+    if (error) { status.textContent = error; return; }
+    // SAP's tree may have nothing under the object: said, not shown as a bare root.
+    status.textContent = data.length ? "" : "SAP's tree has nothing under " + state.name + ".";
+    const root = { label: state.name, children: data };
+    if (["CLAS", "INTF", "PROG", "INCL", "FUNC"].includes(state.type)) root.open = { name: state.name, type: state.type };
+    const ul = document.createElement("ul"), top = item(root);
+    top.classList.remove("closed"); top.querySelector(".twist").textContent = "⌄";
+    ul.appendChild(top); document.getElementById("tree").appendChild(ul);
+  });
+}
+if (initial && initial.name) show(initial);
+</script></body></html>

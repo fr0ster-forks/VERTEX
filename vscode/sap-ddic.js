@@ -21,8 +21,14 @@ function dictionaryNames(text) {
   const at = i => up(tokens[i] && tokens[i].value);
   const name = i => tokens[i] && tokens[i].kind === "word" && at(i + 1) !== "=>" && !BUILT_IN.has(at(i)) ? at(i) : "";
   const add = i => { const found = name(i); if (found) names.add(found); };
+  // FROM and JOIN name a table only in Open SQL - a statement with SELECT in it, or OPEN CURSOR: SUBTRACT 1 FROM b and
+  // DELETE itab FROM idx name none. TABLES names one only as its own statement.
+  let first = "", sql = false;
   for (let i = 0; i < tokens.length; i++) {
     const current = at(i);
+    if (tokens[i].kind === "symbol" && current === ".") { first = ""; sql = false; continue; }
+    if (!first && tokens[i].kind === "word") { first = current; if (first === "OPEN") sql = true; }
+    if (current === "SELECT") sql = true;
     if (current === "TYPE" || current === "STRUCTURE" && at(i - 1) === "INCLUDE") {
       let j = i + 1;
       if (at(j) === "REF" && at(j + 1) === "TO") j += 2;
@@ -34,7 +40,32 @@ function dictionaryNames(text) {
       }
       add(j);
     }
-    if ((current === "FROM" || current === "JOIN" || current === "TABLES") && tokens[i + 1]) add(i + 1);
+    if ((sql && (current === "FROM" || current === "JOIN") || current === "TABLES" && first === "TABLES") && tokens[i + 1]) add(i + 1);
+  }
+  return names;
+}
+
+/* The types a source declares itself with TYPES - TYPES ty_x ..., TYPES: BEGIN OF ty_s, ..., END OF ty_s, ty_t TYPE ... -
+   which are no dictionary names: asked for there they only cost a request, and through SAP's ADT extension a walk of every
+   package. */
+function declaredTypes(text) {
+  const tokens = tokenize(text), names = new Set();
+  const at = i => up(tokens[i] && tokens[i].value), sym = i => tokens[i] && tokens[i].kind === "symbol" ? tokens[i].value : "";
+  for (let i = 0; i < tokens.length; i++) {
+    if (at(i) !== "TYPES" || (i > 0 && sym(i - 1) !== "." )) continue;
+    let j = i + 1;
+    if (sym(j) === ":") j++;
+    // One element of the chain at a time: its name, then on to the next comma or the period.
+    // Inside BEGIN OF ... END OF the names are components, not types: only the structure itself counts.
+    let depth = 0;
+    while (j < tokens.length && sym(j) !== ".") {
+      if (at(j) === "BEGIN" && at(j + 1) === "OF") { if (depth === 0 && tokens[j + 2] && tokens[j + 2].kind === "word") names.add(at(j + 2)); depth++; }
+      else if (at(j) === "END" && at(j + 1) === "OF") depth = Math.max(0, depth - 1);
+      else if (depth === 0 && tokens[j] && tokens[j].kind === "word") names.add(at(j));
+      while (j < tokens.length && sym(j) !== "," && sym(j) !== ".") j++;
+      if (sym(j) === ",") j++;
+    }
+    i = j;
   }
   return names;
 }
@@ -59,7 +90,8 @@ async function readDictionary(query, start, known = new Set()) {
   const pending = { type: [...start].filter(name => !known.has(name)), domain: [] };
   const need = (name, by, kind = "type") => {
     name = up(name);
-    if (!name || known.has(name) || BUILT_IN.has(name)) return;
+    // A domain is known only as a domain (known.domains): a data element of that name in open-abap-core is no domain.
+    if (!name || (kind === "domain" && known.domains ? known.domains.has(name) : known.has(name)) || BUILT_IN.has(name)) return;
     required.push([name, kind, by]);
     if (!asked[kind].has(name)) pending[kind].push(name);
   };
@@ -135,15 +167,20 @@ function objectXml(object) {
     (Number(row.DECIMALS) ? tag("DECIMALS", number(row.DECIMALS)) : "") + tag("ACCESSMODE", row.ACCESSMODE) + tag("KEYDEF", row.KEYDEF) + "</DD40V>") };
 }
 
-/* The DDIC names the run takes from open-abap-core: the data elements and domains of its ddic folder. */
-function coreNames(core = path.join(__dirname, "vendor", "open-abap-core", "src", "ddic")) {
-  const names = new Set();
+/* The DDIC names the run takes from open-abap-core, which goes with it whole: its tables and structures, data elements,
+   domains and table types. */
+function coreNames(core = path.join(__dirname, "vendor", "open-abap-core", "src")) {
+  const names = new Set(), domains = new Set();
+  names.domains = domains;
   const visit = dir => { for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
     if (item.isDirectory()) visit(path.join(dir, item.name));
-    else { const found = /^(.+)\.(?:dtel|doma)\.xml$/i.exec(item.name); if (found) names.add(found[1].toUpperCase().replace(/#/g, "/")); }
+    else {
+      const found = /^(.+)\.(tabl|dtel|doma|ttyp)\.xml$/i.exec(item.name);
+      if (found) { const name = found[1].toUpperCase().replace(/#/g, "/"); names.add(name); if (found[2].toLowerCase() === "doma") domains.add(name); }
+    }
   } };
   if (fs.existsSync(core)) visit(core);
   return names;
 }
 
-module.exports = { dictionaryNames, readDictionary, objectXml, coreNames };
+module.exports = { dictionaryNames, declaredTypes, readDictionary, objectXml, coreNames };

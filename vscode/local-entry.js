@@ -185,36 +185,27 @@ function assignments(target, shape, value, name, symbols) {
   return out;
 }
 
-/* WRITE statements for a result: name = value for a simple one; a structure field by field; a table row by row
-   through a field symbol declared at the top. */
-/* How wide a column is: its type's length for a character-like field, a usual width for the others, and never
-   narrower than its name. */
-function widthOf(column) {
-  const type = String(column.type || "").toLowerCase(), length = /\b(?:c|n|x)\s+length\s+(\d+)/.exec(type) || /^(?:char|numc)(\d+)$/.exec(type);
-  const usual = length ? Number(length[1]) : /^d\b/.test(type) ? 8 : /^t\b/.test(type) ? 6 : /^(?:i|int8)\b/.test(type) ? 11
-    : /^string\b/.test(type) ? 20 : 16;
-  return Math.max(column.title.length, Math.min(usual, 40));
-}
+/* The results in a form of VERTEX's own, a line each, its parts parted by tabs, for the window to draw them: a simple
+   value (VERTEX:S, its path - a structure's field as NAME-FIELD - and its value), a table's heading (VERTEX:T, its name,
+   its row count and its columns) and each of its rows (VERTEX:R, its name and a value per column). A column is a simple
+   field of the row; a field that is itself a structure or a table is left out. */
 function written(target, name, shape, symbols) {
-  if (shape.kind === "simple") return ["WRITE: / " + literal(name + " =") + ", " + target + "."];
+  if (shape.kind === "simple") return ["WRITE / |" + RESULT + "S\\t" + name + "\\t{ " + target + " }|."];
   if (shape.kind === "structure") return [].concat(...shape.fields.filter(f => f.shape.kind !== "reference")
     .map(f => written(target + "-" + f.name.toLowerCase(), name + "-" + f.name, f.shape, symbols)));
   if (shape.kind === "table") {
-    // A table as a table: a heading of its columns, a line per row, each column as wide as its type or its name.
-    // A column is a simple field of the row; a field that is itself a structure or a table is left out.
     const row = "<zvx" + (++symbols.n) + ">";
     symbols.declared.push("FIELD-SYMBOLS " + row + " LIKE LINE OF " + target + ".");
     const columns = shape.row.kind === "structure"
-      ? shape.row.fields.filter(f => f.shape.kind === "simple").map(f => ({ title: f.name, value: row + "-" + f.name.toLowerCase(), type: f.shape.type }))
-      : shape.row.kind === "simple" ? [{ title: "VALUE", value: row, type: shape.row.type }] : [];
-    const cell = (expression, column) => "{ " + expression + " WIDTH = " + widthOf(column) + " }";
-    const heading = columns.map(c => cell("`" + c.title + "`", c)).join(" ");
-    const line = columns.map(c => cell(c.value, c)).join(" ");
-    return ["WRITE: / " + literal(name + ":") + ", lines( " + target + " ), 'rows'."]
-      .concat(columns.length ? ["WRITE / |" + heading + "|.", "LOOP AT " + target + " ASSIGNING " + row + ".", "  WRITE / |" + line + "|.", "ENDLOOP."] : []);
+      ? shape.row.fields.filter(f => f.shape.kind === "simple").map(f => ({ title: f.name, value: row + "-" + f.name.toLowerCase() }))
+      : shape.row.kind === "simple" ? [{ title: "VALUE", value: row }] : [];
+    return ["WRITE / |" + RESULT + "T\\t" + name + "\\t{ lines( " + target + " ) }" + columns.map(c => "\\t" + c.title).join("") + "|."]
+      .concat(columns.length ? ["LOOP AT " + target + " ASSIGNING " + row + ".",
+        "  WRITE / |" + RESULT + "R\\t" + name + columns.map(c => "\\t{ " + c.value + " }").join("") + "|.", "ENDLOOP."] : []);
   }
   return [];
 }
+const RESULT = "VERTEX:";
 
 /* The program that calls the target with the values given: every parameter a variable of its own name (a constructor's
    prefixed c_), a DEFAULT where nothing was given, the call, and a last statement to stop on with the results. An
@@ -264,7 +255,7 @@ function driverSource(signature, values) {
   for (const p of signature.parameters.filter(p => ["exporting", "changing", "returning"].includes(p.direction) && p.shape)) {
     lines.push(...written(variable(p), p.name, p.shape, symbols));
   }
-  lines.push("WRITE / 'Done'.");
+
   lines.splice(declaredAt, 0, ...symbols.declared);
   return lines.join("\n") + "\n";
 }

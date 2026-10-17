@@ -278,14 +278,12 @@ test("where-used counts a place inside a class method from where SAP says the me
     ["/sap/bc/adt/programs/programs/zp/source/main", 12, 2, 12]]);
 });
 
-test("a source over the line limit is refused before it is sent to SAP, and only one analysis runs at a time", async () => {
+test("a source of any size is sent to SAP, as Eclipse sends it, and only one analysis runs at a time", async () => {
   const sent = [];
   let release;
   const client = { async codeCompletionElement(...args) { sent.push(args); await new Promise(resolve => { release = resolve; }); return { name: "X" }; } };
   const repo = createRepository({ client, systemId: "S" });
-  await assert.rejects(() => repo.elementInfo("/sap/bc/adt/programs/programs/zbig/source/main", "a\n".repeat(50001), 1, 0), / of 50002 lines/);
-  assert.equal(sent.length, 0);
-  const first = repo.elementInfo("/sap/bc/adt/programs/programs/zok/source/main", "a\nb", 1, 0);
+  const first = repo.elementInfo("/sap/bc/adt/programs/programs/zbig/source/main", "a\n".repeat(150000), 1, 0);
   await assert.rejects(() => repo.elementInfo("/sap/bc/adt/programs/programs/zok/source/main", "a\nb", 2, 0), /still analysing/);
   release();
   assert.deepEqual(await first, { name: "X" });
@@ -318,4 +316,13 @@ test("a data preview statement goes in lines of at most 200 characters, broken o
   const lines = dataPreviewLines(sql).split("\r\n");
   assert.ok(lines.length > 1 && lines.every(line => line.length <= 200), lines.map(line => line.length).join(", "));
   assert.ok(lines.some(line => line.includes("'A B  C'")) && lines.some(line => line.includes("'it''s %'")));
+});
+
+test("write failure and lost lock report the object and cause without retry", async () => {
+  const f = fixture(), draft = await change(f);
+  let writes = 0;
+  f.client.setObjectSource = async () => { writes++; throw Error("connection ended"); };
+  f.client.unLock = async () => { throw Error("session gone"); };
+  await assert.rejects(f.repo.apply(draft.change_id, { source: draft.source }), /^Error: The lock on ZTEST was lost: connection ended/);
+  assert.equal(writes, 1);
 });

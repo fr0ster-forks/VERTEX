@@ -1,15 +1,19 @@
 "use strict";
 const fs = require("fs"), path = require("path");
+// Object Navigator is VS Code's: the page and the reading of ADT's trees are this host's. First in the picker and what a package, request, class or interface opens on.
+const NAVIGATOR = ["navigator", "Object Navigator", ["CLAS", "INTF", "DEVC", "TR", "PROG", "FUNC"],
+  "Object Navigator (action navigator) is the SE80 tree of a package, transport request, program, function module (its group), class or interface; each entry opens its source.", true];
+require("./resources/object-tools").enable(...NAVIGATOR);
 function html(pages, initial) {
   const read = name => fs.readFileSync(path.join(pages, name), "utf8");
   const bundle = {};
   // The magnifier every diagram has is one file; a page that draws diagrams marks where it goes.
   const lens = read("vertex-lens.js");
-  for (const name of ["chat", "metrics", "versions", "table"]) bundle[name] = read(name + ".html").replace("/*VERTEX_LENS*/", () => lens)
+  for (const name of ["chat", "metrics", "versions", "table", "navigator"]) bundle[name] = read(name + ".html").replace("/*VERTEX_LENS*/", () => lens)
     .replace("</head>", () => "<style>" + read("vertex-controls.css") + "</style></head>");
   return read("tools.html")
     .replace("/*INIT*/null/*INIT*/", () => JSON.stringify(initial || null).replace(/</g, "\\u003c"))
-    .replace("/*OBJECT_MODEL*/", () => read("object-tools.js"))
+    .replace("/*OBJECT_MODEL*/", () => read("object-tools.js") + "\nVertexObjects.enable(..." + JSON.stringify(NAVIGATOR) + ");")
     .replace("/*TOOL_ROUTES*/", () => read("tool-routes.js"))
     .replace("/*BUNDLE*/{}", () => JSON.stringify(bundle).replace(/</g, "\\u003c"));
 }
@@ -40,6 +44,7 @@ function debugHtml(initial) {
       if(event.data.type==="origin")sdeOriginReady(event.data.payload);
       if(event.data.type==="originProgress")sdeOriginProgress(event.data.payload);
       if(event.data.type==="cursor"&&typeof sdeCursor==="function")sdeCursor(event.data.payload);
+      if(event.data.type==="runFailed"&&typeof sdeRunFailed==="function")sdeRunFailed(event.data.payload);
     });
     document.addEventListener("DOMContentLoaded",()=>document.querySelectorAll(
       "#visual,#rec,#zonly,#fclasses,#fmethods,#initials,#globals,#locals,#params,[data-pane]"
@@ -48,6 +53,7 @@ function debugHtml(initial) {
   return fs.readFileSync(path.join(__dirname, "pages", "visual-debug.html"), "utf8")
     .replace("</head>", "<style>" + controls + "</style></head>")
     .replace("/*INIT*/null/*INIT*/", () => JSON.stringify(initial || null).replace(/</g, "\\u003c"))
+    .replace("/*SELECTION-SCREEN-UI*/", () => fs.readFileSync(path.join(__dirname, "pages", "selection-screen-ui.js"), "utf8"))
     .replace("<body>", "<body class=\"vertex-docked-debug\">")
     .replace("<script>", bridge + "<script>");
 }
@@ -55,7 +61,7 @@ function allowed(resource, body) {
   if (typeof resource !== "string" || /[\\#]/.test(resource) || /\.\.|%2e|%5c/i.test(resource)) return false;
   return body != null
     ? /^\/sap\/bc\/adt\/vertex\/review\/[^?]+(?:\?.*)?$/.test(resource)
-    : /^\/sap\/bc\/adt\/vertex\/(about|requests|(?:table|join|metrics|flow|class|package|versions|review)\/[^?]+)(?:\?.*)?$/.test(resource)
+    : /^\/sap\/bc\/adt\/vertex\/(about|requests|(?:table|join|metrics|flow|class|package|navigator|versions|review)\/[^?]+)(?:\?.*)?$/.test(resource)
       // The object field's mask search: ADT's quick search, read only.
       || /^\/sap\/bc\/adt\/repository\/informationsystem\/search\?operation=quickSearch&maxResults=\d{1,3}&objectType=[A-Z]{4}%2F[A-Z]{1,2}&query=[A-Z0-9_%*+$]{1,80}$/.test(resource);
 }
@@ -205,7 +211,20 @@ function open(vscode, context, deps, initial) {
         await vscode.commands.executeCommand("vertex.tools",{...selected,action:"scheme",boundObject:true});
         await panel.webview.postMessage({type:"result",payload:"{}"});return;
       }
-      if(message.call === "openToolSource") { sourceNavigationUntil=Date.now()+700; await (local ? local.openSource : deps.openToolSource)(JSON.parse(String(args[0]||"{}"))); return; }
+      if(message.call === "openToolSource") {
+        sourceNavigationUntil=Date.now()+700;
+        // Nothing waits for an answer to a click, so a failure is said here, not posted to a page that drops it.
+        const asked=JSON.parse(String(args[0]||"{}")),open=local ? local.openSource : deps.openToolSource;
+        try { await open(asked); }
+        catch(error) {
+          // An include that is not there opens where it is named, and says so.
+          if(asked.declaredIn&&/not found/i.test(error.message)){
+            await open({...asked.declaredIn,beside:asked.beside,preserveFocus:asked.preserveFocus});
+            vscode.window.showWarningMessage("VERTEX: "+asked.name+" does not exist; its INCLUDE in "+asked.declaredIn.name+" is shown.");
+          } else vscode.window.showErrorMessage("VERTEX: cannot open the source: "+error.message);
+        }
+        return;
+      }
       if(message.call === "browse") {
         if(/^https?:\/\//i.test(String(args[0]))) await vscode.env.openExternal(vscode.Uri.parse(args[0]));
         return;

@@ -1,72 +1,9 @@
-<#
-Build a releasable VSIX. Do not call vsce with --no-dependencies: that switch
-produces an extension which installs but cannot load abap-adt-api.
-#>
-[CmdletBinding()]
-param()
-
-$ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$root = $PSScriptRoot
-$manifest = Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | ConvertFrom-Json
-$final = Join-Path $root ($manifest.name + '-' + $manifest.version + '.vsix')
-$candidate = Join-Path $root ($manifest.name + '-' + $manifest.version + '.candidate.vsix')
-
-Remove-Item -LiteralPath $candidate -Force -ErrorAction SilentlyContinue
-Push-Location $root
-try {
-    & npx --yes @vscode/vsce package --out $candidate
-    if ($LASTEXITCODE -ne 0) { throw 'VSCE packaging failed.' }
-    $archive = [IO.Compression.ZipFile]::OpenRead($candidate)
-    try {
-        $required = @('extension/package.json', 'extension/node_modules/abap-adt-api/package.json',
-            'extension/node_modules/abap-adt-api/LICENSE', 'extension/node_modules/@abaplint/core/package.json',
-            'extension/node_modules/@abaplint/core/build/src/index.js', 'extension/licenses/abaplint-MIT.txt',
-            'extension/node_modules/@abaplint/transpiler-cli/abap_transpile',
-            'extension/node_modules/@abaplint/runtime/package.json',
-            'extension/vendor/open-abap-core/LICENSE',
-            'extension/vendor/open-abap-core/REVISION',
-            'extension/vendor/open-abap-core/src/ddic/dtel/mandt.dtel.xml',
-            'extension/node_modules/temporal-polyfill/package.json',
-            'extension/node_modules/temporal-spec/package.json',
-            'extension/node_modules/temporal-utils/package.json', 'extension/local-run.js', 'extension/local-trace.js', 'extension/local-debug-vars.js', 'extension/local-debug-adapter.js',
-            'extension/value-origin-linter.js', 'extension/value-origin-demand.js', 'extension/frontend-analysis.js', 'extension/call-graph.js', 'extension/ace-scheme.js',
-            'extension/log-report.js', 'extension/resources/log-report.html',
-            'extension/resources/metrics.html', 'extension/resources/versions.html', 'extension/pages/visual-debug.html')
-        foreach ($name in $required) { if (!$archive.GetEntry($name)) { throw "VSIX verification failed: missing $name" } }
-        # Opening a ZIP only validates its central directory. Read each entry
-        # now, before promotion, so a truncated compressed stream can never
-        # be installed as the release VSIX.
-        $buffer = New-Object byte[] 65536
-        foreach ($entry in $archive.Entries) {
-            $stream = $entry.Open()
-            try {
-                while ($stream.Read($buffer, 0, $buffer.Length) -gt 0) { }
-            } finally { $stream.Dispose() }
-        }
-        $reader = [IO.StreamReader]::new($archive.GetEntry('extension/resources/metrics.html').Open())
-        try { $metrics = $reader.ReadToEnd() } finally { $reader.Dispose() }
-        $testPage = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString() + '.html')
-        $previousPage = $env:VERTEX_METRICS_HTML
-        try {
-            [IO.File]::WriteAllText($testPage, $metrics)
-            $env:VERTEX_METRICS_HTML = $testPage
-            & node --test (Join-Path $root 'test/scheme-navigation.test.js')
-            if ($LASTEXITCODE -ne 0) { throw 'Packaged Scheme navigation test failed.' }
-        } finally {
-            $env:VERTEX_METRICS_HTML = $previousPage
-            Remove-Item -LiteralPath $testPage -Force -ErrorAction SilentlyContinue
-        }
-        foreach ($needle in @('function renderUmlParts()', 'var UML_SECTIONS', 'mode === "scheme" && classMetrics()')) {
-            if (!$metrics.Contains($needle)) { throw "VSIX verification failed: UML Parts navigator is missing $needle" }
-        }
-        $reader = [IO.StreamReader]::new($archive.GetEntry('extension/package.json').Open())
-        try { $inside = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
-        if ($inside.version -ne $manifest.version) { throw "VSIX verification failed: expected version $($manifest.version), got $($inside.version)." }
-    } finally { $archive.Dispose() }
-    Move-Item -LiteralPath $candidate -Destination $final -Force
-    Write-Output "Verified VSIX: $final"
-} finally {
-    Remove-Item -LiteralPath $candidate -Force -ErrorAction SilentlyContinue
-    Pop-Location
-}
+# See package.js for the warning about vsce --no-dependencies.
+param(
+    [ValidateSet('universal','win32-x64','darwin-arm64')][string]$Target='universal',
+    [switch]$KeepNodeModules
+)
+$nodeArgs = @((Join-Path $PSScriptRoot 'package.js'), '--target', $Target)
+if ($KeepNodeModules) { $nodeArgs += '--keep-node-modules' }
+& node @nodeArgs
+exit $LASTEXITCODE

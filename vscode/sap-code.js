@@ -102,6 +102,13 @@ function createRepository({ client, systemId, emit = () => {} }) {
       exact = fallback.filter(x => /^FUGR\//.test(String(x["adtcore:type"]))
         && String(x["adtcore:name"]).toUpperCase() === objectName);
     }
+    // An include of a function group is indexed as FUGR/I, under its group's address - not as PROG/I. Its
+    // module's own include (LZFGU01) is listed there too, but under the module's address: only a real include counts.
+    if (kind === "INCL" && !exact.length) {
+      exact = (await client.searchObject(objectName, "FUGR/I", 200)).filter(x => x["adtcore:type"] === "FUGR/I"
+        && String(x["adtcore:name"]).toUpperCase() === objectName && /\/includes\//.test(String(x["adtcore:uri"])));
+      if (exact.length === 1) return { ...row(exact[0]), object_type: "INCL" };
+    }
     if (exact.length !== 1) { throw new Error(kind + " " + objectName + (exact.length ? " is ambiguous." : " was not found.")); }
     return row(exact[0]);
   }
@@ -268,7 +275,8 @@ function createRepository({ client, systemId, emit = () => {} }) {
         catch (error) {
           const warning = "Could not release SAP lock: " + error.message;
           if (outcome) { outcome.warning = warning; }
-          else { failure = new Error((failure ? failure.message + " " : "") + warning); }
+          else { failure = new Error("The lock on " + change.object_name + " was lost: "
+            + (failure ? failure.message + " " : "") + warning); }
         }
       }
       try { await client.logout(); } catch (_) { /* release stateful session best effort */ }
@@ -327,13 +335,9 @@ function createRepository({ client, systemId, emit = () => {} }) {
   // (Ctrl+Click, Go to) is what the reader asked for: it waits for the one running, usually the hover on the same word, and
   // is then made, instead of being answered with an error.
   let analysing = false, running = Promise.resolve();
+  // Hover, Go to Definition and the like send the whole source, as Eclipse does, whatever its size: one request at
+  // a time, a hover never waiting behind another, and each given up after the budget.
   async function analyse(label, source, call, { wait = false } = {}) {
-    let lines = 1;
-    for (let at = source.indexOf("\n"); at >= 0; at = source.indexOf("\n", at + 1)) { lines++; }
-    if (lines > MAX_ANALYSED_LINES) {
-      throw new Error(label + " is not sent to SAP for a source of " + lines + " lines (limit "
-        + MAX_ANALYSED_LINES + "): SAP would analyse the whole file for every request.");
-    }
     while (analysing) {
       if (!wait) { throw new Error("SAP is still analysing the previous request. Try again in a moment."); }
       await running;
@@ -371,7 +375,8 @@ function createRepository({ client, systemId, emit = () => {} }) {
     analyse("Implementation", source, () => client.findDefinition(sourceUrl, source, line, start, end, true), { wait: true });
   // The active source behind a URL that navigation pointed at - a type pool,
   // an interface, another class - whatever kind of object it is.
-  const sourceAt = url => client.getObjectSource(adtPath(String(url).split("#")[0]), { version: "active" });
+  // The address goes without its fragment and its query (a version SAP adds): the version read is the active one.
+  const sourceAt = url => client.getObjectSource(adtPath(String(url).split(/[?#]/)[0]), { version: "active" });
   // A data element's domain or built-in type, for its hover.
   const dataElement = async elementName => (await client.getDataElementProperties(
     "/sap/bc/adt/ddic/dataelements/" + encodeURIComponent(name(elementName, "data element").toLowerCase()))).properties;
@@ -440,7 +445,7 @@ function createRepository({ client, systemId, emit = () => {} }) {
   }
   // The ABAP keyword documentation for the statement at line/column, as
   // F1 gives it in Eclipse: SAP's own HTML page.
-  // A source over the analysis limit is not refused here: the documentation is about the statement at the cursor, so
+  // A source over MAX_ANALYSED_LINES is not sent whole here: the documentation is about the statement at the cursor, so
   // SAP is sent that statement alone - all of a chain - cut out by abaplint's statements of the lines around it.
   const documentation = (sourceUrl, source, line, column) => {
     const lines = source.split("\n");
@@ -466,6 +471,54 @@ function createRepository({ client, systemId, emit = () => {} }) {
       .map(n => ({ object_name: n.OBJECT_NAME, object_type: n.OBJECT_TYPE.split('/')[0] }));
     if (objects.length > 100) throw new Error('Package contains more than 100 classes/interfaces; select a smaller package.');
     return objects;
+  }
+  // Object Navigator: a package's tree from ADT's node structure, a class's or interface's from its object structure.
+  async function objectNavigator(objectName, objectType, node, parts) {
+    const navigator = require("./object-navigator");
+    if (objectType === "DEVC") return navigator.packageTree(await client.nodeContents("DEVC/K", name(objectName)));
+    // A program: its includes, forms, events and local classes, from the node structure. An include has no tree
+    // there: asked as PROG/I and as PROG/PI, SAP answered nothing for one.
+    const sourceParent = { PROG: "PROG/P" }[objectType];
+    if (sourceParent) {
+      const source = { name: name(objectName), type: objectType };
+      // A local class, unfolded: its components from the program's object structure - what Eclipse's Outline shows,
+      // each with its line. The node structure below the class's node answered nothing.
+      if (node) {
+        const wanted = name(node, "local class"), object = await resolve({ object_name: source.name, object_type: objectType });
+        const find = list => { for (const c of list || []) { if (String(c["adtcore:name"]).toUpperCase() === wanted && !/\/O?M$/.test(c["adtcore:type"])) return c; const inner = find(c.components); if (inner) return inner; } return null; };
+        const local = find((await client.classComponents(object.object_url)).components);
+        if (!local) throw new Error("SAP's outline of " + source.name + " has no local class " + wanted + ".");
+        return navigator.classTree(local, source.name, objectType, "", wanted);
+      }
+      const data = await client.nodeContents(sourceParent, source.name);
+      // The Tools window's Parts: one request to SAP instead of parsing the whole source here.
+      if (parts) return navigator.programUnits(data);
+      return navigator.packageTree(data, source);
+    }
+    // A function group: its function modules, includes and forms, from the same node structure.
+    if (objectType === "FUGR") return navigator.packageTree(await client.nodeContents("FUGR/F", name(objectName)));
+    // A function module: the tree of its group, which TFDIR names - the forms of a group are the whole group's.
+    if (objectType === "FUNC") {
+      const row = (await query("SELECT pname FROM tfdir WHERE funcname = '" + name(objectName).replace(/'/g, "''") + "'", 1)).values[0];
+      if (!row) throw new Error("Function module " + name(objectName) + " does not exist.");
+      const pname = String(row.PNAME), ns = /^(\/[^/]+\/)SAPL(.+)$/.exec(pname);
+      return navigator.packageTree(await client.nodeContents("FUGR/F", ns ? ns[1] + ns[2] : pname.replace(/^SAPL/, "")));
+    }
+    if (objectType === "TR") {
+      // One read: the objects of the request and of its tasks, by E070's link from a task to its request. What is
+      // inside a class is read when it is unfolded.
+      const request = "'" + name(objectName).replace(/'/g, "''") + "'";
+      const keys = (await query("SELECT e071~object, e071~obj_name FROM e071 INNER JOIN e070 ON e070~trkorr = e071~trkorr"
+        + " WHERE e070~trkorr = " + request + " OR e070~strkorr = " + request, 10000)).values;
+      if (!keys.length) throw new Error("Transport request " + name(objectName) + " holds no objects or does not exist.");
+      return navigator.requestTree(keys);
+    }
+    if (objectType !== "CLAS" && objectType !== "INTF") throw new Error("Object Navigator shows a package, a transport request, a program, a function group or module, a class or an interface, not " + objectType + ".");
+    const object = await resolve({ object_name: objectName, object_type: objectType });
+    // The superclass, as SE80 names it under Inherited from: SEOMETAREL's inheritance row (RELTYPE 2).
+    const parent = objectType === "CLAS" ? (await query("SELECT refclsname FROM seometarel WHERE clsname = '"
+      + object.object_name.replace(/'/g, "''") + "' AND reltype = '2'", 1)).values[0] : null;
+    return navigator.classTree(await client.classComponents(object.object_url), object.object_name, objectType, parent ? String(parent.REFCLSNAME) : "");
   }
   // ADT's data preview on a SELECT in strict Open SQL, as Eclipse's SQL console runs it: read only, at most rows lines.
   // Values come as SAP wrote them, strings, for the caller to read by the column's type.
@@ -502,7 +555,9 @@ function createRepository({ client, systemId, emit = () => {} }) {
   // Writes a review payload into ZAVE_REVIEW through ZCL_VX_ADT_RES_STORE; EXPECT is the stamp it was built on.
   const storeReview = (trkorr, remote, expect, body) => client.httpClient.request("/sap/bc/adt/vertex/store/" + encodeURIComponent(trkorr),
     { method: "POST", qs: { remote: remote || "", expect: expect || "" }, headers: { "Content-Type": "application/json", Accept: "application/json" }, body });
-  return { execute, apply, query, revisions, revisionSource, currentSource, canStore, storeReview, language: () => client.language, user: () => client.username, draft, analysisReader, packageObjects, unitTests, atcCheck, whereUsed, documentation, elementInfo, elementDetails, definition, implementation, sourceAt, dataElement, discard: id => drafts.delete(id),
+  // ADT's object structure of a class: its components with their kinds and visibility, read without parsing.
+  const classComponents = url => client.classComponents(adtPath(url));
+  return { classComponents, execute, apply, query, revisions, revisionSource, currentSource, canStore, storeReview, language: () => client.language, user: () => client.username, draft, analysisReader, packageObjects, objectNavigator, unitTests, atcCheck, whereUsed, documentation, elementInfo, elementDetails, definition, implementation, sourceAt, dataElement, discard: id => drafts.delete(id),
     dispose: async () => { drafts.clear(); await client.logout(); } };
 }
 module.exports = { createRepository, TYPES, revision, adtPath, sourcePath, dataPreviewLines };

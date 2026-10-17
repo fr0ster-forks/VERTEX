@@ -33,7 +33,10 @@ function parseSource(source) {
       ? require('./value-origin-tokens').tokenize(t.value).map(p => ({ ...p, line: t.line,
         offset: t.offset + p.offset, endOffset: t.offset + p.endOffset })) : [t]);
     if (!expanded.length) continue;
-    if (['Unknown', 'MacroCall', 'MacroContent', 'NativeSQL'].includes(statementKind)) {
+    // A FUNCTION statement carrying its interface (as ADT and SAP's ADT extension show a module) is no statement abaplint
+    // knows, but the analysis reads it itself (value-origin-model functionParameters): no gap to report.
+    const functionInterface = statementKind === 'Unknown' && String(expanded[0].value).toUpperCase() === 'FUNCTION';
+    if (['Unknown', 'MacroCall', 'MacroContent', 'NativeSQL'].includes(statementKind) && !functionInterface) {
       warnings.push(source.name + ':' + expanded[0].line + ': unsupported ' + statementKind);
     }
     const targets = node.findAllExpressions(lint.Expressions.Target).map(n => tokensOf(n));

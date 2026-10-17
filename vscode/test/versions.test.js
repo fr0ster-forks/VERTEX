@@ -36,16 +36,16 @@ test("finding requests sends the user as typed, or nobody for your own", () => {
   assert.deepEqual(found[0], ["", ""]);
   assert.equal(context.scope, false);
   assert.equal(context.parts.length, 0);
-  elements.user.value = " sychov ";
+  elements.user.value = " developer ";
   elements.released.checked = true;
   context.findRequests();
-  assert.deepEqual(found[1], ["SYCHOV", "true"]);
+  assert.deepEqual(found[1], ["DEVELOPER", "true"]);
 });
 
 test("a found request opens as its typed number would", () => {
   const { context, elements, calls } = page();
-  context.sdeTake = () => JSON.stringify({ user: "SYCHOV", released: false, requests: [
-    { request: "ALCK900123", text: "Fix", owner: "OTHER", owner_name: "Some One",
+  context.sdeTake = () => JSON.stringify({ user: "DEVELOPER", released: false, requests: [
+    { request: "A4HK900123", text: "Fix", owner: "OTHER", owner_name: "Some One",
       type: "workbench", status: "modifiable", date: "20260917", time: "101500" }] });
   context.sdeReady();
   assert.equal(context.showing.view, "requests");
@@ -54,16 +54,16 @@ test("a found request opens as its typed number would", () => {
   elements.type.value = "CLAS";
   rows[0].handlers.click();
   assert.equal(elements.type.value, "TR");
-  assert.deepEqual(calls[0], ["ALCK900123", "TR", "", "", "", ""]);
+  assert.deepEqual(calls[0], ["A4HK900123", "TR", "", "", "", ""]);
 });
 
 test("no requests found is said, not drawn as an empty table", () => {
   const { context } = page();
   const notes = [];
   context.note = text => notes.push(text);
-  context.renderRequests({ user: "SYCHOV", released: false, requests: [] });
-  context.renderRequests({ user: "SYCHOV", released: true, requests: [] });
-  assert.deepEqual(notes, ["No open requests of SYCHOV.", "No requests of SYCHOV."]);
+  context.renderRequests({ user: "DEVELOPER", released: false, requests: [] });
+  context.renderRequests({ user: "DEVELOPER", released: true, requests: [] });
+  assert.deepEqual(notes, ["No open requests of DEVELOPER.", "No requests of DEVELOPER."]);
 });
 
 test("the finder is offered for transport requests only", () => {
@@ -182,13 +182,13 @@ test("a 404 with everything there is the resource's own answer, not a setup page
 });
 
 test("the user field starts as whoever the system says is logged on, and keeps what was typed", () => {
-  const about = JSON.stringify({ user: "SYCHOV", services: [ABOUT_VERSIONS], backends: [] });
+  const about = JSON.stringify({ user: "DEVELOPER", services: [ABOUT_VERSIONS], backends: [] });
   const fresh = page();
   fresh.context.sdeAbout = () => {};
   fresh.context.askAbout(() => {});
   fresh.context.sdeTake = () => about;
   fresh.context.sdeReady();
-  assert.equal(fresh.elements.user.value, "SYCHOV");
+  assert.equal(fresh.elements.user.value, "DEVELOPER");
 
   const typed = page();
   typed.context.document.getElementById("user").value = "PETRENKO";

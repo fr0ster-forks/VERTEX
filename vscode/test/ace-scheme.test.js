@@ -67,3 +67,12 @@ test('LEAVE PROGRAM and an EXIT outside a loop end their branch; an EXIT in a lo
  const mm=draw(['IF a = 1.','LEAVE PROGRAM.','ENDIF.','DO 2 TIMES.','EXIT.','ENDDO.','EXIT.']);
  assert.match(mm,/class p3 exitnode/);assert.match(mm,/class p8 exitnode/);assert.doesNotMatch(mm,/class p6 exitnode/);
 });
+test('Logic only folds the operations it leaves out into one block, opened by its first line',()=>{
+ const text=['CLASS zcl_test DEFINITION.','PUBLIC SECTION.','METHODS run.','ENDCLASS.','CLASS zcl_test IMPLEMENTATION.','METHOD run.','a = 1.','b = 2.','x->go( ).','c = 3.','ENDMETHOD.','ENDCLASS.'].join('\n');
+ const source=parseSource({id:'test',name:'ZCL_TEST',objectName:'ZCL_TEST',objectType:'CLAS',text}).source;
+ const p=buildIndex([source]).procedures.find(p=>p.name==='RUN');
+ const folded=scheme(p,'',true).mermaid,open=scheme(p,'2',true).mermaid;
+ assert.match(folded,/o2\("2 operations"\)/);assert.match(folded,/class o2 foldnode/);assert.match(folded,/click o2 "sapevent:aceexp_2"/);
+ assert.match(folded,/o5\("1 operation"\)/);assert.match(folded,/p4\(/);
+ assert.match(open,/p2\("a = 1\."\)/);assert.match(open,/p3\("b = 2\."\)/);assert.match(open,/click p2 "sapevent:aceexp_2"/);assert.doesNotMatch(open,/o2\(/);
+});

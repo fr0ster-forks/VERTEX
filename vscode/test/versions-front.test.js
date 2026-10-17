@@ -7,9 +7,9 @@ const { request } = require("../versions-front");
 function session() {
   const asked = [];
   const feed = [
-    { id: "00002", uri: "/v/00002/content", time: "2025-01-02T10:00:00Z", author: "TOCH", title: "Second", transport: "ALCK900002" },
+    { id: "00002", uri: "/v/00002/content", time: "2025-01-02T10:00:00Z", author: "TOCH", title: "Second", transport: "A4HK900002" },
     { id: "00000", uri: "/v/00000/content", time: "2025-01-03T10:00:00Z", author: "TOCH", title: "", transport: "" },
-    { id: "00001", uri: "/v/00001/content", time: "2025-01-01T10:00:00Z", author: "LYT", title: "First", transport: "ALCK900001" }];
+    { id: "00001", uri: "/v/00001/content", time: "2025-01-01T10:00:00Z", author: "LYT", title: "First", transport: "A4HK900001" }];
   const sources = { "/v/00001/content": "a\nb", "/v/00002/content": "a\nc", "/v/00000/content": "a\nc" };
   const api = {
     revisions: async url => { asked.push(url); return feed; },
@@ -17,7 +17,7 @@ function session() {
     currentSource: async () => "now",
     query: async sql => {
       asked.push(sql);
-      if (/FROM e070/.test(sql)) { return { values: [{ TRKORR: "ALCK900002" }].filter(() => /trfunction = 'T'/.test(sql) && false) }; }
+      if (/FROM e070/.test(sql)) { return { values: [{ TRKORR: "A4HK900002" }].filter(() => /trfunction = 'T'/.test(sql) && false) }; }
       if (/FROM usr21/.test(sql)) { return { values: [{ BNAME: "TOCH", NAME_TEXT: "Oleh T" }] }; }
       return { values: [] };
     }
@@ -36,7 +36,7 @@ test("the versions come from ADT's feed, newest first, the active one as 99998, 
   const answer = await request(api, "/sap/bc/adt/vertex/versions/%2FALLOY%2FFIAA_REPORT_IMPL?type=INCL&part=%2FALLOY%2FFIAA_REPORT_IMPL&ptype=REPS");
   assert.strictEqual(asked[0], "/sap/bc/adt/programs/includes/%2Falloy%2Ffiaa_report_impl");
   assert.deepStrictEqual(answer.versions.map(v => [v.version, v.request, v.author_name]),
-    [["99998", "", "Oleh T"], ["00002", "ALCK900002", "Oleh T"], ["00001", "ALCK900001", ""]]);
+    [["99998", "", "Oleh T"], ["00002", "A4HK900002", "Oleh T"], ["00001", "A4HK900001", ""]]);
   assert.match(answer.versions[1].date, /^\d{8}$/);
 });
 
@@ -141,8 +141,8 @@ function scopeSession() {
   const api = {
     query: async sql => {
       asked.push(sql);
-      if (/FROM e070 WHERE trkorr = 'ALCK900001'/.test(sql)) { return { values: [{ TRKORR: "ALCK900001" }] }; }
-      if (/FROM e070 WHERE strkorr/.test(sql)) { return { values: [{ TRKORR: "ALCK900002" }] }; }
+      if (/FROM e070 WHERE trkorr = 'A4HK900001'/.test(sql)) { return { values: [{ TRKORR: "A4HK900001" }] }; }
+      if (/FROM e070 WHERE strkorr/.test(sql)) { return { values: [{ TRKORR: "A4HK900002" }] }; }
       if (/FROM e071/.test(sql)) {
         return { values: [{ PGMID: "R3TR", OBJECT: "CLAS", OBJ_NAME: "ZCL_X" }, { PGMID: "LIMU", OBJECT: "METH", OBJ_NAME: "ZCL_Y" + " ".repeat(25) + "RUN" },
           { PGMID: "LIMU", OBJECT: "REPS", OBJ_NAME: "ZPROG" }, { PGMID: "R3TR", OBJECT: "TABL", OBJ_NAME: "ZTAB" },
@@ -160,20 +160,20 @@ function scopeSession() {
 
 test("a transport request lists the objects of itself and its tasks, a container as one object, once each", async () => {
   const { api, asked } = scopeSession();
-  const answer = await request(api, "/sap/bc/adt/vertex/versions/ALCK900001?type=TR");
+  const answer = await request(api, "/sap/bc/adt/vertex/versions/A4HK900001?type=TR");
   assert.strictEqual(answer.scope, true);
   assert.deepStrictEqual(answer.parts.map(p => [p.part_type, p.name.trim()]), [
     ["METH", "ZCL_Y" + " ".repeat(25) + "RUN"], ["REPS", "ZPROG"], ["CLAS", "ZCL_X"], ["TABD", "ZTAB"]]);
-  assert.ok(asked.some(sql => /FROM e071 WHERE trkorr IN \( 'ALCK900001', 'ALCK900002' \)/.test(sql)));
+  assert.ok(asked.some(sql => /FROM e071 WHERE trkorr IN \( 'A4HK900001', 'A4HK900002' \)/.test(sql)));
 });
 
 test("a part opened inside a request reads the feed of the object it belongs to", async () => {
   const { api, asked } = scopeSession();
-  await request(api, "/sap/bc/adt/vertex/versions/ALCK900001?type=TR&part=ZPROG&ptype=REPS");
+  await request(api, "/sap/bc/adt/vertex/versions/A4HK900001?type=TR&part=ZPROG&ptype=REPS");
   assert.strictEqual(asked.at(-1), "/sap/bc/adt/programs/programs/zprog");
-  await request(api, "/sap/bc/adt/vertex/versions/ALCK900001?type=TR&part=" + encodeURIComponent("ZCL_Y" + " ".repeat(25) + "RUN") + "&ptype=METH");
+  await request(api, "/sap/bc/adt/vertex/versions/A4HK900001?type=TR&part=" + encodeURIComponent("ZCL_Y" + " ".repeat(25) + "RUN") + "&ptype=METH");
   assert.strictEqual(asked.at(-1), "/sap/bc/adt/oo/classes/zcl_y#main");
-  await request(api, "/sap/bc/adt/vertex/versions/ALCK900001?type=TR&part=ZTAB&ptype=TABD");
+  await request(api, "/sap/bc/adt/vertex/versions/A4HK900001?type=TR&part=ZTAB&ptype=TABD");
   assert.strictEqual(asked.at(-1), "/sap/bc/adt/ddic/structures/ztab");
 });
 
@@ -188,28 +188,28 @@ test("a package lists what TADIR keeps under it; a data element reads its own fe
 test("a user's requests: owned and held through a task, open by default, newest first, described in the session's language", async () => {
   const asked = [];
   const api = {
-    user: () => "SYCHOV",
+    user: () => "DEVELOPER",
     language: () => "E",
     query: async sql => {
       asked.push(sql);
-      if (/AND strkorr = ' '/.test(sql)) { return { values: [{ TRKORR: "ALCK900001" }] }; }
-      if (/INNER JOIN e070 AS r/.test(sql)) { return { values: [{ TRKORR: "ALCK900002" }, { TRKORR: "ALCK900001" }] }; }
+      if (/AND strkorr = ' '/.test(sql)) { return { values: [{ TRKORR: "A4HK900001" }] }; }
+      if (/INNER JOIN e070 AS r/.test(sql)) { return { values: [{ TRKORR: "A4HK900002" }, { TRKORR: "A4HK900001" }] }; }
       if (/FROM e070 WHERE trkorr IN/.test(sql)) {
-        return { values: [{ TRKORR: "ALCK900001", TRFUNCTION: "K", TRSTATUS: "D", AS4USER: "SYCHOV", AS4DATE: "20261001", AS4TIME: "100000" },
-          { TRKORR: "ALCK900002", TRFUNCTION: "W", TRSTATUS: "L", AS4USER: "OTHER", AS4DATE: "20261005", AS4TIME: "090000" }] };
+        return { values: [{ TRKORR: "A4HK900001", TRFUNCTION: "K", TRSTATUS: "D", AS4USER: "DEVELOPER", AS4DATE: "20261001", AS4TIME: "100000" },
+          { TRKORR: "A4HK900002", TRFUNCTION: "W", TRSTATUS: "L", AS4USER: "OTHER", AS4DATE: "20261005", AS4TIME: "090000" }] };
       }
       if (/FROM e07t/.test(sql)) {
-        return { values: [{ TRKORR: "ALCK900001", LANGU: "D", AS4TEXT: "Deutsch" }, { TRKORR: "ALCK900001", LANGU: "E", AS4TEXT: "English" }] };
+        return { values: [{ TRKORR: "A4HK900001", LANGU: "D", AS4TEXT: "Deutsch" }, { TRKORR: "A4HK900001", LANGU: "E", AS4TEXT: "English" }] };
       }
-      if (/FROM usr21/.test(sql)) { return { values: [{ BNAME: "SYCHOV", NAME_TEXT: "Yurii Sychov" }] }; }
+      if (/FROM usr21/.test(sql)) { return { values: [{ BNAME: "DEVELOPER", NAME_TEXT: "Test User" }] }; }
       return { values: [] };
     }
   };
   const answer = await request(api, "/sap/bc/adt/vertex/requests");
-  assert.strictEqual(answer.user, "SYCHOV");
+  assert.strictEqual(answer.user, "DEVELOPER");
   assert.deepStrictEqual(answer.requests.map(r => [r.request, r.text, r.type, r.status, r.owner_name]), [
-    ["ALCK900002", "", "customizing", "modifiable, protected", ""],
-    ["ALCK900001", "English", "workbench", "modifiable", "Yurii Sychov"]]);
+    ["A4HK900002", "", "customizing", "modifiable, protected", ""],
+    ["A4HK900001", "English", "workbench", "modifiable", "Test User"]]);
   assert.ok(asked.some(sql => /trstatus IN \( 'D', 'L' \)/.test(sql)));
   await request(api, "/sap/bc/adt/vertex/requests?released=true");
   assert.ok(asked.some(sql => /trstatus IN \( 'D', 'L', 'O', 'R', 'N' \)/.test(sql)));

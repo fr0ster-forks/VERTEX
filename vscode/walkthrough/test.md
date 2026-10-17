@@ -1,5 +1,7 @@
 # Test the connection
 
-**Test SAP Systems** logs on to every configured system with its user and says, per system, what is wrong: no answer at that address, a certificate that cannot be verified, a refused user or password, or ADT services not active.
+**Test SAP Systems** logs on to every configured system and says, per system, what is wrong: no answer at that address, a certificate that cannot be verified, a refused logon, or ADT services not active.
 
-The password is asked once and kept in the operating system's credential store - never in settings. A refused one is dropped, so the next test asks again.
+For `basic`, logon uses your SAP user and password. The password is asked once per system and kept in the operating system's credential store through VS Code SecretStorage - never in settings. A refused password is discarded, so the next test asks again. **VERTEX: Forget Credentials** clears the active system's stored credentials.
+
+For `snc`, Secure Login Client supplies the logon without a password prompt.

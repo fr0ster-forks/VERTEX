@@ -141,6 +141,11 @@ async function request(api, resource, progress, cancelled = () => false) {
       return await require('./selector-table').request(api, resource) ?? await require('./selector-join').request(api, resource);
     }
     if (/^\/sap\/bc\/adt\/vertex\/backward\//.test(url.pathname)) return backward(api, resource, progress);
+    const navigator = /^\/sap\/bc\/adt\/vertex\/navigator\/([^/]+)$/.exec(url.pathname);
+    if (navigator) {
+      if (typeof api.objectNavigator !== 'function') throw new Error('Object Navigator is not available for this system.');
+      return api.objectNavigator(upper(decodeURIComponent(navigator[1])), upper(url.searchParams.get('type')).split('/')[0], url.searchParams.get('node') || '', url.searchParams.get('parts') === 'X');
+    }
     // Versions, the review of a request and the finding of requests, for the same host: read over ADT here too.
     if (/^\/sap\/bc\/adt\/vertex\/(versions|review)\//.test(url.pathname) || url.pathname === '/sap/bc/adt/vertex/requests') {
       return await require('./versions-front').request(api, resource)
@@ -199,8 +204,13 @@ async function request(api, resource, progress, cancelled = () => false) {
       if (!/was not found/.test(e.message)) throw e;
       if (object_type === 'CLAS') data = await read({ object_name, object_type: 'INTF' });
       else if (object_type === 'PROG') {
+        // Not found as a program, it may be an include. Not readable as one either, the object is not there: that is said,
+        // not what the server answered for an include that does not exist (one system answered with a CUA error).
         const source_url = '/sap/bc/adt/programs/includes/' + encodeURIComponent(object_name.toLowerCase()) + '/source/main';
-        data = { object_name, object_type, source_url, source: await api.sourceAt(source_url), includes: [] };
+        let source;
+        try { source = await api.sourceAt(source_url); }
+        catch (asInclude) { throw new Error(e.message + ' Read as an include, SAP answered: ' + (asInclude && asInclude.message || asInclude)); }
+        data = { object_name, object_type, source_url, source, includes: [] };
       } else throw e;
     }
     async function part(data) {

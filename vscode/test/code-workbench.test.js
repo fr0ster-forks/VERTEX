@@ -1,7 +1,11 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
-function host(savedState = {}) {
+function host(savedState = {}, authOverride, extensionRoute = false, repositoryRead) {
+  const baseSystem = { name: "DEV", url: "https://sap.invalid", user: "USER", client: "100", authType: "basic" };
+  let current = [baseSystem];
+  const clients = [], explained = [], repositoryApis = [];
+  class ADTClient { async dispose() { this.disposed = (this.disposed || 0) + 1; } }
   const commands = new Map(), documents = [], writes = [], diffs = [], prompts = [], errors = [], panels = [], definitions = [], hovers = [], typeDefinitions = [], selectionListeners = [], symbols = [], breakpointListeners = [];
   const nativePoints = [], removedNative = [];
   let pointSequence = 0;
@@ -34,7 +38,7 @@ function host(savedState = {}) {
     Uri: { parse: value => ({ scheme: value.split(':')[0], toString: () => value }) },
     EventEmitter: class { event = () => ({ dispose() {} }); fire() {} dispose() {} },
     FileType: { File: 1 }, FileChangeType: { Changed: 1 },
-    FileSystemError: { FileNotFound: () => Error('not found'), NoPermissions: text => Error(text) },
+    FileSystemError: { FileNotFound: () => Error('not found'), Unavailable: text => Object.assign(Error(text), { code: "Unavailable" }), NoPermissions: text => Error(text) },
     Hover: class { constructor(contents, range) { this.contents = contents; this.range = range; } },
     Range: class { constructor(start, end) { if (!start || start.line === undefined || !end || end.line === undefined) { throw new Error("Invalid arguments"); } this.start = start; this.end = end; } },
     WorkspaceEdit: class { constructor() { this.replaced = []; } replace(uri, range, text) { this.replaced.push({ uri, text }); } },
@@ -81,6 +85,7 @@ function host(savedState = {}) {
       },
       registerTextDocumentContentProvider: () => ({ dispose() {} }),
       registerFileSystemProvider: (scheme, provider) => { fileProvider = provider; return { dispose() {} }; },
+      onDidOpenTextDocument: () => ({ dispose() {} }), onDidCloseTextDocument: () => ({ dispose() {} }),
       async openTextDocument(value) {
         const content = value.scheme === 'vertex-sap' ? (await fileProvider.readFile(value)).toString() : value.content || '';
         const doc = { uri: value.content === undefined ? value : vscode.Uri.parse("untitled:" + documents.length),
@@ -113,25 +118,30 @@ function host(savedState = {}) {
       }
     }
   };
-  const context = { subscriptions: [], workspaceState: { get: (key, fallback) => savedState[key] || fallback,
+  const memory = new Map();
+  const context = { subscriptions: [], secrets: { get: async key => memory.get(key), store: async (key, value) => { memory.set(key, value); }, delete: async key => { memory.delete(key); } },
+    globalState: { get: (key, fallback) => memory.get(key) || fallback, update: async (key, value) => { memory.set(key, value); } }, workspaceState: { get: (key, fallback) => savedState[key] || fallback,
     async update(key, value) { savedState[key] = value; } } };
   const sandbox = { Buffer, module: { exports: {} }, __dirname: path.join(__dirname, ".."), require: id => {
-    if (id === "./sap-code") { return { createRepository: () => api, revision: require('../sap-code').revision, TYPES: { PROG: "PROG/P" } }; }
-    if (id === "abap-adt-api") {
-      return { ADTClient: class { constructor() { this.httpClient = {}; } }, createSSLConfig: allowUnauthorized => ({
-        httpsAgent: { allowUnauthorized }
-      }) };
-    }
+    if (extensionRoute && id === "./sap-adt-extension") return { ...require("../sap-adt-extension"),
+      state: async () => ({ ok: true }), host: () => ({}) };
+    if (extensionRoute && id === "./sap-adt-extension-repository") return { createExtensionRepository: () => ({ ...api, indexKept: () => true }) };
+    if (id === "./sap-code") { return { createRepository: ({ systemId }) => { repositoryApis.push(api); return repositoryRead ? { ...api,
+      execute: (tool, args) => { repositoryRead(systemId, tool, args); return api.execute(tool, args); },
+      analysisReader: () => args => api.execute("read_sap_object", args) } : api; }, revision: require('../sap-code').revision, TYPES: { PROG: "PROG/P" } }; }
     return id.startsWith(".") ? require(path.join(__dirname, "..", id)) : require(id);
   } };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../code-workbench.js"), "utf8"), sandbox);
   const tools = sandbox.module.exports.register(vscode, context, {
-    active: () => ({ system: { name: selectedSystem, url: "https://sap.invalid", user: "USER", client: "100" } }),
-    password: async () => "test-secret"
+    active: () => ({ system: current.find(s => s.name === selectedSystem) }),
+    auth: authOverride || { currentSystems: () => current, makeClient: async (system, role) => { const client = new ADTClient(); clients.push({ system, role, client }); return client; },
+      explain: (system, error) => { explained.push({ system, error }); return error.message === "401" ? "401 ? Password refused. Forget credentials and try again." : error.message; } }
   });
   return { tools, commands, usedAsks, docAsks, references, warnings, setUsedResult: value => { usedResult = value; }, setActive: editor => { vscode.window.activeTextEditor = editor; }, atcRuns, problems, infos, setAtcResult: value => { atcResult = value; }, unitRuns, testRuns, setUnitResult: value => { unitResult = value; }, documents, writes, diffs, prompts, errors, api, panels, definitions, hovers, typeDefinitions, selectionListeners, symbols,
-    switchSystem: value => { selectedSystem = value; }, mutate: () => { mutateDuringConfirmation = true; },
+    clients, explained, repositoryApis, context, baseSystem, setSystems: value => { current = value; },
+    switchSystem: value => { selectedSystem = value; if (!current.some(s => s.name === value)) current.push({ ...baseSystem, name: value }); }, mutate: () => { mutateDuringConfirmation = true; },
     fireBreakpoints: change => breakpointListeners.forEach(fn => fn(change)), nativePoints, removedNative, savedState,
+    writeFile: (uri, source) => fileProvider.writeFile(uri, Buffer.from(source)),
     restoreDocument: uri => vscode.workspace.openTextDocument(uri) };
 }
 test("chained constructor method navigation opens implementation and replaces a clean tab", async () => {
@@ -345,6 +355,56 @@ test("structural navigation matches nested DO and LOOP blocks", async () => {
   h.documents[0].selection = { active: { line: 3, character: 6 } };
   await h.commands.get("vertex.goToClassMethod")();
   assert.equal(h.documents[0].selection.start.line, 2);
+});
+test("ENDCLASS goes to its CLASS and back; a DEFERRED class is no block", async () => {
+  const h = host();
+  await h.tools.execute("open_sap_object", { object_name: "ZTEST", object_type: "CLAS" });
+  h.documents[0].text = ["CLASS lcl DEFINITION DEFERRED.", "CLASS lcl DEFINITION.", "  PUBLIC SECTION.", "ENDCLASS."].join("\n");
+  h.documents[0].selection = { active: { line: 3, character: 2 } };
+  await h.commands.get("vertex.goToClassMethod")();
+  assert.equal(h.documents[0].selection.start.line, 1);
+});
+test("in a program a local method goes from its METHODS to its METHOD in its own class", async () => {
+  const h = host();
+  await h.tools.execute("open_sap_object", { object_name: "ZPROG", object_type: "PROG" });
+  h.documents[0].text = ["CLASS lcl_a DEFINITION.", "  PUBLIC SECTION.", "    CLASS-METHODS run.", "ENDCLASS.",
+    "CLASS lcl_b DEFINITION.", "  PUBLIC SECTION.", "    METHODS run.", "ENDCLASS.",
+    "CLASS lcl_b IMPLEMENTATION.", "  METHOD run.", "  ENDMETHOD.", "ENDCLASS.",
+    "CLASS lcl_a IMPLEMENTATION.", "  METHOD run.", "  ENDMETHOD.", "ENDCLASS."].join("\n");
+  h.documents[0].selection = { active: { line: 2, character: 19 } };
+  await h.commands.get("vertex.goToClassMethod")();
+  assert.equal(h.documents[0].selection.start.line, 13);
+  h.documents[0].selection = { active: { line: 9, character: 10 } };
+  await h.commands.get("vertex.goToClassMethod")();
+  assert.equal(h.documents[0].selection.start.line, 6);
+});
+test("a local class named in the source is found in it, with no request to SAP", async () => {
+  const h = host();
+  await h.tools.execute("open_sap_object", { object_name: "ZPROG", object_type: "PROG" });
+  h.documents[0].text = ["CLASS lcl_page DEFINITION DEFERRED.", "CLASS lcl_page DEFINITION.", "ENDCLASS.", "DATA lo TYPE REF TO lcl_page."].join("\n");
+  h.documents[0].selection = { active: { line: 3, character: 22 } };
+  await h.commands.get("vertex.goToClassMethod")();
+  assert.equal(h.documents[0].selection.start.line, 1);
+});
+test("a static call of a local class's method goes to its METHOD in this source", async () => {
+  const h = host();
+  await h.tools.execute("open_sap_object", { object_name: "ZPROG", object_type: "PROG" });
+  h.documents[0].text = ["CLASS lcl_bar DEFINITION.", "ENDCLASS.", "CLASS lcl_bar IMPLEMENTATION.", "  METHOD create.", "  ENDMETHOD.", "ENDCLASS.",
+    "START-OF-SELECTION.", "  lo = lcl_bar=>create( 'x' )."].join("\n");
+  h.documents[0].selection = { active: { line: 7, character: 18 } };
+  await h.commands.get("vertex.goToClassMethod")();
+  assert.deepEqual([h.errors, h.documents[0].selection.start && h.documents[0].selection.start.line], [[], 3]);
+});
+test("a local class's DEFINITION and IMPLEMENTATION lead to each other by its name", async () => {
+  const text = ["CLASS lcl_page DEFINITION.", "ENDCLASS.", "CLASS lcl_page IMPLEMENTATION.", "ENDCLASS."].join("\n");
+  for (const [from, to] of [[0, 2], [2, 0]]) {
+    const h = host();
+    await h.tools.execute("open_sap_object", { object_name: "ZPROG", object_type: "PROG" });
+    h.documents[0].text = text;
+    h.documents[0].selection = { active: { line: from, character: 8 } };
+    await h.commands.get("vertex.goToClassMethod")();
+    assert.deepEqual([h.errors, h.documents[0].selection.start && h.documents[0].selection.start.line], [[], to]);
+  }
 });
 test("structural navigation walks IF and CASE sibling branches without entering nested blocks", async () => {
   const h = host();
@@ -929,4 +989,251 @@ test("Go to Type Definition opens the TYPES statement of the type SAP's element 
   h.api.elementDetails = async () => ({ name: "LV_COUNT", type: "PROG/PD", properties: [{ key: "abapType", value: "TYPE I" }], parts: [] });
   assert.equal(await h.typeDefinitions[0].provider.provideTypeDefinition(h.documents[0], { line: 9, character: 7 }), undefined);
   assert.match(h.warnings.at(-1), /dictionary or built-in type/);
+});
+
+function savedEditor(system, key = require("../auth/systems").connectionKey(system)) {
+  const uri = "vertex-sap:/saved/PROG/ZTEST.abap";
+  return { uri, state: { sapEditors: { [uri]: { key, name: system.name,
+    data: { object_name: "ZTEST", object_type: "PROG", include: "main", source: "old source" } } } } };
+}
+test("saved connection key selects the exact current system", async () => {
+  const first = host().baseSystem, second = { ...first, url: "https://other.invalid" };
+  const saved = savedEditor(second), h = host(saved.state);
+  h.setSystems([first, second]);
+  await h.restoreDocument({ scheme: "vertex-sap", toString: () => saved.uri });
+  assert.equal(h.clients[0].system.url, second.url);
+  assert.equal(h.clients[0].role, "repository");
+  assert.equal(h.documents[0].getText(), "REPORT ztest.");
+});
+test("a changed saved key re-reads the unique current name", async () => {
+  const base = host().baseSystem, saved = savedEditor(base), h = host(saved.state);
+  h.setSystems([{ ...base, url: "https://new.invalid" }]);
+  await h.restoreDocument({ scheme: "vertex-sap", toString: () => saved.uri });
+  assert.equal(h.documents[0].getText(), "REPORT ztest.");
+  assert.equal(h.clients[0].system.url, "https://new.invalid");
+});
+test("a failed changed-key read discards saved content and prevents writes", async () => {
+  const base = host().baseSystem, saved = savedEditor(base), h = host(saved.state);
+  h.setSystems([{ ...base, url: "https://new.invalid" }]);
+  h.api.execute = async () => { throw Error("401"); };
+  const uri = { scheme: "vertex-sap", toString: () => saved.uri };
+  await assert.rejects(h.restoreDocument(uri), error => error.code === "Unavailable" && /Password refused/.test(error.message));
+  assert.equal(saved.state.sapEditors[saved.uri].data, undefined);
+  assert.equal(saved.state.sapEditors[saved.uri].key, require("../auth/systems").connectionKey(base));
+  assert.equal(saved.state.sapEditors[saved.uri].name, base.name);
+  assert.equal(saved.state.sapEditors[saved.uri].reread, true);
+  await assert.rejects(h.writeFile(uri, "old source"), /Password refused/);
+  assert.equal(h.documents.length, 0);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.explained[0].system.authType, "basic");
+  h.api.execute = async () => ({ object_name: "ZTEST", object_type: "PROG", include: "main", source: "new system source" });
+  await h.restoreDocument(uri);
+  assert.equal(h.documents[0].getText(), "new system source");
+  assert.equal(saved.state.sapEditors[saved.uri].reread, undefined);
+  assert.equal(h.writes.length, 0);
+});
+
+test("a failed changed-system read can recover after a reload", async () => {
+  const base = host().baseSystem, saved = savedEditor(base), h = host(saved.state);
+  const current = { ...base, url: "https://new.invalid" };
+  h.setSystems([current]);
+  h.api.execute = async () => { throw Error("network unavailable"); };
+  const uri = { scheme: "vertex-sap", toString: () => saved.uri };
+  await assert.rejects(h.restoreDocument(uri), /network unavailable/);
+  assert.equal(h.documents.length, 0);
+  assert.equal(saved.state.sapEditors[saved.uri].data, undefined);
+  const reloaded = host(JSON.parse(JSON.stringify(saved.state)));
+  reloaded.setSystems([current]);
+  await reloaded.restoreDocument(uri);
+  assert.equal(reloaded.documents[0].getText(), "REPORT ztest.");
+  assert.equal(reloaded.savedState.sapEditors[saved.uri].reread, undefined);
+  assert.equal(reloaded.writes.length, 0);
+});
+for (const missing of [false, true]) test(missing ? "a removed saved system is refused" : "ambiguous saved names are refused", async () => {
+  const base = host().baseSystem, saved = savedEditor(base), h = host(saved.state);
+  h.setSystems(missing ? [] : [{ ...base, url: "https://one.invalid" }, { ...base, url: "https://two.invalid" }]);
+  await assert.rejects(h.restoreDocument({ scheme: "vertex-sap", toString: () => saved.uri }),
+    missing ? /DEV is no longer in vertex.systems/ : /several systems are named DEV; this tab cannot tell which one it belongs to/);
+});
+test("old saved keys restore by name as basic using current settings", async () => {
+  const base = host().baseSystem, saved = savedEditor(base, JSON.stringify([base.url, base.client, base.user, base.name, false])), h = host(saved.state);
+  h.setSystems([{ ...base, url: "https://new.invalid" }]);
+  await h.restoreDocument({ scheme: "vertex-sap", toString: () => saved.uri });
+  assert.equal(h.clients[0].system.authType, "basic");
+  assert.equal(h.clients[0].system.url, "https://new.invalid");
+  assert.equal(saved.state.sapEditors[saved.uri].name, "DEV");
+});
+test("dropping a repository disposes its client", async () => {
+  const h = host();
+  await h.tools.execute("open_sap_object", { object_type: "PROG", object_name: "ZTEST" });
+  h.setSystems([{ ...h.baseSystem, url: "https://new.invalid" }]);
+  await h.tools.execute("open_sap_object", { object_type: "PROG", object_name: "ZTEST" });
+  assert.equal(h.clients[0].client.disposed, 1);
+});
+
+test("opening SAP source explains a real refused basic password", async t => {
+  const http = require("node:http"), { createAuth } = require("../auth/clients");
+  const server = http.createServer((request, response) => { response.statusCode = 401; response.end(""); });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const system = { ...host().baseSystem, url: "http://127.0.0.1:" + server.address().port };
+  const memory = new Map();
+  const context = { secrets: { get: async key => memory.get(key), store: async (key, value) => { memory.set(key, value); }, delete: async key => { memory.delete(key); } },
+    globalState: { get: () => undefined, update: async () => {} } };
+  const auth = createAuth({ context, logger: null, vscode: { env: {},
+    workspace: { getConfiguration: () => ({ get: key => key === "systems" ? [system] : undefined }) },
+    window: { showInputBox: async () => "refused-password" } } });
+  t.after(() => auth.disposeAll());
+  const h = host({}, auth), makeClient = auth.makeClient;
+  h.setSystems([system]);
+  auth.makeClient = async (...args) => {
+    const client = await makeClient(...args);
+    h.api.execute = () => client.httpClient.request("/sap/bc/adt/discovery", {});
+    return client;
+  };
+  await assert.rejects(h.tools.execute("open_sap_object", { object_name: "ZTEST", object_type: "PROG" }), error => {
+    const refusal = auth.lastRefusal(system);
+    assert.ok(refusal);
+    assert.ok(error.message.includes(refusal.reason));
+    if (refusal.hint) assert.ok(error.message.includes(refusal.hint));
+    return true;
+  });
+  assert.equal(await require("../auth/stores").createStores({ secrets: context.secrets, currentSystems: () => [system] }).means.password(require("../auth/systems").loginIdentity(system)), undefined);
+});
+
+test("a first write after a saved system change never applies the old buffer", async () => {
+  const base = host().baseSystem, saved = savedEditor(base), h = host(saved.state);
+  h.setSystems([{ ...base, url: "https://new.invalid" }]);
+  const uri = { scheme: "vertex-sap", toString: () => saved.uri };
+  await assert.rejects(h.writeFile(uri, "old source"), error => error.code === "Unavailable" && /system changed.*re-read/.test(error.message));
+  assert.equal(h.writes.length, 0);
+  assert.equal(saved.state.sapEditors[saved.uri].data.source, "REPORT ztest.");
+  await assert.rejects(h.writeFile(uri, "old source"), /system changed/);
+  assert.equal(saved.state.sapEditors[saved.uri].key, require("../auth/systems").connectionKey(base));
+  assert.equal(saved.state.sapEditors[saved.uri].reread, true);
+  const reloaded = host(JSON.parse(JSON.stringify(saved.state)));
+  reloaded.setSystems([{ ...base, url: "https://new.invalid" }]);
+  await assert.rejects(reloaded.writeFile(uri, "old source"), /system changed/);
+  assert.equal(reloaded.writes.length, 0);
+  await reloaded.restoreDocument(uri);
+  assert.equal(reloaded.documents[0].getText(), "REPORT ztest.");
+  assert.equal(reloaded.savedState.sapEditors[saved.uri].reread, undefined);
+  await reloaded.writeFile(uri, "REPORT ztest.\nWRITE 'new'.");
+  assert.equal(reloaded.writes.length, 1);
+  assert.equal(h.writes.length, 0);
+});
+test("concurrent repository callers share construction and failures can retry", async () => {
+  let calls = 0, release;
+  const h = host({}, { currentSystems: () => [h.baseSystem], explain: (system, error) => error.message,
+    makeClient: async () => { calls++; await new Promise(resolve => { release = resolve; }); return { dispose: async () => {} }; } });
+  h.api.query = async () => "result";
+  const a = h.tools.selectorQuery("a"), b = h.tools.selectorQuery("b");
+  assert.equal(calls, 1);
+  release();
+  assert.deepEqual(await Promise.all([a, b]), ["result", "result"]);
+  assert.equal(h.repositoryApis.length, 1);
+  assert.equal(calls, 1);
+  let attempts = 0;
+  const retry = host({}, { currentSystems: () => [retry.baseSystem], explain: (system, error) => error.message,
+    makeClient: async () => { if (++attempts === 1) throw Error("construction failed"); return { dispose: async () => {} }; } });
+  retry.api.query = async () => "retried";
+  await assert.rejects(retry.tools.selectorQuery("a"), /construction failed/);
+  assert.equal(await retry.tools.selectorQuery("a"), "retried");
+  assert.equal(attempts, 2);
+});
+test("saving an evicted open tab resolves the current system and requires a fresh read", async () => {
+  const h = host();
+  await h.tools.execute("open_sap_object", { object_type: "PROG", object_name: "ZTEST" });
+  const uri = h.documents[0].uri;
+  h.setSystems([{ ...h.baseSystem, url: "https://new.invalid" }]);
+  await assert.rejects(h.writeFile(uri, "old buffer"), /system changed/);
+  assert.equal(h.clients[0].client.disposed, 1);
+  assert.equal(h.clients.length, 2);
+  assert.equal(h.clients[1].system.url, "https://new.invalid");
+  assert.equal(h.writes.length, 0);
+  await h.restoreDocument(uri);
+  await h.writeFile(uri, "REPORT ztest.\nWRITE 'new'.");
+  assert.equal(h.writes.length, 1);
+});
+test("repository errors retain SAP properties and returned readers explain failures", async () => {
+  const h = host(), error = Object.assign(Error("400"), { err: 400, response: { status: 400 }, type: "SAP" });
+  h.api.query = async () => { throw error; };
+  h.api.analysisReader = () => async () => { throw Error("401"); };
+  await assert.rejects(h.tools.selectorQuery("a"), caught => caught === error && caught.err === 400 && caught.response.status === 400 && caught.type === "SAP");
+  await assert.rejects(h.tools.transpileSources({ object_name: "ZTEST", object_type: "PROG" }), /Password refused/);
+  assert.match(h.explained.at(-1).error.message, /Password refused/);
+
+});
+
+test("hover remains silent for a wrapped SAP 400", async () => {
+  const h = host();
+  h.api.elementInfo = async () => { throw Object.assign(Error("bad request"), { err: 400 }); };
+  await h.tools.execute("open_sap_object", { object_type: "PROG", object_name: "ZTEST" });
+  const before = h.warnings.length;
+  assert.equal(await h.hovers[0].provider.provideHover(h.documents[0], { line: 0, character: 8 }), undefined);
+  assert.equal(h.warnings.length, before);
+  assert.equal(h.errors.length, 0);
+});
+
+for (const review of [false, true]) test(review
+  ? "review apply refuses an old tab after a connection key change"
+  : "clean Save & Activate refuses an old tab after a connection key change", async () => {
+  const h = host(), sent = [], execute = h.api.execute;
+  h.api.execute = async (tool, args) => { sent.push(tool); return execute(tool, args); };
+  await h.tools.execute("open_sap_object", { object_name: "ZTEST", object_type: "PROG" });
+  const doc = h.documents[0], uri = doc.uri.toString();
+  if (review) {
+    doc.text += "\nWRITE 'old system edit'.";
+    await h.tools.execute("review_sap_changes", {});
+  } else { assert.equal(doc.isDirty, false); }
+  h.setSystems([{ ...h.baseSystem, url: "https://new.invalid" }]);
+  sent.length = 0;
+  if (review) { await h.panels[0].receive({ action: "apply", approved: [0] }); }
+  else { await h.commands.get("vertex.saveAndActivate")(); }
+  assert.match(h.errors.at(-1), /system changed.*re-read/);
+  assert.deepEqual(sent, ["read_sap_object"]);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.prompts.length, 0);
+  assert.equal(h.savedState.sapEditors[uri].reread, true);
+  await h.commands.get("vertex.saveAndActivate")();
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.savedState.sapEditors[uri].reread, true);
+  const reloaded = host(JSON.parse(JSON.stringify(h.savedState)));
+  reloaded.setSystems([{ ...h.baseSystem, url: "https://new.invalid" }]);
+  await assert.rejects(reloaded.writeFile(doc.uri, doc.text), /system changed/);
+  assert.equal(reloaded.savedState.sapEditors[uri].reread, true);
+  await reloaded.restoreDocument(doc.uri);
+  assert.equal(reloaded.savedState.sapEditors[uri].reread, undefined);
+  await reloaded.writeFile(doc.uri, "REPORT ztest.\nWRITE 'new system edit'.");
+  assert.equal(reloaded.writes.length, 1);
+});
+
+test("extension-route tab breakpoints stay local with a broker system active", async () => {
+  const ext = { name: "EXT", connection: "sap-adt-extension", destination: "DEST" };
+  const saved = savedEditor(ext), h = host(saved.state, undefined, true);
+  h.setSystems([h.baseSystem, ext]);
+  await h.restoreDocument({ scheme: "vertex-sap", toString: () => saved.uri });
+  const placed = [];
+  h.tools.attachDebugger({ picture: () => ({ system: "DEV", breakpoints: [] }),
+    watch: () => ({ dispose() {} }), async setBreakpointAt(args) { placed.push(args); return "local-point"; } });
+  h.fireBreakpoints({ added: [{ id: "extension-point", location: { uri: h.documents[0].uri, range: { start: { line: 0 } } } }] });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(placed.length, 1);
+  assert.equal(placed[0].local, true);
+  assert.equal(h.tools.documentObject(h.documents[0]).system_name, "EXT");
+});
+
+test("variable analysis selects the named system repository among open repositories", async () => {
+  const reads = [];
+  const h = host({}, undefined, false, (key, tool, args) => reads.push({ key, tool, args }));
+  for (const name of ["OTHER", "DEV", "THIRD"]) {
+    h.switchSystem(name);
+    await h.tools.execute("open_sap_object", { object_name: "ZTEST", object_type: "PROG" });
+  }
+  h.switchSystem("DEV");
+  h.setActive(null);
+  await h.tools.originVariables({ object_name: "ZVARIABLES", object_type: "PROG", line: 1 });
+  const read = reads.find(read => read.tool === "read_sap_object" && read.args.object_name === "ZVARIABLES");
+  assert.ok(read);
+  assert.equal(require("../auth/systems").keyInfo(read.key).name, "DEV");
 });

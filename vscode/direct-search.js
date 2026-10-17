@@ -25,12 +25,9 @@ function objectRequest(text) {
   return found && isObjectName(found[1]) ? { query: found[1], openEditor: true } : null;
 }
 
-/* In VS Code a search names its system by the connection key - url, client,
-   user, name - and only the name belongs in an answer. */
+// Search results may carry a connection key or a plain system name.
 function systemName(value) {
-  const text = String(value || "");
-  try { const key = JSON.parse(text); if (Array.isArray(key) && key[3]) { return String(key[3]); } } catch (e) { /* a plain name */ }
-  return text;
+  return require("./auth/systems").keyInfo(value).name;
 }
 
 /**

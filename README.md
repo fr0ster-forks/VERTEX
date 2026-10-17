@@ -45,7 +45,7 @@ GitHub Copilot model or API keys for Anthropic, OpenAI, Mistral, Gemini, Groq,
 Cerebras, OpenRouter and NVIDIA. Provider model lists can be collapsed independently.
 Each list has a Clear all / Select all control for its model checkboxes.
 The VS Code chat can explain an active local `.abap` file using its current editor text, even without a SAP connection.
-Local ABAP programs and classes support VERTEX Outline, definition navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis. VERTEX bundles the abaplint transpiler and runtime. **VERTEX: Run with ABAP Transpiler** on a local file asks the selection screen in a popup and shows what the program wrote (Output); with a breakpoint set the same panel is the debugger, which stops there and steps on. **Visual Analysis / Debug** opens that panel whole, for analysis with or without a run. Project configuration is generated automatically when absent. After a run, Formula and Expression of a chosen value keep only the path the run took and carry the recorded values in brackets; with no path analysed they are written out from the record. An SAP program runs with the transpiler too, from **VERTEX: Run with ABAP Transpiler** in its editor's context menu or beside Run in SAP: its active version, its includes, the customer classes and interfaces it uses and the dictionary types they use are read from SAP first, and a step goes into an include as in SAP; a customer function module stops it with the reason. See [local execution setup](vscode/README.md#local-abap-execution). SAP execution and version history still require a system.
+Local ABAP programs and classes support VERTEX Outline, definition navigation, UML, metrics, Logic and Calls diagrams, and forward/backward usage analysis. VERTEX bundles the abaplint transpiler and runtime. **VERTEX: Run with ABAP Transpiler** on a local file asks the selection screen in a popup - blocks, PARAMETERS, SELECT-OPTIONS and the program's selection texts, laid out as SAP does - and shows what the program wrote (Output); with a breakpoint set the same panel is the debugger, which stops there and steps on. **Visual Analysis / Debug** opens that panel whole, for analysis with or without a run. Project configuration is generated automatically when absent. After a run, Formula and Expression of a chosen value keep only the path the run took and carry the recorded values in brackets; with no path analysed they are written out from the record. An SAP program, a method of an SAP class or a function module runs with the transpiler too, from **VERTEX: Run with ABAP Transpiler** in its editor's context menu or beside Run in SAP: its active version, its includes, the customer classes and interfaces the run can reach from where it starts and the dictionary types they use are read from SAP first - a method nothing reaches goes to the transpiler without its body -, and a step goes into an include as in SAP; a function module the code calls brings its function group. See [local execution setup](vscode/README.md#local-abap-execution). SAP execution and version history still require a system.
 
 
 | Tool | Grew out of | What it does | VS Code | Eclipse | ABAP backend |
@@ -102,6 +102,58 @@ Codex also detects a standalone native CLI, including the native executable in
 a global npm installation found through PATH. Restart VS Code after installing it.
 On Windows, Codex detection also checks `%APPDATA%/npm`.
 
+### Connecting
+
+Configure `vertex.systems` in VS Code settings. `authType` defaults to `basic`: use
+your SAP user and password. VERTEX asks for the password once per system and keeps it in the
+OS credential store through VS Code SecretStorage, never in settings. A refused
+password is discarded; the next operation asks again. Basic also works on remote
+extension hosts. **VERTEX: Forget Credentials** clears the active system's stored
+credentials.
+
+For `snc`, install the **win32-x64** VSIX on Windows x64 or the **darwin-arm64**
+VSIX on macOS on Apple silicon. These packages carry their own prebuilt
+`@mcp-abap-adt/sap-rfc-lite` binding. The **universal**
+package has no SNC support; use it otherwise. SNC requires local VS Code,
+Secure Login Client, and the SAP NW RFC SDK installed by you. Put the SDK's `lib`
+directory on `PATH` (Windows) or `DYLD_LIBRARY_PATH` (macOS) before starting
+VS Code. Your SAP account needs RFC authorization for `SADT_REST_RFC_ENDPOINT`.
+
+```json
+"vertex.systems": [
+  {
+    "name": "<display name>",
+    "url": "https://<ADT address>:<ICM port>",
+    "client": "<client>",
+    "user": "<ABAP user>",
+    "authType": "snc",
+    "snc": { "partnerName": "p:CN=SID, O=ACME", "qop": "9" },
+    "rfc": { "ashost": "<application server>", "sysnr": "00" }
+  }
+]
+```
+
+For SNC, `user` identifies the ABAP user the debugger targets; no password is
+prompted for. Secure Login Client supplies the logon. `snc.partnerName` and
+`rfc.ashost`/`rfc.sysnr` are required; the RFC address is never derived from `url`.
+Optional SNC settings are `qop` (`"1"`, `"2"`, `"3"`, `"8"`, `"9"`), `library`
+(the SNC library path, discovered when omitted), and `myName` (the local SNC
+name). `rfc.saprouter` is optional. `url` remains required for identity and WebGUI.
+
+SNC can be refused before connecting:
+
+- "SNC needs the local VS Code on Windows or macOS; this window runs on a remote host (‹remoteName›)."
+- "SNC runs on Windows x64 and macOS on Apple silicon only."
+- "This VERTEX package has no SNC support; install the Windows or macOS package of VERTEX."
+
+If the binding cannot load, VERTEX asks you to install the SAP NW RFC SDK, put
+its `lib` directory on `PATH` or `DYLD_LIBRARY_PATH`, and restart VS Code, with
+the load failure included.
+
+Running a program under the debugger opens WebGUI. ADT breakpoints do not catch
+a SAP GUI (SAP Logon) session. For SNC systems too, browser logon for WebGUI is
+SAP's (SSO certificate/SPNego or password), independent of SNC.
+
 Install the extension from the Marketplace, then give it the connection Eclipse would take from the
 ABAP project. There is no project here, so the systems are a list and one of them is active.
 They live in VS Code's settings: **Ctrl+Shift+P → Preferences: Open User Settings (JSON)**, and
@@ -111,21 +163,32 @@ A first install opens **Get started with VERTEX** (VS Code's Get Started page; l
 system's host and instance from SAP Logon (for a logon group, its message server's host), the client and user from an Eclipse ADT workspace - the recent workspaces of the Eclipse installations it finds are offered, another folder can be chosen - and
 looks for ADT on the usual ports - 443NN and 80NN for the instance, then 44300, 8000, 50001, 50000, 443, 80, 8443,
 8080 - offering only addresses that answer. **VERTEX: Test SAP Systems** then logs on to each configured system and
-says what is wrong, if anything; the password it asks for is kept in the OS credential store, never in settings. The import also checks where the debugger can open WebGUI (`/sap/bc/gui/sap/its/webgui`): on the system's `url` it needs nothing; served on another address that answered - say `url` on HTTP 8000, WebGUI on HTTPS 44300 - or behind a redirect to a host this computer resolves, it writes that as `webgui`; found nowhere, it says so, and `webgui` is set by hand.
+says what is wrong, if anything; for basic, the password it asks for is kept in the OS credential store, never in settings. The import also checks where the debugger can open WebGUI (`/sap/bc/gui/sap/its/webgui`): on the system's `url` it needs nothing; served on another address that answered - say `url` on HTTP 8000, WebGUI on HTTPS 44300 - or behind a redirect to a host this computer resolves, it writes that as `webgui`; found nowhere, it says so, and `webgui` is set by hand.
 By hand, the entries look like this; the HTTP(S) port is in SMICM > Goto > Services.
 
 ```json
 "vertex.systems": [
-  { "name": "A4H", "url": "https://host:44300", "client": "001", "user": "DEVELOPER",
-    "allowInsecureCertificate": true },
-  { "name": "EXX", "url": "http://host:8XXX", "client": "100", "user": "DEVELOPER" }
+  {
+    "name": "DEV",
+    "url": "https://host.example.com:44300",
+    "client": "100",
+    "user": "DEVELOPER"
+  }
 ],
-"vertex.active": "A4H"
+"vertex.active": "DEV"
 ```
 
 The url is the ICM port, not the one SAP GUI connects to. An empty `vertex.active` means the
-first. **VERTEX: Switch System** picks another one from a list, and the password is asked once per
-system - two systems are two users often enough.
+first. **VERTEX: Switch System** picks another one from a list.
+
+SNC single sign-on can use VERTEX's own RFC connection as described above. An alternative is a system configured *only with
+SAP ADT extension*: SAP's ABAP Development Tools for VS Code logs on to it, SNC included, and VERTEX
+reads, writes and activates through that extension. **VERTEX: Get Connections from SAP ADT for VS
+Code** adds its destinations to `vertex.systems` (`"connection": "sap-adt-extension"`, `"destination"`),
+and **VERTEX: Index SAP System** builds, once, the index by which VERTEX finds objects by name there.
+Sources, VERTEX Tools, Value Origin and the ABAP transpiler's run work on such a system; Run in SAP,
+the SAP debugger, SelecTor, Versions, where-used, ABAP Unit and ATC need VERTEX's own connection and
+say so. Details: [vscode/README.md](vscode/README.md#systems-with-snc-single-sign-on).
 
 ### Eclipse
 
@@ -209,7 +272,8 @@ through MCP.
 ### VS Code 
 
 - **VERTEX Tools** — pick an object type and a name; the functions offered depend on the type
-  (Data, UML, Metrics, Calls and Logic diagrams, Diff, Versions). There is no View source: the source is the
+  (Object Navigator, Data, UML, Metrics, Calls and Logic diagrams, Diff, Versions). Object Navigator is the SE80
+  tree of a package, transport request, program, class or interface, each entry a link to its source. There is no View source: the source is the
   editor tab, and its parts are VS Code's Outline. Visual Debug is the panel beside the editor.
   Clicking a method in the Calls diagram opens its Logic diagram inside the same canvas, joined
   to the block it came from; the magnifier icon magnifies the diagram under the pointer, the same lens in every diagram.

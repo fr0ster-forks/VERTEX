@@ -25,7 +25,7 @@
     "codex",
     "reviewer"
   ],
-  "version": "0.9.1",
+  "version": "0.9.6",
   "publisher": "YuriiSychov",
   "engines": {
     "vscode": "^1.85.0"
@@ -166,12 +166,20 @@
         "title": "VERTEX: Import SAP Systems"
       },
       {
+        "command": "vertex.importAdtConnections",
+        "title": "VERTEX: Get Connections from SAP ADT for VS Code"
+      },
+      {
+        "command": "vertex.indexSapSystem",
+        "title": "VERTEX: Index SAP System"
+      },
+      {
         "command": "vertex.testSystems",
         "title": "VERTEX: Test SAP Systems"
       },
       {
         "command": "vertex.forgetPassword",
-        "title": "VERTEX: Forget Password"
+        "title": "VERTEX: Forget Credentials"
       },
       {
         "command": "vertex.mcpAddress",
@@ -281,18 +289,16 @@
         "vertex.systems": {
           "type": "array",
           "default": [],
-          "markdownDescription": "The ABAP systems this extension can read. One of them is active at a time - see `vertex.active`, or the **VERTEX: Switch System** command.\n\n[Import from SAP Logon and Eclipse](command:vertex.importSystems) · [Test the connections](command:vertex.testSystems)\n\nImport reads each system's host and instance from SAP Logon, the client and user from an Eclipse ADT workspace, and looks for the ADT address on the usual ports. The HTTP(S) port is also in SMICM > Goto > Services.",
+          "markdownDescription": "The ABAP systems this extension can read. One of them is active at a time - see `vertex.active`, or the **VERTEX: Switch System** command.\n\n[Import from SAP Logon and Eclipse](command:vertex.importSystems) · [Get connections from SAP ADT for VS Code](command:vertex.importAdtConnections) · [Test the connections](command:vertex.testSystems)\n\nImport reads each system's host and instance from SAP Logon, the client and user from an Eclipse ADT workspace, and looks for the ADT address on the usual ports. The HTTP(S) port is also in SMICM > Goto > Services.\n\nFor VERTEX's own SNC connection, set authType to snc and configure snc and rfc. Alternatively, connect only with SAP ADT extension: `connection` is `sap-adt-extension` and `destination` names one of that extension's destinations, with no url, user or password.",
           "items": {
             "type": "object",
             "required": [
-              "name",
-              "url",
-              "user"
+              "name"
             ],
             "properties": {
               "name": {
                 "type": "string",
-                "description": "How this system is called in the switch list. Also what its stored password is filed under."
+                "description": "How this system is called in the switch list."
               },
               "url": {
                 "type": "string",
@@ -304,7 +310,64 @@
               },
               "user": {
                 "type": "string",
-                "description": "SAP user. The password is asked once and kept in the OS credential store, per system."
+                "description": "SAP user. For basic, the logon user — its password is asked once and kept in the OS credential store. For snc, the ABAP user the debugger targets; no password."
+              },
+              "authType": {
+                "type": "string",
+                "enum": [
+                  "basic",
+                  "snc"
+                ],
+                "default": "basic",
+                "description": "Authentication type. basic uses a password; snc uses Secure Login Client over RFC. Never put a password in settings."
+              },
+              "snc": {
+                "type": "object",
+                "description": "SNC settings, required for snc authentication.",
+                "properties": {
+                  "partnerName": {
+                    "type": "string",
+                    "description": "Required. The system's SNC name, for example p:CN=SID, O=ACME."
+                  },
+                  "qop": {
+                    "type": "string",
+                    "enum": [
+                      "1",
+                      "2",
+                      "3",
+                      "8",
+                      "9"
+                    ],
+                    "description": "Optional SNC quality of protection."
+                  },
+                  "library": {
+                    "type": "string",
+                    "description": "Optional SNC library path; discovered when absent."
+                  },
+                  "myName": {
+                    "type": "string",
+                    "description": "Optional local SNC name."
+                  }
+                }
+              },
+              "rfc": {
+                "type": "object",
+                "description": "RFC address, required for snc; never derived from url.",
+                "properties": {
+                  "ashost": {
+                    "type": "string",
+                    "description": "Required. Application server host."
+                  },
+                  "sysnr": {
+                    "type": "string",
+                    "pattern": "^\\d\\d$",
+                    "description": "Required. Two-digit instance number."
+                  },
+                  "saprouter": {
+                    "type": "string",
+                    "description": "Optional SAProuter string."
+                  }
+                }
               },
               "webgui": {
                 "type": "string",
@@ -314,8 +377,40 @@
                 "type": "boolean",
                 "default": false,
                 "markdownDescription": "Accept a server certificate that cannot be verified. Development systems often have one. **Off by default on purpose** - turning it on disables certificate checking for requests to this system."
+              },
+              "connection": {
+                "type": "string",
+                "enum": [
+                  "sap-adt-extension"
+                ],
+                "markdownDescription": "`sap-adt-extension`: read, write and activate through SAP ABAP Development Tools for VS Code, which logs on by itself (SNC included). Leave out for VERTEX's own HTTP connection."
+              },
+              "destination": {
+                "type": "string",
+                "markdownDescription": "With `connection: sap-adt-extension`: the destination ID in SAP ADT extension, for example `A4H_001_DEVELOPER_EN`."
+              },
+              "packages": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "markdownDescription": "With `connection: sap-adt-extension`: packages to index besides `$TMP` and the customer root packages (`Z*`, `Y*`, `/namespace/`), so their objects are found by name. A root package of the System Library, or a path of packages from one, for example `BASIS/SABAPDEMOS`; each is walked with its subpackages."
               }
-            }
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "url",
+                  "user"
+                ]
+              },
+              {
+                "required": [
+                  "connection",
+                  "destination"
+                ]
+              }
+            ]
           }
         },
         "vertex.active": {
@@ -413,12 +508,12 @@
       "editor/context": [
         {
           "command": "vertex.openVisualDebug",
-          "when": "(resourceScheme == vertex-sap || resourceScheme == file) && editorLangId == abap",
+          "when": "(resourceScheme == vertex-sap || resourceScheme == file || resourceScheme == abap) && editorLangId == abap",
           "group": "navigation@8"
         },
         {
           "command": "vertex.runTranspiler",
-          "when": "editorLangId == abap && (resourceScheme == file || resourceScheme == vertex-sap && resourcePath =~ /^\/[^/]+\/PROG\//)",
+          "when": "editorLangId == abap && (resourceScheme == file || resourceScheme == vertex-sap && resourcePath =~ /^\/[^/]+\/(PROG|CLAS|FUNC)\// || resourceScheme == abap && resourceFilename =~ /\\.(prog|clas|func)\\.abap$/)",
           "group": "navigation@8"
         },
         {
@@ -521,7 +616,7 @@
         {
           "submenu": "vertex.tools.context",
           "group": "navigation@12",
-          "when": "resourceExtname == .abap || resourceScheme == vertex-sap || resourceScheme == vertex-source"
+          "when": "resourceExtname == .abap || resourceScheme == vertex-sap || resourceScheme == vertex-source || resourceScheme == abap"
         }
       ],
       "webview/context": [
@@ -550,7 +645,7 @@
         },
         {
           "command": "vertex.openVisualDebug",
-          "when": "(resourceScheme == vertex-sap || resourceScheme == file) && editorLangId == abap"
+          "when": "(resourceScheme == vertex-sap || resourceScheme == file || resourceScheme == abap) && editorLangId == abap"
         },
         {
           "command": "vertex.runTranspiler",
@@ -635,6 +730,14 @@
         {
           "command": "vertex.runSelect",
           "when": "(resourceScheme == vertex-sap || resourceScheme == file) && editorLangId == abap"
+        },
+        {
+          "command": "vertex.importAdtConnections",
+          "when": "vertex.sapAdtExtension"
+        },
+        {
+          "command": "vertex.indexSapSystem",
+          "when": "vertex.sapAdtExtension"
         }
       ]
     },
@@ -793,6 +896,11 @@
     "@abaplint/core": "2.120.68",
     "@abaplint/runtime": "2.14.3",
     "@abaplint/transpiler-cli": "2.14.3",
+    "@mcp-abap-adt/auth-broker": "^5.0.6",
+    "@mcp-abap-adt/auth-errors": "^2.2.1",
+    "@mcp-abap-adt/auth-providers": "^6.0.2",
+    "@mcp-abap-adt/auth-stores": "^5.0.1",
+    "@mcp-abap-adt/connection": "^17.1.0",
     "abap-adt-api": "8.4.3"
   }
 }
