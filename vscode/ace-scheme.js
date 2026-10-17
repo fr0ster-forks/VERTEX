@@ -47,6 +47,15 @@ function scheme(p,expandedText='',logicOnly=false) {
   const arrow=l=>l?' -->|"'+l+'"| ':' --> ';
   const connect=(a,b,l='')=>{if(a&&typeof a==='object'){connect(a.id,b,a.label);return;}if(a&&b)edges.push(a+arrow(l)+b);};
   const click=(id,action)=>clicks.push('click '+id+' "sapevent:'+action+'" _self');
+  /* Logic only: the operations it leaves out between two shown steps stand as one block saying how many, opened
+     by a click (its first line goes into EXPANDED) and closed again by a click on any of them. */
+  const opened=new Set(String(expandedText||'').split(',').filter(Boolean).map(Number));
+  function folded(run,emit){
+    if(!run.length)return;
+    const first=run[0].line;
+    if(opened.has(first)){run.forEach(x=>{emit('p'+x.line,x.text,x.call?'callnode':x.flow.sideEffect?'dbnode':'');click('p'+x.line,'aceexp_'+first);});return;}
+    emit('o'+first,run.length+(run.length===1?' operation':' operations'),'foldnode');click('o'+first,'aceexp_'+first);
+  }
   function ops(from,to,prior,edgeLabel){
     if(!prior||from<=0||to<=from+1)return prior;
     let chain=prior;
@@ -55,12 +64,16 @@ function scheme(p,expandedText='',logicOnly=false) {
       connect(chain,id,chain===prior?edgeLabel:'');chain=id;
       if(klass)styles.push('class '+id+' '+klass);
     }
+    let run=[];
+    const flush=()=>{folded(run,(id,text,klass)=>append(id,text,'round',klass));run=[];};
     for(const r of rows.filter(r=>r.line>from&&r.line<to&&r.kind==='P'&&!r.flow.declaration)){
       if(!label(r.text))continue;
-      if(exits(r)){append('p'+r.line,r.text,'round','exitnode');click('p'+r.line,'acego_'+r.source_line+'_'+r.source_line);return '';}
-      if(logicOnly&&!external(r))continue;
+      if(exits(r)){flush();append('p'+r.line,r.text,'round','exitnode');click('p'+r.line,'acego_'+r.source_line+'_'+r.source_line);return '';}
+      if(logicOnly&&!external(r)){run.push(r);continue;}
+      flush();
       append('p'+r.line,r.text,'round',r.call?'callnode':r.flow.sideEffect?'dbnode':'');
     }
+    flush();
     return chain;
   }
   if(!root&&label(title)){mm.push('start(["'+label(title)+'"])');prev='start';}
@@ -78,7 +91,11 @@ function scheme(p,expandedText='',logicOnly=false) {
     if(loop&&inner){mm.push('subgraph g'+r.line+'["'+text+'"]','direction LR');if(r.word==='TRY'){styles.push('class g'+r.line+' tryblk');/* A CATCH is not the next step of the TRY body: it is entered from the TRY, and the body and every handler meet at ENDTRY. */conds.unshift({close:r.all+1,depth:r.depth,word:'TRY',header:prev,seen:false,tails:[]});}subs.unshift(r.all);continue;}
     if(loop){
       mm.push('subgraph g'+r.line+'["'+text+'"]','direction LR');let chain='',first='';
-      for(const x of rows.filter(x=>x.line>r.line&&x.line<=r.all&&x.kind==='P'&&!x.flow.declaration)){if(!label(x.text)||logicOnly&&!external(x)&&!exits(x))continue;const xid='p'+x.line;mm.push(xid+'("'+label(x.text)+'")');connect(chain,xid);if(!first)first=xid;chain=xid;if(exits(x)){styles.push('class '+xid+' exitnode');chain='';break;}}
+      let run=[];
+      const put=(xid,text,klass)=>{mm.push(xid+'("'+label(text)+'")');connect(chain,xid);if(!first)first=xid;chain=xid;if(klass)styles.push('class '+xid+' '+klass);};
+      const flush=()=>{folded(run,put);run=[];};
+      for(const x of rows.filter(x=>x.line>r.line&&x.line<=r.all&&x.kind==='P'&&!x.flow.declaration)){if(!label(x.text))continue;if(logicOnly&&!external(x)&&!exits(x)){run.push(x);continue;}flush();put('p'+x.line,x.text,'');if(exits(x)){styles.push('class p'+x.line+' exitnode');chain='';break;}}
+      flush();
       mm.push('end');connect(prev,first,pendingLabel);pendingLabel='';if(first){prev=chain;prevLine=r.all;}continue;
     }
     const branch=conds[0];
@@ -107,6 +124,6 @@ function scheme(p,expandedText='',logicOnly=false) {
   while(subs.length){mm.push('end');subs.shift();}
   const last=rows.at(-1);if(last&&prev){const tail=ops(prevLine,endRow?last.line:last.line+1,prev,pendingLabel);if(endRow)connect(tail,endId);}
   if(endRow){mm.push(endId+'(["'+endRow.word+'"])');click(endId,'acego_'+endRow.source_line+'_'+endRow.source_line);}
-  return {conditionCalls,clusterRanges,nodeRanges,nodeLines:Object.fromEntries(rows.flatMap(r=>['n','p','o'].map(prefix=>[prefix+r.line,r.source_line]))),mermaid:'flowchart LR\n'+[...mm,'classDef tryblk fill:#eaf6ea,stroke:#2e7d32,color:#000','classDef default color:#12369e','classDef callnode fill:#fbeeee,stroke:#800000,color:#800000','classDef dbnode fill:#e8f2f6,stroke:#1f6f8b,color:#0f5468',...styles,...edges,...clicks].join('\n'),steps:mm.length,line_from:rows[0]?.source_line||p.line,line_to:last?.source_line||p.line};
+  return {conditionCalls,clusterRanges,nodeRanges,nodeLines:Object.fromEntries(rows.flatMap(r=>['n','p','o'].map(prefix=>[prefix+r.line,r.source_line]))),mermaid:'flowchart LR\n'+[...mm,'classDef tryblk fill:#eaf6ea,stroke:#2e7d32,color:#000','classDef default color:#12369e','classDef callnode fill:#fbeeee,stroke:#800000,color:#800000','classDef dbnode fill:#e8f2f6,stroke:#1f6f8b,color:#0f5468','classDef foldnode stroke-dasharray:4 3',...styles,...edges,...clicks].join('\n'),steps:mm.length,line_from:rows[0]?.source_line||p.line,line_to:last?.source_line||p.line};
 }
 module.exports={scheme,analyze,label};

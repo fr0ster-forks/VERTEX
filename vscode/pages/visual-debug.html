@@ -2348,6 +2348,9 @@ function localResult(result){
 /* Run in SAP: the program started in WebGUI, or a class or function module on its test screen. */
 function sapRun(){
   var p=$("program").hidden?String(INITIAL.name):$("program").value.trim();
+  // A program is run itself: the empty field opens a test screen only for a class or a function module.
+  if(!p&&["PROG","REPS"].indexOf(String(INITIAL.type||"").toUpperCase())>=0)p=String(INITIAL.name);
+  $("state").textContent="Starting "+(p||INITIAL.name)+" in SAP...";
   // An empty field for a class or a function module: its own test screen,
   // SE24 or SE37 with the name filled in; the test is started there with F8.
   if(!p){notice("");debug("run",{program:INITIAL.name,test:INITIAL.type}).then(function(){

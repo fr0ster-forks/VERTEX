@@ -238,9 +238,27 @@ const meaningful = text => lines(text).some(line => {
   return t !== "" && !t.startsWith("*") && !t.startsWith("\"");
 });
 
+/* A class's sections and methods as ADT's object structure names them - no parse of the source. A method of the
+   class goes in the section of its visibility; one of an interface it implements, written ZIF_X~METHOD, in none. */
+function componentLayout(root) {
+  const layout = { sections: {}, methods: [] };
+  for (const c of root.components || []) {
+    const section = ["public", "protected", "private"].includes(c.visibility) ? c.visibility : "";
+    if (section && c["adtcore:type"] !== "CLAS/OCX") layout.sections[section] = { declarations: 1 };
+    if (c["adtcore:type"] === "CLAS/OM") layout.methods.push({ name: String(c["adtcore:name"]).toUpperCase(), section });
+    // An implemented interface: its methods are the class's under the interface's name.
+    for (const m of c.components || []) {
+      if (["CLAS/OM", "INTF/IO"].includes(m["adtcore:type"]))
+        layout.methods.push({ name: String(c["adtcore:name"]).toUpperCase() + "~" + String(m["adtcore:name"]).toUpperCase(), section: "" });
+    }
+  }
+  return layout;
+}
 async function classParts(api, name) {
   const url = classUrl(name);
-  const layout = classLayout(await api.currentSource(url));
+  // Where the host reads ADT's object structure, the list costs no parse; else the source is parsed as before.
+  const layout = typeof api.classComponents === "function" ? componentLayout(await api.classComponents(url))
+    : classLayout(await api.currentSource(url));
   const parts = [];
   Object.entries(SECTIONS).forEach(([ptype, section]) => {
     // A section holding nothing but its own header is not worth a click, as AVE has it.
@@ -399,4 +417,4 @@ async function request(api, resource) {
     versions: rows.map(({ uri, ...r }) => Object.assign(r, { author_name: names.get(r.author) || "" })) });
 }
 
-module.exports = { request, diff, classLayout, partsOf, partOf, sourceAt, lines, padded };
+module.exports = { componentLayout, request, diff, classLayout, partsOf, partOf, sourceAt, lines, padded };

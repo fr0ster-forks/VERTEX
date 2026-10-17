@@ -269,7 +269,7 @@ function failureText(system, error, sentence) {
  */
 let frontendAnalysisRequest, frontendTableRequest, frontendTableWrite, frontendQuickSearch;
 async function fetch(context, requestPath, body, progress, cancelled) {
-  if (body == null && frontendAnalysisRequest && /^\/sap\/bc\/adt\/vertex\/(metrics|class|package|flow)\//.test(requestPath)) {
+  if (body == null && frontendAnalysisRequest && /^\/sap\/bc\/adt\/vertex\/(metrics|class|package|flow|navigator)\//.test(requestPath)) {
     try { return JSON.stringify(await frontendAnalysisRequest(requestPath, progress, cancelled)); }
     catch (error) { return 'ERROR:' + error.message; }
   }

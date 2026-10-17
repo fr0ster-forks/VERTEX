@@ -356,6 +356,56 @@ test("structural navigation matches nested DO and LOOP blocks", async () => {
   await h.commands.get("vertex.goToClassMethod")();
   assert.equal(h.documents[0].selection.start.line, 2);
 });
+test("ENDCLASS goes to its CLASS and back; a DEFERRED class is no block", async () => {
+  const h = host();
+  await h.tools.execute("open_sap_object", { object_name: "ZTEST", object_type: "CLAS" });
+  h.documents[0].text = ["CLASS lcl DEFINITION DEFERRED.", "CLASS lcl DEFINITION.", "  PUBLIC SECTION.", "ENDCLASS."].join("\n");
+  h.documents[0].selection = { active: { line: 3, character: 2 } };
+  await h.commands.get("vertex.goToClassMethod")();
+  assert.equal(h.documents[0].selection.start.line, 1);
+});
+test("in a program a local method goes from its METHODS to its METHOD in its own class", async () => {
+  const h = host();
+  await h.tools.execute("open_sap_object", { object_name: "ZPROG", object_type: "PROG" });
+  h.documents[0].text = ["CLASS lcl_a DEFINITION.", "  PUBLIC SECTION.", "    CLASS-METHODS run.", "ENDCLASS.",
+    "CLASS lcl_b DEFINITION.", "  PUBLIC SECTION.", "    METHODS run.", "ENDCLASS.",
+    "CLASS lcl_b IMPLEMENTATION.", "  METHOD run.", "  ENDMETHOD.", "ENDCLASS.",
+    "CLASS lcl_a IMPLEMENTATION.", "  METHOD run.", "  ENDMETHOD.", "ENDCLASS."].join("\n");
+  h.documents[0].selection = { active: { line: 2, character: 19 } };
+  await h.commands.get("vertex.goToClassMethod")();
+  assert.equal(h.documents[0].selection.start.line, 13);
+  h.documents[0].selection = { active: { line: 9, character: 10 } };
+  await h.commands.get("vertex.goToClassMethod")();
+  assert.equal(h.documents[0].selection.start.line, 6);
+});
+test("a local class named in the source is found in it, with no request to SAP", async () => {
+  const h = host();
+  await h.tools.execute("open_sap_object", { object_name: "ZPROG", object_type: "PROG" });
+  h.documents[0].text = ["CLASS lcl_page DEFINITION DEFERRED.", "CLASS lcl_page DEFINITION.", "ENDCLASS.", "DATA lo TYPE REF TO lcl_page."].join("\n");
+  h.documents[0].selection = { active: { line: 3, character: 22 } };
+  await h.commands.get("vertex.goToClassMethod")();
+  assert.equal(h.documents[0].selection.start.line, 1);
+});
+test("a static call of a local class's method goes to its METHOD in this source", async () => {
+  const h = host();
+  await h.tools.execute("open_sap_object", { object_name: "ZPROG", object_type: "PROG" });
+  h.documents[0].text = ["CLASS lcl_bar DEFINITION.", "ENDCLASS.", "CLASS lcl_bar IMPLEMENTATION.", "  METHOD create.", "  ENDMETHOD.", "ENDCLASS.",
+    "START-OF-SELECTION.", "  lo = lcl_bar=>create( 'x' )."].join("\n");
+  h.documents[0].selection = { active: { line: 7, character: 18 } };
+  await h.commands.get("vertex.goToClassMethod")();
+  assert.deepEqual([h.errors, h.documents[0].selection.start && h.documents[0].selection.start.line], [[], 3]);
+});
+test("a local class's DEFINITION and IMPLEMENTATION lead to each other by its name", async () => {
+  const text = ["CLASS lcl_page DEFINITION.", "ENDCLASS.", "CLASS lcl_page IMPLEMENTATION.", "ENDCLASS."].join("\n");
+  for (const [from, to] of [[0, 2], [2, 0]]) {
+    const h = host();
+    await h.tools.execute("open_sap_object", { object_name: "ZPROG", object_type: "PROG" });
+    h.documents[0].text = text;
+    h.documents[0].selection = { active: { line: from, character: 8 } };
+    await h.commands.get("vertex.goToClassMethod")();
+    assert.deepEqual([h.errors, h.documents[0].selection.start && h.documents[0].selection.start.line], [[], to]);
+  }
+});
 test("structural navigation walks IF and CASE sibling branches without entering nested blocks", async () => {
   const h = host();
   await h.tools.execute("open_sap_object", { object_name: "ZTEST", object_type: "CLAS" });

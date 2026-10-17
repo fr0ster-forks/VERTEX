@@ -372,7 +372,11 @@ Breakpoints set through Visual Debug or MCP appear as native VS Code points in t
   lists the names starting with it), then choose the available function (for example Data,
   UML diagram, Metrics, Calls diagram, Logic diagram, Diff or Versions). Only the functions that
   apply to the chosen type are offered: a transport has Versions and its review, a class or a
-  program metrics, diagrams and diff, a package its package-level views. **Calls diagram** shows which program, class or
+  program metrics, diagrams and diff, a package its package-level views. **Object Navigator**, first and the default for a
+  package, a transport request, a program, a function module (its group's tree), a class or an interface, is SE80's Repository Browser tree: a package's subpackages and its objects
+  by category and type, a request's objects, its tasks' included, by type, a program's includes, fields, events, subroutines (opening at their FORM), screens, GUI statuses, tables and local classes (unfolding to their methods and attributes), a class's superclass (Inherited from), types, attributes, methods, events with their visibility and friends (Friends of); an interface's types, attributes, methods and events.
+  A subpackage, class, interface or function group unfolds where it stands; a click on the name of an object or component opens
+  its source in the editor beside the tree, a component at its line, and the tree keeps the focus. **Calls diagram** shows which program, class or
   method calls which in the whole object (ACE's Calls Flow): **Classes | Methods** draws a block
   per class or per method, and picking an event or a form in Parts starts the calls there, as a
   double-click in ACE's tree does (a click on the object's name at the top of the parts list goes back to the whole program). **Logic diagram** is the flowchart of one method (ACE's Flow Scheme). A magnifier follows the
@@ -1205,9 +1209,13 @@ debugger the assistant drives - one session, not a second one:
   [Local ABAP execution](#local-abap-execution)). A customer function module the code calls brings its whole function
   group - main program, includes and every module - and a step goes into the module's VERTEX tab; the group's other
   includes open as copies, having no tab of their own. It reads
-  the program's active version, its includes and every customer class and interface it names - their local definitions
-  and implementations too, not their test classes - into a temporary folder, and the panel turns to Visual Transpiler
-  Debug on it (see [Local ABAP execution](#local-abap-execution)); SELECTs still read SAP. The dictionary types the code
+  the program's active version, its includes and the customer classes and interfaces the run can reach from where it
+  starts - those the reached methods and routines name, and the attributes they use, with their local definitions and
+  implementations, not their test classes - into a temporary folder. A class nothing reached names is not read, and a
+  method nothing reaches keeps its lines but not its body: its first line fails if the run gets there after all (a
+  dynamic call, say), naming it as not transpiled. Through SAP's ADT extension only the system's own namespaces - those
+  with a root package - are customer code; the rest, like standard SAP, is left to the transpiler. The panel then turns
+  to Visual Transpiler Debug on them (see [Local ABAP execution](#local-abap-execution)); SELECTs still read SAP. The dictionary types the code
   uses - tables and structures, data elements, domains and table types, and what they are built of - are read from
   SAP's DD tables too. A step into an include stands in the include, as in SAP, and a breakpoint can be set there. An
   open tab of the program with changes not activated stops it. So does anything that cannot be read, a dictionary type

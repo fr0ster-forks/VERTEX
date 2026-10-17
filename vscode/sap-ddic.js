@@ -90,7 +90,8 @@ async function readDictionary(query, start, known = new Set()) {
   const pending = { type: [...start].filter(name => !known.has(name)), domain: [] };
   const need = (name, by, kind = "type") => {
     name = up(name);
-    if (!name || known.has(name) || BUILT_IN.has(name)) return;
+    // A domain is known only as a domain (known.domains): a data element of that name in open-abap-core is no domain.
+    if (!name || (kind === "domain" && known.domains ? known.domains.has(name) : known.has(name)) || BUILT_IN.has(name)) return;
     required.push([name, kind, by]);
     if (!asked[kind].has(name)) pending[kind].push(name);
   };
@@ -169,10 +170,14 @@ function objectXml(object) {
 /* The DDIC names the run takes from open-abap-core, which goes with it whole: its tables and structures, data elements,
    domains and table types. */
 function coreNames(core = path.join(__dirname, "vendor", "open-abap-core", "src")) {
-  const names = new Set();
+  const names = new Set(), domains = new Set();
+  names.domains = domains;
   const visit = dir => { for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
     if (item.isDirectory()) visit(path.join(dir, item.name));
-    else { const found = /^(.+)\.(?:tabl|dtel|doma|ttyp)\.xml$/i.exec(item.name); if (found) names.add(found[1].toUpperCase().replace(/#/g, "/")); }
+    else {
+      const found = /^(.+)\.(tabl|dtel|doma|ttyp)\.xml$/i.exec(item.name);
+      if (found) { const name = found[1].toUpperCase().replace(/#/g, "/"); names.add(name); if (found[2].toLowerCase() === "doma") domains.add(name); }
+    }
   } };
   if (fs.existsSync(core)) visit(core);
   return names;

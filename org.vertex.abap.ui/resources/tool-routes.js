@@ -40,6 +40,17 @@ const SERVICES = {
     }
   },
 
+  // Object Navigator: the SE80 tree of a package, a class or an interface.
+  navigator: {
+    page: "navigator.html",
+    title: "Object Navigator",
+    // name, type, node - a node of a program's tree, a local class unfolded
+    load: function (args) {
+      return "/sap/bc/adt/vertex/navigator/" + upper(args[0]) + "?type=" + encodeURIComponent(String(args[1] || "").toUpperCase())
+        + (args[2] ? "&node=" + encodeURIComponent(args[2]) : "");
+    }
+  },
+
   metrics: {
     page: "metrics.html",
     title: "Metrics",

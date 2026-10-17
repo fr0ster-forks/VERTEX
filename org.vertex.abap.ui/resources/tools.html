@@ -204,7 +204,9 @@ function localClassParts(data){
   });
   return rows;
 }
-function partsIdentity(state){return state.type+":"+state.name+":"+(localParts(state)?"adt":"backend");}
+/* One list per object, whatever function read it: a part is found by its key in every page (Diff matches the key
+   too), so switching the function never reads the parts again. */
+function partsIdentity(state){return state.type+":"+state.name;}
 function renderTools(){
   const box=document.getElementById("tparts");
   box.textContent="";box.classList.toggle("folded",partsFolded);
@@ -266,11 +268,22 @@ function showsParts(state){
   if(String(state.type||"").toUpperCase()==="DEVC")return false;
   return PART_TYPES.includes(String(state.type||"").toUpperCase())&&PART_ACTIONS.includes(state.action)&&!!state.name;
 }
+/* The page that parses the source is to tell the parts it found, when nothing cheaper lists them. */
+let partsFromPage=null;
+function pagePartsFound(raw){
+  const wait=partsFromPage;
+  if(!wait||wait.identity!==partsFor)return;
+  partsFromPage=null;
+  try{wait.take(JSON.parse(raw));}catch(e){notice("The parts could not be read: "+e.message);}
+  if(selectedPart&&result&&typeof result.contentWindow.sdeSelectPart==="function"){result.dataset.part=selectedPart.key;result.contentWindow.sdeSelectPart(selectedPart);}
+}
 /* Read once per object: another function of the same object keeps the list. */
 function loadParts(state,then){
   const identity=partsIdentity(state);
   const box=document.getElementById("tparts");
   if((initial?.local||localFolderState)&&state.type==="DEVC"){box.classList.remove("shown");then();return;}
+  // Object Navigator is its own list of parts: reading the Parts - a whole program through abaplint - only made it wait.
+  if(state.action==="navigator"){box.classList.remove("shown");then();return;}
   // Read for every function of an object that has parts - Diff too, which
   // hides the list but still reports and follows the choice.
   // A function module shows the list only when it has local FORMs after it.
@@ -281,18 +294,27 @@ function loadParts(state,then){
   // A class and a package both come from the version resource: a class's
   // sections and methods, a package's objects.
   const klass=["CLAS","INTF","DEVC"].includes(String(state.type).toUpperCase());
+  // A program's parts come from SAP's own tree where the host offers it (VS Code's Object Navigator), not from
+  // parsing the whole source: that reading is for the diagrams and metrics that need it.
+  const program=String(state.type).toUpperCase()==="PROG"&&VertexObjects.labels.navigator&&!(initial?.local||localFolderState);
   const path=klass&&!localParts(state)?VertexRoutes.SERVICES.versions.load([state.name,state.type,"","","",""])
-                  :VertexRoutes.SERVICES.metrics.load([state.name,state.type]);
+                  :program?VertexRoutes.SERVICES.navigator.load([state.name,"PROG"])+"&parts=X":"";
+  const take=data=>{
+    partsList=klass?(localParts(state)?localClassParts(data):classParts(data)):programParts(data);
+    if(String(state.type).toUpperCase()==="FUNC")box.classList.toggle("shown",showsParts(state)&&partsList.some(r=>r.part&&r.part.type==="FORM"));
+    if(pendingPart){const row=partsList.find(r=>r.part&&r.part.key===pendingPart);if(row)selectedPart=row.part;pendingPart="";}
+    renderTools();
+  };
+  // No cheap list of its own: the parts are what the page finds when it parses the source for its diagram or
+  // metrics - not a second parse ahead of it.
+  if(!path){partsFromPage={identity,take};then();return;}
   enqueue({path,body:null},raw=>{
     if(partsFor!==identity)return;
     try{
       if(typeof raw!=="string"||raw.indexOf("ERROR:")===0)throw new Error(String(raw).substring(6));
-      const data=JSON.parse(raw);
-      partsList=klass?(localParts(state)?localClassParts(data):classParts(data)):programParts(data);
-    }catch(e){partsList=[];notice("The parts could not be read: "+e.message);}
-    if(String(state.type).toUpperCase()==="FUNC")box.classList.toggle("shown",showsParts(state)&&partsList.some(r=>r.part&&r.part.type==="FORM"));
-    if(pendingPart){const row=partsList.find(r=>r.part&&r.part.key===pendingPart);if(row)selectedPart=row.part;pendingPart="";}
-    renderTools();then();
+      take(JSON.parse(raw));
+    }catch(e){partsList=[];renderTools();notice("The parts could not be read: "+e.message);}
+    then();
   },()=>partsFor===identity);
 }
 
@@ -302,7 +324,7 @@ function run(){
   if(!current.name){notice("Enter an object name.");return;}
   if(typeof sdeVertexContext==="function")sdeVertexContext(JSON.stringify({workspace:current}));
   notice(""); fields();
-  const service=["data","join","pivot"].includes(current.action)?"table":
+  const service=["data","join","pivot"].includes(current.action)?"table":current.action==="navigator"?"navigator":
     ["diff","review"].includes(current.action)?"versions":"metrics";
   const state=current;
   // A page must not wait for its optional Parts list.  The first request for
@@ -408,6 +430,11 @@ new MutationObserver(records=>{
 }).observe(document.documentElement,{attributes:true,subtree:true,attributeFilter:["class","style"]});
 function connect(child,service,generation){
   syncTheme(child);
+  // The host sees the keys of this document only: a shortcut pressed in a page - Ctrl+Shift+P, F1 - is passed up.
+  child.addEventListener("keydown",e=>{
+    if(!(e.ctrlKey||e.altKey||e.metaKey||/^F\d+$/.test(e.key)))return;
+    window.dispatchEvent(new KeyboardEvent("keydown",{key:e.key,code:e.code,keyCode:e.keyCode,which:e.which,ctrlKey:e.ctrlKey,shiftKey:e.shiftKey,altKey:e.altKey,metaKey:e.metaKey,repeat:e.repeat,bubbles:true}));
+  });
   child.VERTEX_ACTION=current.action;
   // A cached page connects while it is still behind the visible page. Resolve
   // its own frame from the child window; `result` is only the visible frame.
@@ -419,6 +446,7 @@ function connect(child,service,generation){
   const reply=value=>{if(live()){pending=value;child.sdeReady();}};
   child.sdeTitle=()=>{};
   child.sdePartShown=key=>{if(live()&&owner===result)partShown(key);};
+  child.sdePartsFound=raw=>{if(live())pagePartsFound(raw);};
   // `chat.html` is shared with Eclipse.  Only VS Code supplies this host
   // capability, where the API key lives in VS Code SecretStorage.
   child.sdeAnthropicApi=()=>typeof sdeAnthropicApi==="function"&&sdeAnthropicApi();

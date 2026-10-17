@@ -298,11 +298,41 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
     const entry = [...opened.values()].find(item=>item.repo===repo&&item.document&&!item.document.isClosed&&String(item.data.object_name).toUpperCase()===String(args.name).toUpperCase())
       || await sourceDocument(repo, { object_name: args.name, object_type: args.type || 'CLAS' });
     const lines = entry.document.getText().split(/\r?\n/);
-    const routine = String(args.method || '').toUpperCase();
-    let row = routine ? lines.findIndex(text => {
+    const routine = String(args.method || '').toUpperCase(), included = String(args.include || '').toUpperCase();
+    // A local class's method is looked for in that class's IMPLEMENTATION only: many classes share a method's name.
+    const owner = String(args.localClass || '').toUpperCase();
+    let from = 0, to = lines.length;
+    if (owner) {
+      from = lines.findIndex(text => { const hit = /^\s*CLASS\s+(\S+)\s+IMPLEMENTATION\b/i.exec(text); return hit && hit[1].replace(/\.$/, '').toUpperCase() === owner; });
+      // Only a method needs the IMPLEMENTATION: the class and its other members are in the DEFINITION.
+      if (from < 0 && routine) throw new Error('No CLASS ' + owner + ' IMPLEMENTATION in ' + args.name + '.');
+      to = lines.findIndex((text, index) => index > from && /^\s*ENDCLASS\b/i.test(text));
+      if (to < 0) to = lines.length;
+    }
+    let row = routine ? lines.findIndex((text, index) => {
+      if (index < from || index > to) return false;
       const match = /^\s*(?:METHOD|FORM|FUNCTION)\s+([^\s.]+)/i.exec(text);
       return match && match[1].toUpperCase() === routine;
     }) : -1;
+    if (owner && routine && row < 0) throw new Error('No METHOD ' + routine + ' in CLASS ' + owner + ' IMPLEMENTATION of ' + args.name + '.');
+    // The class itself, or a member of it: in its DEFINITION - the CLASS line, or the first line there naming the
+    // member. Its methods go to its IMPLEMENTATION, above.
+    if (owner && !routine) {
+      const start = lines.findIndex(text => { const hit = /^\s*CLASS\s+(\S+)\s+DEFINITION\b(?!.*\b(?:DEFERRED|LOAD)\b)/i.exec(text); return hit && hit[1].replace(/\.$/, '').toUpperCase() === owner; });
+      if (start < 0) throw new Error('No CLASS ' + owner + ' DEFINITION in ' + args.name + '.');
+      row = start;
+      const member = String(args.member || '').toUpperCase();
+      if (member) {
+        const word = new RegExp('(^|[^\\w/$~-])' + member.replace(/[/$]/g, '\\$&') + '(?![\\w/$])', 'i');
+        row = lines.findIndex((text, index) => index > start && word.test(text.replace(/".*$/, '')));
+        const end = lines.findIndex((text, index) => index > start && /^\s*ENDCLASS\b/i.test(text));
+        if (row < 0 || (end >= 0 && row > end)) throw new Error('No ' + member + ' in CLASS ' + owner + ' DEFINITION of ' + args.name + '.');
+      }
+    }
+    if (included) row = lines.findIndex(text => {
+      const match = /^\s*INCLUDE\s+([^\s.]+)/i.exec(text);
+      return match && match[1].toUpperCase() === included;
+    });
     if (row < 0 && routine) row = lines.findIndex(text => {
       const match = /^\s*(?:CLASS-)?METHODS\s+([^\s.(]+)/i.exec(text);
       return match && match[1].toUpperCase() === routine;
@@ -693,12 +723,15 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
     }
     return null;
   }
-  const blockOpen = { DO: "ENDDO", LOOP: "ENDLOOP", METHOD: "ENDMETHOD", FORM: "ENDFORM", IF: "ENDIF", CASE: "ENDCASE" };
+  const blockOpen = { DO: "ENDDO", LOOP: "ENDLOOP", METHOD: "ENDMETHOD", FORM: "ENDFORM", IF: "ENDIF", CASE: "ENDCASE",
+    CLASS: "ENDCLASS", INTERFACE: "ENDINTERFACE" };
+  // CLASS ... DEFINITION DEFERRED / LOAD / LOCAL FRIENDS and INTERFACE ... DEFERRED / LOAD have no end of their own.
+  const noBlock = /^\s*(?:CLASS|INTERFACE)\s+\S+\s+(?:DEFINITION\s+)?(?:DEFERRED|LOAD|LOCAL\s+FRIENDS)\b/i;
   const blockClose = Object.fromEntries(Object.entries(blockOpen).map(([open, close]) => [close, open]));
   function structuralAnchor(document, at) {
     const line = document.getText().split(/\r?\n/)[at.line] || "";
-    const match = /^\s*(DO|ENDDO|LOOP|ENDLOOP|METHOD|ENDMETHOD|FORM|ENDFORM|IF|ELSEIF|ELSE|ENDIF|CASE|WHEN|ENDCASE)\b/i.exec(line);
-    if (!match) return null;
+    const match = /^\s*(DO|ENDDO|LOOP|ENDLOOP|METHOD|ENDMETHOD|FORM|ENDFORM|IF|ELSEIF|ELSE|ENDIF|CASE|WHEN|ENDCASE|CLASS|ENDCLASS|INTERFACE|ENDINTERFACE)\b/i.exec(line);
+    if (!match || noBlock.test(line)) return null;
     const from = match.index + match[0].indexOf(match[1]), to = from + match[1].length;
     if (at.character < from || at.character > to) return null;
     return { name: match[1].toUpperCase(), from, to, line: at.line };
@@ -711,8 +744,8 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
     if (!anchor) return undefined;
     const lines = document.getText().split(/\r?\n/), frames = [], targets = new Map();
     lines.forEach((line, index) => {
-      const hit = /^\s*(DO|ENDDO|LOOP|ENDLOOP|METHOD|ENDMETHOD|FORM|ENDFORM|IF|ELSEIF|ELSE|ENDIF|CASE|WHEN|ENDCASE)\b/i.exec(line);
-      if (!hit) return;
+      const hit = /^\s*(DO|ENDDO|LOOP|ENDLOOP|METHOD|ENDMETHOD|FORM|ENDFORM|IF|ELSEIF|ELSE|ENDIF|CASE|WHEN|ENDCASE|CLASS|ENDCLASS|INTERFACE|ENDINTERFACE)\b/i.exec(line);
+      if (!hit || noBlock.test(line)) return;
       const word = hit[1].toUpperCase(), column = hit.index + hit[0].indexOf(hit[1]);
       if (blockOpen[word]) { frames.push({ kind: word, start: { index, column, word }, branches: [] }); return; }
       if (word === "ELSEIF" || word === "ELSE" || word === "WHEN") {
@@ -1544,9 +1577,11 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
   async function methodCounterpart(document, at) {
     const entry = opened.get(document.uri.toString()) || [...opened.values()].find(item => item.document === document)
       || readOnly.get(document.uri.toString());
-    if (!entry || entry.data.object_type !== "CLAS") { return undefined; }
+    if (!entry) { return undefined; }
     const anchor = methodAnchor(document, at);
     if (!anchor) { return undefined; }
+    // A local class in a program, an include or a module: its other half is in the same source.
+    if (entry.data.object_type !== "CLAS") { return anchor.call ? undefined : localMethodCounterpart(document, at, anchor); }
     // A class main source already contains its global declaration and
     // implementation.  This is the normal VERTEX editor and navigation must
     // be instant there; do not make four ADT requests just to move a cursor.
@@ -1567,6 +1602,63 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
     const column = text.toUpperCase().indexOf(anchor.name);
     return { document: target.document, target: location(target.document.uri, line,
       Math.max(0, column), anchor.name.length) };
+  }
+  function ownDeclaration(document, at) {
+    const word = wordAt(document, at);
+    if (!word) return undefined;
+    const lines = document.getText().split(/\r?\n/), name = String(word.name).toUpperCase();
+    // A call of a method of a class this source declares - lcl=>m( ), or lo->m( ) with lo TYPE REF TO lcl - goes to
+    // its METHOD in that class's IMPLEMENTATION here; SAP knows no such global class.
+    const call = externalCallAnchor(document, at);
+    if (call && call.method && name === call.method && ["method", "instance-method"].includes(call.kind)) {
+      const owner = call.kind === "method" ? call.object_name : String(instanceClass(document, at, call.instance) || "").toUpperCase();
+      const start = owner ? lines.findIndex(text => { const hit = /^\s*CLASS\s+(\S+)\s+IMPLEMENTATION\b/i.exec(text); return hit && hit[1].replace(/\.$/, '').toUpperCase() === owner; }) : -1;
+      if (start >= 0) {
+        let end = start;
+        while (end < lines.length && !/^\s*ENDCLASS\b/i.test(lines[end])) end++;
+        const found = require("./value-origin-open").methodLine(lines.slice(start, end + 1).join("\n"), name, true);
+        if (found >= 0) {
+          const line = start + found;
+          return { document, target: location(document.uri, line, Math.max(0, lines[line].toUpperCase().indexOf(name)), name.length) };
+        }
+      }
+    }
+    const line = lines.findIndex(text => {
+      const hit = /^\s*(?:CLASS\s+(\S+)\s+DEFINITION\b(?!.*\b(?:DEFERRED|LOAD)\b)|INTERFACE\s+(\S+)(?!.*\b(?:DEFERRED|LOAD)\b)|FORM\s+(\S+))/i.exec(text);
+      return hit && String(hit[1] || hit[2] || hit[3]).replace(/\.$/, '').toUpperCase() === name;
+    });
+    if (line < 0) return undefined;
+    // On a class's own DEFINITION line, its name goes to its IMPLEMENTATION; on the IMPLEMENTATION line the search
+    // above already leads to the DEFINITION.
+    let goal = line;
+    if (line === at.line) {
+      goal = lines.findIndex(text => { const hit = /^\s*CLASS\s+(\S+)\s+IMPLEMENTATION\b/i.exec(text); return hit && hit[1].replace(/\.$/, '').toUpperCase() === name; });
+      if (goal < 0) return undefined;
+    }
+    const column = lines[goal].toUpperCase().indexOf(name);
+    return { document, target: location(document.uri, goal, Math.max(0, column), name.length) };
+  }
+  /* The METHOD of a METHODS line, or the other way round, within the local class the cursor stands in: the
+     declaration in CLASS x DEFINITION, the implementation in CLASS x IMPLEMENTATION, so a name two classes share
+     goes to its own class. */
+  function localMethodCounterpart(document, at, anchor) {
+    const lines = document.getText().split(/\r?\n/);
+    let owner;
+    for (let index = at.line; index >= 0 && !owner; index--) {
+      if (/^\s*ENDCLASS\b/i.test(lines[index]) && index !== at.line) return undefined;
+      const hit = /^\s*CLASS\s+(\S+)\s+(DEFINITION|IMPLEMENTATION)\b/i.exec(lines[index]);
+      if (hit && !noBlock.test(lines[index])) owner = hit[1].replace(/\.$/, "").toUpperCase();
+    }
+    if (!owner) return undefined;
+    const kind = anchor.implementation ? "DEFINITION" : "IMPLEMENTATION";
+    const start = lines.findIndex(text => new RegExp("^\\s*CLASS\\s+" + owner.replace(/[/$]/g, "\\$&") + "\\s+" + kind + "\\b", "i").test(text) && !noBlock.test(text));
+    if (start < 0) return undefined;
+    let end = start;
+    while (end < lines.length && !/^\s*ENDCLASS\b/i.test(lines[end])) end++;
+    const found = require("./value-origin-open").methodLine(lines.slice(start, end + 1).join("\n"), anchor.name, !anchor.implementation);
+    if (found < 0) return undefined;
+    const line = start + found, column = lines[line].toUpperCase().indexOf(anchor.name);
+    return { document, target: location(document.uri, line, Math.max(0, column), anchor.name.length) };
   }
   async function externalCallTarget(document, at) {
     const current = opened.get(document.uri.toString()) || [...opened.values()].find(item => item.document === document)
@@ -1712,6 +1804,10 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
     // F12 walks the branches; the double-click (QUIET) jumps to the end.
     const structure = structuralTarget(editor.document, at, !quiet);
     if (structure) { await moveTo(editor, structure); return; }
+    // A class, an interface or a form this source declares itself is found in it - no SAP request, so a source
+    // too large to send to SAP still navigates to its own declarations.
+    const own = ownDeclaration(editor.document, at);
+    if (own) { await moveTo(editor, own); return; }
     const method = await methodCounterpart(editor.document, at) || await interfaceImplementation(editor.document, at);
     // Resolve an ABAP call before asking ADT for a declaration.  ADT's
     // definition of LO_STRATEGY->CALCULATE_BASE is the interface METHODS
@@ -2643,7 +2739,9 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
     for (const source of sources) for (const name of ddic.dictionaryNames(source.text)) named.add(name);
     progress('dictionary');
     // Known without the dictionary: open-abap-core's, the objects read, and the types the sources declare themselves.
-    const known = new Set([...ddic.coreNames(), ...sources.map(source => source.name), ...sources.flatMap(source => [...ddic.declaredTypes(source.text)])]);
+    const core = ddic.coreNames();
+    const known = new Set([...core, ...sources.map(source => source.name), ...sources.flatMap(source => [...ddic.declaredTypes(source.text)])]);
+    known.domains = core.domains;
     // The selection texts and text symbols of each program, for its selection screen - read at every run, as a text pool
     // changes without its source; why they could not be read, if so.
     // Through SAP's ADT extension the dictionary comes from its DDIC sources, not from the data preview.
