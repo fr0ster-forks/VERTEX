@@ -839,7 +839,7 @@ structure field such as `LS_RESULT-AMOUNT`. These are virtual watchpoints over t
 run. To compare runs, explain a result or find a cause, the agent must query that history
 before answering and back every statement about values, control flow or a cause with a
 `run_id` and the step, line and value; if the history cannot be read, it reports the run
-outputs and marks the rest as not verified. If the transpiler cannot run the code, the agent asks before switching to a SAP run.
+outputs and marks the rest as not verified. When a question covers several scenarios and a run of one of them is missing, the agent runs it rather than asking; a kept run open in Visual Debug is reported to the agent as such and counts only for the selection it ran with. If the transpiler cannot run the code, the agent asks before switching to a SAP run.
 
 Runs are numbered within a chat conversation from 1, and **New conversation** starts again at 1.
 The agent cites its evidence as `[run d6c436b8 step 13]`; the chat shows such a citation as

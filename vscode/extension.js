@@ -759,7 +759,7 @@ function debuggerFor(context, auth) {
 /* The source tools with the debugger's added: the schemas and the method the
    chat is told, and a call that sends debug_* to the debugger. The Anthropic
    API path calls execute directly, so it gets the answer as text. */
-const TRANSPILER_AGENT_INSTRUCTIONS = "A request such as 'find the bug in the debugger' does not choose the SAP runtime. When execution or debugging is needed and the user has not specified a mode, use run_abap_transpiler first for a runnable report or method. It is a simulation, not proof of behavior in SAP. Use screen_only to inspect selection fields and ask for missing values. The result's run_id permits paged read_abap_transpiler_history and virtual line breakpoints or variable watchpoints with find_abap_transpiler_stops. Do not reason from source code about what a run did. When the user asks to compare runs, explain a result or find a cause, call find_abap_transpiler_stops or read_abap_transpiler_history on the relevant run_ids before answering; finishing without those calls is not an answer to such a request. Every claim about values, control flow, a cause or a missing check must cite a run_id and the step, line and value that show it. If the history cannot be read, list what the run outputs show, mark the rest as not verified and say why. Never reply with only a status line: report the results you have. Cite each piece of evidence as [run <first 8 characters of run_id> step <n>], exactly in this form and in English whatever the reply language, one citation per run and step; VERTEX shows it to the user as 'run <run_number>, step <n>', a link that opens the run at that step. In other text refer to a run by its run_number, never by run_id. Use transpiler output and history first; if a specific class method's source is needed, use read_sap_method before reading the whole object. If the transpiler cannot run the case, explain why and ask whether the user wants a SAP run; never silently switch modes. If the user explicitly requests a SAP run, use the SAP debugger tools.";
+const TRANSPILER_AGENT_INSTRUCTIONS = "A request such as 'find the bug in the debugger' does not choose the SAP runtime. When execution or debugging is needed and the user has not specified a mode, use run_abap_transpiler first for a runnable report or method. It is a simulation, not proof of behavior in SAP. Use screen_only to inspect selection fields and ask for missing values. When the question concerns several scenarios or selections and no run of this request covers one of them, run it with run_abap_transpiler yourself instead of asking; a run shown in Visual Debug or in an earlier answer covers only the selection it ran with. The result's run_id permits paged read_abap_transpiler_history and virtual line breakpoints or variable watchpoints with find_abap_transpiler_stops. Do not reason from source code about what a run did. When the user asks to compare runs, explain a result or find a cause, call find_abap_transpiler_stops or read_abap_transpiler_history on the relevant run_ids before answering; finishing without those calls is not an answer to such a request. Every claim about values, control flow, a cause or a missing check must cite a run_id and the step, line and value that show it. If the history cannot be read, list what the run outputs show, mark the rest as not verified and say why. Never reply with only a status line: report the results you have. Cite each piece of evidence as [run <first 8 characters of run_id> step <n>], exactly in this form and in English whatever the reply language, one citation per run and step; VERTEX shows it to the user as 'run <run_number>, step <n>', a link that opens the run at that step. In other text refer to a run by its run_number, never by run_id. Use transpiler output and history first; if a specific class method's source is needed, use read_sap_method before reading the whole object. If the transpiler cannot run the case, explain why and ask whether the user wants a SAP run; never silently switch modes. If the user explicitly requests a SAP run, use the SAP debugger tools.";
 
 function withDebugger(sapCode, debugTools, runTranspiler, transpilerHistory) {
   // Getters, read when asked - as the source tools' own text is: it names the
@@ -823,6 +823,13 @@ function activate(context) {
   const toolsContextState = require("./tools-context-state").create();
   // What the Visual Debug panel shows - the record, and the flow of the analysis - for the chat to be given with a question.
   let latestDebugContext = null;
+  // What Visual Debug shows, for the chat: a kept run says so, so it is not taken for a run of this request.
+  const debugContextForChat = () => {
+    const kept = dockedDebugSource?.storedRun;
+    if (!latestDebugContext || !kept) return latestDebugContext;
+    return { ...latestDebugContext, kept_run: { run_id: kept.run_id, run_number: transpilerHistory.number(kept.run_id),
+      note: "Visual Debug shows a kept transpiler run opened for viewing. It covers only the selection it ran with; run other cases with run_abap_transpiler." } };
+  };
   const port = vscode.workspace.getConfiguration("vertex").get("mcp.port", 37777);
   const chatSet = {
       instructions: chatTools.instructions,
@@ -867,7 +874,7 @@ function activate(context) {
       documentObject: document => sapCode.documentObject(document),
       setContext: (panel, value) => toolsContextState.update(panel, value),
       debugger: dbg,
-      chat: () => require("./chat").create(vscode, chatTools, tools, context.secrets, () => latestDebugContext, () => require("./value-origin-view").originContext()) }, initial);
+      chat: () => require("./chat").create(vscode, chatTools, tools, context.secrets, debugContextForChat, () => require("./value-origin-view").originContext()) }, initial);
   // The normal source tab remains the sole code editor.  The debugger is a
   // docked panel, not another editor tab showing a second copy of that source.
   let dockedDebugView = null, dockedDebugSource = null, localDebugAdapter = null;
@@ -1465,7 +1472,7 @@ function activate(context) {
         const document = await vscode.workspace.openTextDocument(vscode.Uri.file(run.main));
         await openVisualDebug(false, { object_name: run.meta.object_name || path.basename(run.main), object_type: run.meta.object_type || "PROG",
           local: true, document, entryLine: 1, autoRun: false,
-          storedRun: { records: run.records, output: run.output, at: step - 1 } });
+          storedRun: { run_id: run.run_id, records: run.records, output: run.output, at: step - 1 } });
       } catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
     }),
     // The runs a chat answer may cite: their run_ids, for the links the chat draws.
@@ -1487,7 +1494,7 @@ function activate(context) {
     vscode.commands.registerCommand("vertex.debugContinue", () => stepFromSource("continue"))
   );
   require("./sidebar").register(vscode, context, active,
-    require("./chat").create(vscode, chatTools, tools, context.secrets, () => latestDebugContext, () => require("./value-origin-view").originContext()), systems,
+    require("./chat").create(vscode, chatTools, tools, context.secrets, debugContextForChat, () => require("./value-origin-view").originContext()), systems,
     () => withShownDiff(context, toolsContextState.current()));
   require("./log-report").register(vscode, context);
   serveTools(context, tools);

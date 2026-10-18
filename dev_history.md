@@ -1,5 +1,9 @@
 # Development history
 
+## 2026-10-18 — 0.9.14: missing scenarios are run
+
+With a kept CLEAN run open in Visual Debug (opened from a chat link), the request "check all scenarios, describe the difference in logic" got no run at all: the agent took the Visual Debug context for the current debug session, said only CLEAN was recorded, and asked whether to run the rest. The chat context now adds `kept_run` (run_id, conversation number, a note that it covers only its selection) when Visual Debug shows a kept run, and the transpiler instructions tell the agent to run any scenario no run of the request covers, without asking.
+
 ## 2026-10-18 — 0.9.13: transpiler selection and evidence
 
 A chat log showed the agent running five scenarios twice to no effect: lowercase keys (`{"sc":"p_prec"}`) and radio buttons set as `{"P_PREC":"X"}` were silently dropped, so every run executed the default CLEAN scenario. Added `normalizeSelection` in `transpiler-tool.js`, applied before the missing-input check: keys and radio choices are upper-cased; unknown keys, unknown choices and unknown `$parameters`/`$ranges` names throw with the screen's accepted shape. Setting a radio button by its own name was not made to work; it is refused with the group form, so there is a single way to choose.

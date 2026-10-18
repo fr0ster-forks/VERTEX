@@ -1,5 +1,9 @@
 # Release history
 
+## 2026-10-18 — VS Code 0.9.14: missing scenarios are run
+
+When a chat question covers several scenarios and no run of the request covers one of them, the agent runs it with the transpiler instead of asking. A kept run open in Visual Debug is passed to the agent as a kept run of one selection, not as the current session.
+
 ## 2026-10-18 — VS Code 0.9.13: transpiler selection and evidence
 
 `run_abap_transpiler` matches selection keys and radio choices without regard to case, as ABAP does. A key the selection screen lacks, such as a radio button given as `{"P_PREC": "X"}` instead of its group `{"SC": "P_PREC"}`, now stops the call with an error naming the accepted groups and choices. Previously such keys were ignored and the run used the default scenario, so a run reported as one scenario was in fact another.
