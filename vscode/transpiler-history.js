@@ -1,6 +1,8 @@
 "use strict";
 
 const { randomUUID } = require("crypto");
+const fs = require("fs");
+const path = require("path");
 
 const schema = {
   name: "read_abap_transpiler_history",
@@ -27,17 +29,86 @@ const findSchema = {
   } }
 };
 
-function create() {
+const RUN_FILE = "vertex-run.json";
+const ID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/* A run kept on disk is one folder: vertex-run.json with the record, the output and the meta, and sources/ with a copy
+   of every source the record steps through. Paths in the file are relative to the folder, so a folder copied elsewhere
+   or handed to someone else opens the same. */
+function store(root, run_id, records, meta, extra) {
+  const safe = value => String(value || "").replace(/[^A-Za-z0-9_-]/g, "_");
+  const now = new Date(), p = n => String(n).padStart(2, "0");
+  const stamp = now.getFullYear() + p(now.getMonth() + 1) + p(now.getDate()) + "_" + p(now.getHours()) + p(now.getMinutes()) + p(now.getSeconds());
+  const folder = path.join(root, stamp + "_" + safe(meta.object_name) + "_" + run_id);
+  fs.mkdirSync(path.join(folder, "sources"), { recursive: true });
+  const copies = new Map();
+  const copy = file => {
+    const key = path.resolve(file).toLowerCase();
+    if (!copies.has(key)) {
+      // Each in a folder of its own, under its own name: the name is the program's or the class's.
+      const name = copies.size + "/" + path.basename(file);
+      fs.mkdirSync(path.join(folder, "sources", String(copies.size)));
+      fs.copyFileSync(file, path.join(folder, "sources", name));
+      copies.set(key, "sources/" + name);
+    }
+    return copies.get(key);
+  };
+  const main = copy(extra.main);
+  const kept = records.map(record => record.file ? { ...record, file: copy(record.file) } : record);
+  fs.writeFileSync(path.join(folder, RUN_FILE), JSON.stringify({ format: 1, run_id, created: now.toISOString(),
+    meta, output: String(extra.output || ""), main, records: kept }));
+  return folder;
+}
+
+function load(folder) {
+  let run;
+  try { run = JSON.parse(fs.readFileSync(path.join(folder, RUN_FILE), "utf8")); }
+  catch (error) { throw new Error(folder + " holds no readable transpiler run (" + RUN_FILE + "): " + error.message); }
+  if (run.format !== 1 || !run.run_id || !Array.isArray(run.records) || !run.main)
+    throw new Error(path.join(folder, RUN_FILE) + " is not a VERTEX transpiler run.");
+  const full = file => path.join(folder, file);
+  return { run_id: run.run_id, meta: run.meta || {}, output: run.output || "", main: full(run.main), folder,
+    records: run.records.map(record => record.file ? { ...record, file: full(record.file) } : record) };
+}
+
+/* root: the folder runs are kept in (vertex.transpiler.runPath), read at each call; empty keeps them in memory only. */
+function create(root = () => "") {
   const runs = new Map();
-  function save(records, meta = {}) {
+  // The number of each run in the current chat conversation, from 1: what the user reads instead of a run_id.
+  let numbers = new Map();
+  function save(records, meta = {}, extra = null) {
     const run_id = randomUUID();
-    runs.set(run_id, { records, meta });
+    const folder = root() && extra ? store(root(), run_id, records, meta, extra) : null;
+    runs.set(run_id, { records, meta, folder, output: extra?.output || "", main: extra?.main || "" });
     while (runs.size > 20) runs.delete(runs.keys().next().value);
+    numbers.set(run_id, numbers.size + 1);
     return run_id;
   }
+  const kept = () => {
+    const dir = root();
+    if (!dir || !fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isDirectory() && ID.test(entry.name))
+      .map(entry => ({ run_id: ID.exec(entry.name)[0], folder: path.join(dir, entry.name) }));
+  };
+  // Every run that can be opened: those of this session and those kept in the folder.
+  const known = () => [...new Set([...runs.keys(), ...kept().map(run => run.run_id)])];
+  // A full run_id or a unique beginning of one, as the chat cites it.
+  function resolve(id) {
+    const wanted = String(id || "").toLowerCase();
+    if (!wanted) return null;
+    const matches = known().filter(run_id => run_id.startsWith(wanted));
+    return matches.length === 1 ? matches[0] : null;
+  }
+  function get(id) {
+    const run_id = resolve(id);
+    if (run_id && runs.has(run_id)) return { run_id, ...runs.get(run_id) };
+    const onDisk = run_id && kept().find(run => run.run_id === run_id);
+    if (onDisk) return load(onDisk.folder);
+    throw new Error("Transpiler run " + id + " is " + (run_id ? "not readable" : "unknown")
+      + (root() ? " in this session or in " + root() : " in this session, and vertex.transpiler.runPath is not set") + ".");
+  }
   function read(args = {}) {
-    const run = runs.get(String(args.run_id || ""));
-    if (!run) throw new Error("Transpiler run history is unavailable; run the program again.");
+    const run = get(args.run_id);
     const from = args.from_step === undefined ? 1 : args.from_step;
     const limit = args.limit === undefined ? 5 : args.limit;
     if (!Number.isInteger(from) || from < 1 || !Number.isInteger(limit) || limit < 1 || limit > 20)
@@ -59,8 +130,7 @@ function create() {
       ...run.meta };
   }
   function find(args = {}) {
-    const run = runs.get(String(args.run_id || ""));
-    if (!run) throw new Error("Transpiler run history is unavailable; run the program again.");
+    const run = get(args.run_id);
     const object = String(args.object || "").toUpperCase(), line = args.line;
     const variable = String(args.variable || "").toUpperCase();
     const from = args.from_step === undefined ? 1 : args.from_step;
@@ -100,7 +170,10 @@ function create() {
     }
     return { run_id: args.run_id, total_steps: records.length, matches, next_step };
   }
-  return { save, read, find };
+  const number = run_id => numbers.get(run_id) || null;
+  // A new conversation numbers its runs from 1 again.
+  const resetNumbers = () => { numbers = new Map(); };
+  return { save, read, find, get, known, resolve, number, resetNumbers };
 }
 
-module.exports = { schema, findSchema, create };
+module.exports = { schema, findSchema, create, load };

@@ -2367,7 +2367,7 @@ function localResult(result){
       localPush(trace);localEnded=!!result.ended;setOutput(result.output);localRunMs=result.durationMs||0;localStats();
       if(paneOn("logsec"))drawLog();
       if(!trace.length){$("state").textContent="Transpiler run recorded 0 ABAP steps. See VERTEX Local ABAP output.";notice("No ABAP steps were recorded in this run.");return;}
-      $("bse-workspace").hidden=false;replay(trace.length-1);showFlow();
+      $("bse-workspace").hidden=false;replay(result.at!=null?result.at:trace.length-1);showFlow();
       $("state").textContent=localEnded?"Program finished without reaching a breakpoint. "+trace.length+" recorded steps.":"Stopped at step "+trace.length+". Continue runs to the next breakpoint.";
 }
 /* Run in SAP: the program started in WebGUI, or a class or function module on its test screen. */

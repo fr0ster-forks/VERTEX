@@ -115,3 +115,17 @@ test("a run still alive is handed to a page opened again", async () => {
   assert.equal(restored.ended, false);
   assert.equal(restored.output, "Hello");
 });
+
+test("a kept transpiler run opens at its cited step with its output", async () => {
+  const vscode = { debug: { breakpoints: [] }, commands: { async executeCommand() {} } };
+  const document = { uri: { fsPath: "C:/runs/r/sources/0/zlab.prog.abap" } };
+  const records = [1, 2, 3].map(line => ({ file: document.uri.fsPath, line, owner: "ZLAB", routine: "ZLAB", changed: { n: line } }));
+  const adapter = create(vscode, document, () => { throw new Error("kept"); }, () => {}, null,
+    { trace: { records, output: "Returned result: 0", at: 1 } });
+  assert.equal(adapter.picture().stopped.at, "ZLAB:2");
+  const restored = await adapter.command("restore");
+  assert.equal(restored.at, 1);
+  assert.equal(restored.output, "Returned result: 0");
+  assert.equal(restored.trace.length, 3);
+  await assert.rejects(adapter.command("run"), /kept/);
+});

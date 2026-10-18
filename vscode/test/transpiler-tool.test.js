@@ -38,3 +38,16 @@ test("source acquisition queue orders requests and recovers after failure", asyn
   assert.equal((await Promise.allSettled([first, second]))[1].value, 2);
   assert.deepEqual(order, ["first", "second"]);
 });
+
+test("transpiler agent tool normalizes selection case and refuses keys the screen lacks", () => {
+  const screen = { elements: [
+    { kind: "parameter", name: "P_CLEAN", radio: "SC", default: "X" },
+    { kind: "parameter", name: "P_PREC", radio: "SC" },
+    { kind: "parameter", name: "P_ID" }
+  ] };
+  assert.deepEqual(tool.normalizeSelection(screen, { sc: "p_prec", $parameters: { p_id: "7" } }),
+    { SC: "P_PREC", $parameters: { P_ID: "7" } });
+  assert.throws(() => tool.normalizeSelection(screen, { P_PREC: "X" }), /not on this screen.*"SC": one of P_CLEAN\/P_PREC/);
+  assert.throws(() => tool.normalizeSelection(screen, { SC: "P_NONE" }), /no choice P_NONE/);
+  assert.throws(() => tool.normalizeSelection(screen, { $parameters: { P_X: "1" } }), /P_X is not a parameter/);
+});

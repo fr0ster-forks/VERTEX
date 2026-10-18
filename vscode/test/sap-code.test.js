@@ -99,6 +99,27 @@ test("working source changed after unlock is not activated", async () => {
   await assert.rejects(f.repo.apply(draft.change_id, { source: draft.source }), /changed before activation/);
   assert.equal(f.calls.some(c => c[0] === "activate"), false);
 });
+test("SAP trimming empty lines at EOF after a save does not block activation", async () => {
+  const f = fixture(), draft = await change(f);
+  f.client.setObjectSource = async () => { f.setWorking(draft.source + "\r\n  \r\n"); };
+  const result = await f.repo.apply(draft.change_id, { source: draft.source });
+  assert.equal(result.activated, true);
+  assert.equal(result.revision, revision(draft.source));
+});
+test("a delayed working source read is retried before activation", async () => {
+  const f = fixture(), draft = await change(f);
+  const read = f.client.getObjectSource;
+  let stale = true;
+  f.client.getObjectSource = async (path, options) => {
+    if (options.version === "workingArea" && f.calls.some(call => call[0] === "write") && stale) {
+      stale = false; return "original";
+    }
+    return read(path, options);
+  };
+  const result = await f.repo.apply(draft.change_id, { source: draft.source });
+  assert.equal(result.activated, true);
+  assert.equal(f.calls.filter(call => call[0] === "activate").length, 1);
+});
 test("$TMP object saves without a transport even if SAP lock omits IS_LOCAL", async () => {
   const f = fixture();
   f.localLock(false);

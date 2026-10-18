@@ -7,7 +7,9 @@ const MAX_ANALYSED_LINES = 50000;
 const ANALYSIS_BUDGET_MS = 20000;
 const DOCU_RADIUS = 400;
 const INCLUDES =["main", "definitions", "implementations", "macros", "testclasses"];
-const revision = source => createHash("sha256").update(source.replace(/\r\n/g, "\n")).digest("hex");
+// ADT may trim blank lines at the end of a source unit after PUT. Those lines
+// do not change ABAP code and must not make a successful write look divergent.
+const revision = source => createHash("sha256").update(source.replace(/\r\n/g, "\n").replace(/[ \t\n]+$/, "")).digest("hex");
 
 function name(value, label = "object_name") {
   if (typeof value !== "string" || !/^[A-Z0-9_/$]+$/i.test(value) || value.length > 40) {
@@ -248,7 +250,13 @@ function createRepository({ client, systemId, emit = () => {} }) {
       await client.unLock(object.object_url, lock.LOCK_HANDLE);
       lock = undefined;
       client.stateful = "stateless";
-      const inactive = await client.getObjectSource(source_url, { version: "workingArea" });
+      let inactive = await client.getObjectSource(source_url, { version: "workingArea" });
+      // Some ADT backends briefly return the prior working version after the
+      // editing lock is released. Retry reads only; never activate a mismatch.
+      for (let attempt = 0; attempt < 2 && revision(inactive) !== revision(source); attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+        inactive = await client.getObjectSource(source_url, { version: "workingArea" });
+      }
       if (revision(inactive) !== revision(source)) {
         throw new Error("SAP working source changed before activation. Activation was not requested.");
       }

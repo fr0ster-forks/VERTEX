@@ -269,7 +269,23 @@ async function ask(options) {
     }
     const timeout = options.timeout || TIMEOUT;
     const streaming = options.assistant === "claude" && typeof options.onProgress === "function";
-    let pending = "", resultEvent = null, generated = "", lastAnswer = "", lastStatus = "";
+    let pending = "", resultEvent = null, generated = "", structured = "", thinking = "", lastAnswer = "", lastStatus = "";
+    const toolBlocks = new Map();
+    const emitAnswer = answer => {
+      if (answer && answer !== lastAnswer && !lastAnswer.startsWith(answer)) {
+        lastAnswer = answer;
+        options.onProgress({ answer });
+      }
+    };
+    const toolStatus = block => {
+      let args = block.input;
+      try { if (block.json) args = JSON.parse(block.json); } catch (_) { /* Wait for the complete arguments. */ }
+      const name = String(block.name || "").replace(/^mcp__vertex__/, "");
+      const object = args && typeof args === "object"
+        ? [args.object_type, args.object_name, args.method_name].filter(Boolean).join(" ") : "";
+      const status = "Using " + (name || "a SAP tool") + (object ? ": " + object : "") + "…";
+      if (status !== lastStatus) { lastStatus = status; options.onProgress({ status }); }
+    };
     const onData = streaming ? function (chunk) {
       pending += chunk;
       let end;
@@ -281,17 +297,40 @@ async function ask(options) {
         if (event.type === "result") { resultEvent = event; }
         if (event.type !== "stream_event") { continue; }
         const inner = event.event || {};
-        if (inner.type === "content_block_delta" && inner.delta?.type === "text_delta") {
+        if (inner.type === "message_start" && inner.message?.role === "assistant") {
+          generated = ""; structured = "";
+        } else if (inner.type === "content_block_delta" && inner.delta?.type === "text_delta") {
           generated += inner.delta.text || "";
-          const answer = partialClaudeAnswer(generated);
-          if (answer && answer !== lastAnswer) {
-            lastAnswer = answer;
-            options.onProgress({ answer });
+          // Claude Code 2.1 streams human-readable text before its structured
+          // JSON result. Older CLI builds may stream the JSON directly.
+          const answer = /^\s*\{\s*"answer"\s*:/.test(generated)
+            ? partialClaudeAnswer(generated) : generated;
+          emitAnswer(answer);
+        } else if (inner.type === "content_block_delta" && inner.delta?.type === "input_json_delta") {
+          const block = toolBlocks.get(inner.index);
+          if (block) {
+            block.json += inner.delta.partial_json || "";
+            toolStatus(block);
+          } else {
+            structured += inner.delta.partial_json || "";
+            emitAnswer(partialClaudeAnswer(structured));
           }
         } else if (inner.type === "content_block_delta" && inner.delta?.type === "thinking_delta") {
-          if (lastStatus !== "thinking") { lastStatus = "thinking"; options.onProgress({ status: "Claude is thinking…" }); }
+          const fragment = inner.delta.thinking || "";
+          if (fragment) { thinking += fragment; options.onProgress({ thinking }); }
+          const status = fragment ? "Claude is thinking…" : "Claude is working…";
+          if (lastStatus !== status) { lastStatus = status; options.onProgress({ status }); }
+        } else if (inner.type === "content_block_start" && inner.content_block?.type === "tool_use"
+          && inner.content_block.name === "StructuredOutput") {
+          // Claude Code's final answer is this tool's input: it streams as the answer, not as a tool in use.
+          structured = "";
         } else if (inner.type === "content_block_start" && inner.content_block?.type === "tool_use") {
-          if (lastStatus !== "tool") { lastStatus = "tool"; options.onProgress({ status: "Using a SAP tool…" }); }
+          const block = { name: inner.content_block.name, input: inner.content_block.input, json: "" };
+          toolBlocks.set(inner.index, block);
+          toolStatus(block);
+        } else if (inner.type === "content_block_stop" && toolBlocks.has(inner.index)) {
+          toolStatus(toolBlocks.get(inner.index));
+          toolBlocks.delete(inner.index);
         }
       }
     } : null;

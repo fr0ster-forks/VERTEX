@@ -2714,6 +2714,14 @@ function register(vscode, context, { active, auth, pin, pinned, systems }) {
     } };
   async function run(tool, args) {
     const repo = await repository();
+    if (tool === "read_sap_method") {
+      const include = args.include || "main";
+      const data = await repo.api.execute("read_sap_object", { object_type: "CLAS",
+        object_name: args.object_name, include });
+      return { object_name: data.object_name, object_type: "CLAS", include: data.include || include,
+        revision: data.revision, ...require("./sap-method").extract(data.source, args.method_name,
+          args.from_line === undefined ? 1 : args.from_line, args.limit === undefined ? 120 : args.limit) };
+    }
     if (tool === "open_sap_object") { return showSource(repo, args); }
     if (tool === "review_sap_changes") { return reviewActive(); }
     if (tool === "run_abap_unit") { return unitTestsOf(args); }

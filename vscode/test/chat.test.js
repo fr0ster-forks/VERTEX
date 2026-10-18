@@ -41,6 +41,22 @@ test("the VS Code chat sends the conversation so far, and a new conversation sta
   assert.doesNotMatch(prompts[2], /show Z_CALC|Answer 1/);
 });
 
+test("a generic debug request cannot call the SAP debugger", async t => {
+  const calls = [];
+  t.mock.method(assistant, "ask", async options => {
+    calls.push(options);
+    return { plan: { answer: "Done" }, model: "sonnet", usage: null };
+  });
+  const tools = { schemas: ["run_abap_transpiler", "debug_start", "debug_wait"].map(name => ({ name, inputSchema: {} })),
+    instructions: "", editorContext: () => null, execute: async name => ({ name }) };
+  const ask = chat.create(fakeVscode({ provider: "claude-subscription", model: "sonnet" }), tools,
+    { start: async () => ({ url: "http://127.0.0.1:1/mcp" }), token: "t" });
+  await ask("Найди ошибку в Z_CALC дебаггером");
+  assert.deepEqual(calls[0].tools, ["run_abap_transpiler"]);
+  await ask("Запусти Z_CALC в SAP debugger");
+  assert.deepEqual(calls[1].tools, ["run_abap_transpiler", "debug_start", "debug_wait"]);
+});
+
 test("a new conversation accepts a request while an old SAP debug wait is still running", async t => {
   let finishOld;
   const prompts = [];
@@ -150,8 +166,25 @@ test("the active editor's full source is never silently added to a chat prompt",
   const tools = { schemas: [], instructions: "", editorContext: () => ({ source: "SECRET_FULL_SOURCE_".repeat(10000) }) };
   const ask = chat.create(fakeVscode({ provider: "claude-subscription", model: "haiku" }), tools,
     { start: async () => ({ url: "http://127.0.0.1:1/mcp" }), token: "t" });
-  await ask("explain this method");
+  await ask("найди транспорт Z12345");
   assert.doesNotMatch(prompt, /SECRET_FULL_SOURCE/);
+});
+
+test("a question about the open SAP code uses the tab source without a redundant read", async (t) => {
+  let request;
+  t.mock.method(assistant, "ask", async options => {
+    request = options;
+    return { plan: { answer: "Visible program.", navigation: null }, model: "haiku", usage: null };
+  });
+  const tools = { schemas: [{ name: "read_sap_object", inputSchema: {} }], instructions: "SAP tools",
+    editorContext: () => ({ system_name: "ALC", object_type: "PROG", object_name: "ZVERTEX_DEBUG_LAB",
+      source: "REPORT zvertex_debug_lab.\nSTART-OF-SELECTION." }) };
+  const ask = chat.create(fakeVscode({ provider: "claude-subscription", model: "haiku" }), tools,
+    { start: async () => ({ url: "http://127.0.0.1:1/mcp" }), token: "t" });
+  await ask("что видишь");
+  assert.match(request.prompt, /Active SAP editor source/);
+  assert.match(request.prompt, /REPORT zvertex_debug_lab/);
+  assert.match(request.instructions, /Do not read the same object again/);
 });
 
 test("the chat reads the active local ABAP document without a SAP system", async (t) => {

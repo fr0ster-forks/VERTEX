@@ -759,7 +759,7 @@ function debuggerFor(context, auth) {
 /* The source tools with the debugger's added: the schemas and the method the
    chat is told, and a call that sends debug_* to the debugger. The Anthropic
    API path calls execute directly, so it gets the answer as text. */
-const TRANSPILER_AGENT_INSTRUCTIONS = "A request such as 'find the bug in the debugger' does not choose the SAP runtime. When execution or debugging is needed and the user has not specified a mode, use run_abap_transpiler first for a runnable report or method. It is a simulation, not proof of behavior in SAP. Use screen_only to inspect selection fields and ask for missing values. The result's run_id permits paged read_abap_transpiler_history and virtual line breakpoints or variable watchpoints with find_abap_transpiler_stops. If the transpiler cannot run the case, explain why and ask whether the user wants a SAP run; never silently switch modes. If the user explicitly requests a SAP run, use the SAP debugger tools.";
+const TRANSPILER_AGENT_INSTRUCTIONS = "A request such as 'find the bug in the debugger' does not choose the SAP runtime. When execution or debugging is needed and the user has not specified a mode, use run_abap_transpiler first for a runnable report or method. It is a simulation, not proof of behavior in SAP. Use screen_only to inspect selection fields and ask for missing values. The result's run_id permits paged read_abap_transpiler_history and virtual line breakpoints or variable watchpoints with find_abap_transpiler_stops. Do not reason from source code about what a run did. When the user asks to compare runs, explain a result or find a cause, call find_abap_transpiler_stops or read_abap_transpiler_history on the relevant run_ids before answering; finishing without those calls is not an answer to such a request. Every claim about values, control flow, a cause or a missing check must cite a run_id and the step, line and value that show it. If the history cannot be read, list what the run outputs show, mark the rest as not verified and say why. Never reply with only a status line: report the results you have. Cite each piece of evidence as [run <first 8 characters of run_id> step <n>], exactly in this form and in English whatever the reply language, one citation per run and step; VERTEX shows it to the user as "run <run_number>, step <n>", a link that opens the run at that step. In other text refer to a run by its run_number, never by run_id. Use transpiler output and history first; if a specific class method's source is needed, use read_sap_method before reading the whole object. If the transpiler cannot run the case, explain why and ask whether the user wants a SAP run; never silently switch modes. If the user explicitly requests a SAP run, use the SAP debugger tools.";
 
 function withDebugger(sapCode, debugTools, runTranspiler, transpilerHistory) {
   // Getters, read when asked - as the source tools' own text is: it names the
@@ -805,7 +805,7 @@ function activate(context) {
   const dbg = debuggerFor(context, auth);
   sapCode.attachDebugger(dbg);
   const debugTools = mcp.debugSet(dbg);
-  const transpilerHistory = require("./transpiler-history").create();
+  const transpilerHistory = require("./transpiler-history").create(() => String(vscode.workspace.getConfiguration("vertex").get("transpiler.runPath", "") || "").trim());
   const agentSourceQueue = require("./transpiler-tool").createRunQueue();
   const agentBuilds = new Map();
   const chatTools = withDebugger(sapCode, debugTools, async args => {
@@ -1221,10 +1221,15 @@ function activate(context) {
     clearLocalHistoryMark();
     sapCode.forgetOrigin?.();
     dockedDebugSource = { ...source, runOnly: runOnly === true, autoRun: runOnly === true && (!again || again.autoRun === true) };
+    // A kept transpiler run opens on its record: it is looked at, not run again.
+    const stored = source.storedRun;
     localDebugAdapter = source.local ? require("./local-debug-adapter").create(vscode, source.document,
-      selection => require("./local-run").launch(vscode, false, { document: source.document, selection, live: true, entryLine: source.entryLine }),
-      postDockedPicture, () => require("./local-run").runScope(vscode, source.document),
-      { entry: () => localEntry(source), variants: context.workspaceState, pathOf: runPathOf, uriOf: runUriOf }) : null;
+      stored ? () => { throw new Error("This is a kept run of " + source.object_name + ". Run the program from its SAP tab to execute it again."); }
+        : selection => require("./local-run").launch(vscode, false, { document: source.document, selection, live: true, entryLine: source.entryLine }),
+      postDockedPicture, stored ? () => ({ files: [...new Set(stored.records.map(record => record.file).filter(Boolean))] })
+        : () => require("./local-run").runScope(vscode, source.document),
+      { entry: () => localEntry(source), variants: context.workspaceState, pathOf: runPathOf, uriOf: runUriOf,
+        ...(stored ? { trace: stored } : {}) }) : null;
     if (source.local && latestLocalVariables && dockedDebugView) {
       setTimeout(() => void dockedDebugView?.webview.postMessage({ type: "localVariables", state: latestLocalVariables }), 150);
     }
@@ -1356,6 +1361,7 @@ function activate(context) {
       const screen = kind === "PROG" ? localRun.screenFor(document) : null;
       if (options.screenOnly) return { status: "selection_screen", mode: "transpiler", object_name: shown.object_name,
         selection_screen: entry || require("./transpiler-tool").describeScreen(screen) };
+      if (screen) options.selection = require("./transpiler-tool").normalizeSelection(screen, options.selection);
       const missing = require("./transpiler-tool").missingSelection(screen, options.selection || {});
       if (entry?.error) throw new Error(entry.error);
       if (entry) missing.push(...require("./transpiler-tool").missingEntry(entry, options.selection || {}));
@@ -1364,7 +1370,7 @@ function activate(context) {
       const selection = entry ? { ...options.selection, $entry: options.selection?.$entry || { parameters: {}, creation: {} } }
         : options.selection || {};
       const buildKey = project + "|" + read.fingerprint;
-      let ready = agentBuilds.get(buildKey), result;
+      let ready = agentBuilds.get(buildKey), result, privateDocument = null;
       if (!ready) {
         // The first selection prepares one shared build. Its execution can fail
         // while the build is valid; other selections still get that build.
@@ -1390,13 +1396,14 @@ function activate(context) {
         const privateProject = path.join(fs.mkdtempSync(path.join(read.folder, "agent-run-")), "project");
         fs.cpSync(snapshot, privateProject, { recursive: true });
         const privateFile = path.join(privateProject, path.relative(project, document.uri.fsPath));
-        const privateDocument = await vscode.workspace.openTextDocument(vscode.Uri.file(privateFile));
+        privateDocument = await vscode.workspace.openTextDocument(vscode.Uri.file(privateFile));
         result = await localRun.launch(vscode, false, { document: privateDocument, entryLine, selection, trace: true });
       }
       const run_id = options.history.save(result.records || [], { object_name: shown.object_name,
-        system: shown.system_name });
+        object_type: kind, system: shown.system_name },
+        { output: result.output, main: (privateDocument || document).uri.fsPath });
       return { status: "completed", mode: "transpiler", object_name: shown.object_name,
-        run_id,
+        run_id, run_number: options.history.number(run_id),
         output: String(result.output || "").slice(0, 12000), output_truncated: String(result.output || "").length > 12000,
         recorded_steps: result.records?.length || 0, duration_ms: result.durationMs || 0,
         note: "Local transpiler simulation. This is not proof of execution in SAP." };
@@ -1440,6 +1447,31 @@ function activate(context) {
   require('./local-run').register(vscode, context);
   context.subscriptions.push(
     vscode.commands.registerCommand("vertex.openVisualDebug", () => openVisualDebug(false)),
+    // A transpiler run, from a chat citation (run_id and step) or from a run folder chosen here.
+    vscode.commands.registerCommand("vertex.openTranspilerRun", async target => {
+      try {
+        let run;
+        if (target?.run_id) run = transpilerHistory.get(target.run_id);
+        else {
+          const picked = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
+            openLabel: "Open transpiler run",
+            defaultUri: (() => { const root = vscode.workspace.getConfiguration("vertex").get("transpiler.runPath", ""); return root ? vscode.Uri.file(root) : undefined; })() });
+          if (!picked?.length) return;
+          run = require("./transpiler-history").load(picked[0].fsPath);
+        }
+        if (!fs.existsSync(run.main)) throw new Error("The source of run " + run.run_id + " is gone: " + run.main + ".");
+        const step = Number.isInteger(target?.step) ? target.step : run.records.length;
+        if (step < 1 || step > run.records.length) throw new Error("Run " + run.run_id + " has " + run.records.length + " steps, not step " + step + ".");
+        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(run.main));
+        await openVisualDebug(false, { object_name: run.meta.object_name || path.basename(run.main), object_type: run.meta.object_type || "PROG",
+          local: true, document, entryLine: 1, autoRun: false,
+          storedRun: { records: run.records, output: run.output, at: step - 1 } });
+      } catch (error) { vscode.window.showErrorMessage("VERTEX: " + error.message); }
+    }),
+    // The runs a chat answer may cite: their run_ids, for the links the chat draws.
+    vscode.commands.registerCommand("vertex.knownTranspilerRuns", () => transpilerHistory.known()
+      .map(run_id => ({ run_id, number: transpilerHistory.number(run_id) }))),
+    vscode.commands.registerCommand("vertex.resetTranspilerRunNumbers", () => transpilerHistory.resetNumbers()),
     // A local program run with the transpiler: the same panel, which shows the selection screen and the output until a
     // breakpoint is set, and the debugger then.
     vscode.commands.registerCommand("vertex.runTranspiler", async () => {

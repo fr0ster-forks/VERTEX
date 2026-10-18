@@ -25,7 +25,7 @@
     "codex",
     "reviewer"
   ],
-  "version": "0.9.12",
+  "version": "0.9.13",
   "publisher": "YuriiSychov",
   "engines": {
     "vscode": "^1.85.0"
@@ -128,6 +128,10 @@
       {
         "command": "vertex.runTranspiler",
         "title": "VERTEX: Run with ABAP Transpiler"
+      },
+      {
+        "command": "vertex.openTranspilerRun",
+        "title": "VERTEX: Open Transpiler Run..."
       },
       {
         "command": "vertex.debugInto",
@@ -410,6 +414,11 @@
           "type": "object",
           "default": {},
           "markdownDescription": "Which models VERTEX offers per provider (`claude`, `codex`, `copilot` and API providers): `hidden` model ids are left out of every model list, `versions` are Claude models checked by full id, `off: true` leaves the provider out of every provider choice. Edited with **Config models** in the VERTEX panel."
+        },
+        "vertex.transpiler.runPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Folder that keeps each transpiler run of the chat as a folder of its own: its record, output and the sources it stepped through. A kept run opens again after a restart, from a chat citation or with **VERTEX: Open Transpiler Run...**, and its folder can be handed to someone else. Empty keeps runs for this session only."
         },
         "vertex.ai.logPath": {
           "type": "string",

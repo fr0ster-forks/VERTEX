@@ -141,6 +141,15 @@ function host(savedState = {}, authOverride, repositoryRead) {
     writeFile: (uri, source) => fileProvider.writeFile(uri, Buffer.from(source)),
     restoreDocument: uri => vscode.workspace.openTextDocument(uri) };
 }
+test("read_sap_method exposes a bounded method instead of the whole class", async () => {
+  const h = host();
+  const result = await h.tools.execute("read_sap_method", { object_name: "ZTEST", method_name: "CALLER", limit: 3 });
+  assert.equal(result.found, true);
+  assert.equal(result.method_name, "CALLER");
+  assert.equal(result.source, "  METHOD caller.\n    DATA lv_count TYPE i.\n    lv_count = 1.");
+  assert.equal(result.next_line, 4);
+  assert.ok(!result.source.includes("CLASS ztest"));
+});
 test("chained constructor method navigation opens implementation and replaces a clean tab", async () => {
   const h = host();
   await h.tools.execute("open_sap_object", { object_name: "ZTEST", object_type: "PROG" });

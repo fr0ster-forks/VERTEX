@@ -20,6 +20,18 @@
     } }
   },
   {
+    "name": "read_sap_method",
+    "annotations": { "readOnlyHint": true, "destructiveHint": false },
+    "description": "Read only one implementation method of an active SAP global class. Prefer this over read_sap_object when explaining a known method or following a call from a transpiler run. Returns up to 120 lines by default; use from_line to page a longer method. For definitions, class-wide structure or editing, use read_sap_object.",
+    "inputSchema": { "type": "object", "additionalProperties": false, "required": ["object_name", "method_name"], "properties": {
+      "object_name": { "type": "string", "description": "Exact global class name." },
+      "method_name": { "type": "string", "description": "Exact ABAP method name, including IF_INTERFACE~ prefix where applicable." },
+      "include": { "type": "string", "enum": ["main", "implementations", "testclasses"], "description": "Source include; defaults to main." },
+      "from_line": { "type": "integer", "minimum": 1, "description": "1-based line within the method; defaults to 1." },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 250, "description": "Maximum method lines returned; defaults to 120." }
+    } }
+  },
+  {
     "name": "create_sap_object",
     "annotations": { "readOnlyHint": false, "destructiveHint": false },
     "description": "Prepare a new SAP source object and open its diff for user review. Does NOT write SAP. Supply complete source. FUNC requires an existing function group; this tool creates source only, not FM parameter metadata.",

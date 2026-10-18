@@ -13,7 +13,7 @@ const sqlRows = list => (list || []).map((entry, index) => ({ name: "SELECT " + 
 function create(vscode, document, launch, publish, scope, more = {}) {
   const name = path.basename(document.uri.fsPath).replace(/\.(?:prog|clas|intf)\.abap$/i, "").toUpperCase();
   let latest = null, listening = false, ended = 0, error = "", pendingStep = null;
-  let trace = [], traceIndex = 0, live = null, traceEnded = false, traceMs = 0;
+  let trace = [], traceIndex = 0, live = null, traceEnded = false, traceMs = 0, storedOutput = "";
   function atTrace(index) {
     traceIndex = index;
     // The variables of the routine the program stands in: those its own stops changed. The transpiler's record keeps
@@ -123,7 +123,8 @@ function create(vscode, document, launch, publish, scope, more = {}) {
       }
       case "trace": return { trace };
       // The run as it stands, for a page opened again on it.
-      case "restore": return { url: document.uri.fsPath, trace, ended: traceEnded || !live, durationMs: traceMs, output: live?.output || "" };
+      case "restore": return { url: document.uri.fsPath, trace, ended: traceEnded || !live, durationMs: traceMs,
+        output: live?.output || storedOutput, at: more.trace ? traceIndex : null };
       case "step": {
         if (args.live) {
           if (!live) return { records: [], ended: true, picture: picture(), groups: localGroups() };
@@ -206,6 +207,9 @@ function create(vscode, document, launch, publish, scope, more = {}) {
     throw new Error("Local Visual Debug does not support " + action + " yet.");
   }
   // A new Visual Debug window starts clean: the paused transpiler process of this one ends with it.
+  // A kept run: its record, its output, and the step it opens at.
+  if (more.trace) { trace = more.trace.records || []; traceEnded = true; storedOutput = more.trace.output || "";
+    if (trace.length) atTrace(Math.min(trace.length - 1, Math.max(0, more.trace.at ?? trace.length - 1))); }
   const dispose = () => { live?.stop(); live = null; trace = []; latest = null; };
   return { picture, update, finish, command, dispose, hasTrace: () => trace.length > 0 };
 }

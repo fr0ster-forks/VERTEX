@@ -35,6 +35,37 @@ function describeScreen(screen) {
       ...(e.obligatory ? { obligatory: true } : {}), ...(e.default ? { default: e.default } : {}) }));
 }
 
+// ABAP names are case-insensitive, so keys and radio choices are upper-cased. Anything the screen does not
+// have is refused: an ignored key would run the defaults and look like the requested case.
+function normalizeSelection(screen, selection) {
+  const elements = (screen?.elements || []).filter(e => ["parameter", "select-option"].includes(e.kind));
+  const groups = {};
+  for (const e of elements) if (e.radio) (groups[e.radio.toUpperCase()] ||= []).push(e.name.toUpperCase());
+  const plain = new Set(elements.filter(e => e.kind === "parameter" && !e.radio).map(e => e.name.toUpperCase()));
+  const ranges = new Set(elements.filter(e => e.kind === "select-option").map(e => e.name.toUpperCase()));
+  const shape = Object.entries(groups).map(([g, c]) => '"' + g + '": one of ' + c.join("/")).join("; ");
+  const result = {};
+  for (const [key, value] of Object.entries(selection || {})) {
+    const name = key.toUpperCase();
+    if (name === "$PARAMETERS" || name === "$RANGES") {
+      const known = name === "$PARAMETERS" ? plain : ranges, out = {};
+      for (const [field, v] of Object.entries(value || {})) {
+        if (!known.has(field.toUpperCase())) throw new Error(field + " is not a " + (name === "$PARAMETERS" ? "parameter" : "select-option")
+          + " of this selection screen. Known: " + ([...known].join(", ") || "none") + ".");
+        out[field.toUpperCase()] = v;
+      }
+      result[name === "$PARAMETERS" ? "$parameters" : "$ranges"] = out;
+    } else if (name === "$ENTRY") result.$entry = value;
+    else if (groups[name]) {
+      const choice = String(value).toUpperCase();
+      if (!groups[name].includes(choice)) throw new Error("Radio group " + name + " has no choice " + value + ". Use " + groups[name].join("/") + ".");
+      result[name] = choice;
+    } else throw new Error("Selection key " + key + " is not on this screen. Radio groups: " + (shape || "none")
+      + "; other parameters go in $parameters, select-options in $ranges.");
+  }
+  return result;
+}
+
 function missingSelection(screen, selection) {
   return (screen?.elements || []).filter(e => e.obligatory && !e.hidden && !e.radio &&
     (e.kind === "parameter" || e.kind === "select-option")).filter(e => {
@@ -63,4 +94,4 @@ function createRunQueue() {
   };
 }
 
-module.exports = { schema, validate, describeScreen, missingSelection, missingEntry, createRunQueue };
+module.exports = { schema, validate, describeScreen, normalizeSelection, missingSelection, missingEntry, createRunQueue };

@@ -71,6 +71,7 @@ function register(vscode, context, active, ask, systems, toolContext) {
         if (message.action === "newConversation") {
           // A new conversation writes to a new log file.
           require("./session-log").reset();
+          await vscode.commands.executeCommand("vertex.resetTranspilerRunNumbers");
           ask.newConversation();
           await view.webview.postMessage({ cleared: true });
           return;
@@ -79,6 +80,10 @@ function register(vscode, context, active, ask, systems, toolContext) {
           // The host's clipboard: a webview's own clipboard access depends on permissions VS Code may not give it.
           try { await vscode.env.clipboard.writeText(String(message.text || "")); await view.webview.postMessage({ copied: true }); }
           catch (error) { await view.webview.postMessage({ copied: false, error: error.message }); }
+          return;
+        }
+        if (message.action === "openRun") {
+          await vscode.commands.executeCommand("vertex.openTranspilerRun", { run_id: String(message.run_id), step: Number(message.step) });
           return;
         }
         if (message.action === "openObject") {
@@ -95,7 +100,8 @@ function register(vscode, context, active, ask, systems, toolContext) {
               onProgress: update => { Promise.resolve(view.webview.postMessage({ progress: { id: requestId, ...update } })).catch(() => {}); } });
             if (reply.superseded) { await view.webview.postMessage({ progress: { id: requestId, remove: true } }); return; }
             await view.webview.postMessage({ progress: { id: requestId, answer: reply.answer,
-              done: true, usage: usageLine(reply), choices: reply.choices || [] } });
+              done: true, usage: usageLine(reply), choices: reply.choices || [],
+              runs: (await vscode.commands.executeCommand("vertex.knownTranspilerRuns")) || [] } });
             // The answer names a VERTEX function to run - a table's data, a
             // class's diff - and the panel has no view of its own for it, so
             // a Tools window opens on it, on the panel's system.
@@ -156,13 +162,18 @@ p { line-height: 1.5; color: var(--vscode-descriptionForeground); }
 .dock { flex: none; }
 #messages .copy-answer { margin: -0.6em 0 1em; padding: 2px 8px; font-size: 11px; }
 #messages p.usage { font-size: 11px; opacity: .7; margin: -0.6em 0 1em; }
+#messages p.tool-status { font-size: 11px; opacity: .8; }
 #messages p.you { color: var(--vscode-charts-blue); }
 #messages .vertex { color: var(--vscode-charts-green); white-space: normal; line-height: 1.5; margin: 1em 0; }
+#messages .streaming-answer { white-space: pre-wrap; overflow-wrap: anywhere; }
 #messages .vertex p, #messages .vertex ul, #messages .vertex ol { margin: .4em 0; color: inherit; }
 #messages .vertex ul, #messages .vertex ol { padding-left: 1.4em; }
 #messages .vertex code { font-family: var(--vscode-editor-font-family); background: var(--vscode-textCodeBlock-background); padding: 0 3px; border-radius: 3px; }
 #messages .vertex pre { white-space: pre; overflow-x: auto; background: var(--vscode-textCodeBlock-background); padding: 6px 8px; border-radius: 3px; }
 #messages .vertex pre code { background: none; padding: 0; }
+#messages .reasoning { margin: 0.5em 0; }
+#messages .reasoning summary { cursor: pointer; opacity: .8; }
+#messages .reasoning pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20em; overflow-y: auto; }
 textarea, select { box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 4px; font: inherit; }
 textarea { width: 100%; resize: vertical; padding: 8px; }
 button { margin: 8px 0; padding: 8px 12px; border: 0; border-radius: 4px; cursor: pointer; font: inherit; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
@@ -258,12 +269,39 @@ window.addEventListener('message', event => {
     }
     if (item && update.remove) { item.remove(); progressItems.delete(update.id); }
     else if (item) {
-      const answer = typeof update.answer === 'string' ? update.answer : item.dataset.answer || '';
-      if (typeof update.answer === 'string') { item.dataset.answer = answer; }
-      item.replaceChildren();
-      markdown('VERTEX:\n' + (answer || update.status || 'VERTEX is working…'), item);
+      let body = item.querySelector('.progress-body');
+      if (!body) { body = document.createElement('div'); body.className = 'progress-body streaming-answer'; item.appendChild(body); }
+      const previous = item.dataset.answer || '';
+      if (typeof update.answer === 'string' && (update.answer || !previous)) {
+        const answer = update.answer;
+        if (answer.startsWith(previous) && previous) body.textContent += answer.slice(previous.length);
+        else body.textContent = 'VERTEX:\\n' + answer;
+        item.dataset.answer = answer;
+        item.dataset.status = '';
+      }
+      if (typeof update.status === 'string') item.dataset.status = update.status;
+      if (!item.dataset.answer) body.textContent = 'VERTEX:\\n' + (item.dataset.status || 'VERTEX is working…');
+      let status = item.querySelector('.tool-status');
+      if (item.dataset.answer && item.dataset.status && !update.done) {
+        if (!status) { status = document.createElement('p'); status.className = 'tool-status'; item.appendChild(status); }
+        status.textContent = item.dataset.status;
+      } else if (status) status.remove();
+      if (typeof update.thinking === 'string' && update.thinking) {
+        let details = item.querySelector('.reasoning');
+        if (!details) {
+          details = document.createElement('details'); details.className = 'reasoning';
+          const summary = document.createElement('summary'); summary.textContent = 'Claude reasoning';
+          const pre = document.createElement('pre'); details.append(summary, pre); item.appendChild(details);
+        }
+        details.querySelector('pre').textContent = update.thinking;
+      }
       if (update.done) {
+        const answer = item.dataset.answer || '';
+        body.classList.remove('streaming-answer'); body.replaceChildren();
+        markdown('VERTEX:\\n' + (answer || 'No answer returned.'), body);
+        if (status) status.remove();
         links(item, update.choices || []);
+        runLinks(item, update.runs || []);
         const copy = document.createElement('button');
         copy.className = 'secondary copy-answer'; copy.textContent = 'Copy'; copy.title = 'Copy this answer to the clipboard';
         copy.addEventListener('click', () => { lastCopy = copy; api.postMessage({ action: 'copyAnswer', text: answer }); });
@@ -345,12 +383,28 @@ function links(item, choices) {
     name.replaceWith(link);
   });
 }
+// A citation whose id begins exactly one known run opens that run at the cited step.
+function runLinks(item, runs) {
+  item.querySelectorAll('.run-cite').forEach(cite => {
+    const matches = runs.filter(run => run.run_id.startsWith(cite.dataset.run));
+    if (matches.length !== 1) return;
+    const run = matches[0], link = document.createElement('a');
+    link.href = '#'; link.className = 'link'; link.title = 'Open run ' + run.run_id + ' at step ' + cite.dataset.step + ' in Visual Debug';
+    // A run of this conversation reads as its number; one from elsewhere keeps the cited id.
+    link.textContent = run.number ? 'run ' + run.number + ', step ' + cite.dataset.step : cite.textContent;
+    link.addEventListener('click', event => { event.preventDefault(); api.postMessage({ action: 'openRun', run_id: run.run_id, step: Number(cite.dataset.step) }); });
+    cite.replaceWith(link);
+  });
+}
 // Markdown built as DOM nodes with textContent only, so an answer cannot inject markup.
 function inline(text, parent) {
-  text.split(/(\\x60[^\\x60]+\\x60|\\*\\*[^*]+\\*\\*|\\*[^*\\s][^*]*\\*)/).forEach(token => {
+  text.split(/(\\[run [0-9a-f-]{6,36} step \\d+\\]|\\x60[^\\x60]+\\x60|\\*\\*[^*]+\\*\\*|\\*[^*\\s][^*]*\\*)/).forEach(token => {
     if (!token) return;
     let node;
-    if (/^\\x60[^\\x60]+\\x60$/.test(token)) { node = document.createElement('code'); node.textContent = token.slice(1, -1); }
+    const cite = /^\\[run ([0-9a-f-]{6,36}) step (\\d+)\\]$/.exec(token);
+    // A cited step of a transpiler run: a link once the run is known (runLinks), plain text otherwise.
+    if (cite) { node = document.createElement('span'); node.className = 'run-cite'; node.dataset.run = cite[1]; node.dataset.step = cite[2]; node.textContent = token; }
+    else if (/^\\x60[^\\x60]+\\x60$/.test(token)) { node = document.createElement('code'); node.textContent = token.slice(1, -1); }
     else if (/^\\*\\*[^*]+\\*\\*$/.test(token)) { node = document.createElement('strong'); node.textContent = token.slice(2, -2); }
     else if (/^\\*[^*\\s][^*]*\\*$/.test(token)) { node = document.createElement('em'); node.textContent = token.slice(1, -1); }
     else { node = document.createTextNode(token); }

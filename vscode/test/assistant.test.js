@@ -139,6 +139,75 @@ test("Claude streams only the answer field before the final structured result", 
   assert.equal(answer.plan.answer, "First line\nsecond");
 });
 
+test("Claude Code 2.1 streams plain text before structured output", async () => {
+  const updates = [];
+  const spawn = spawner(call => {
+    const send = event => call.child.stdout.emit("data", JSON.stringify(event) + "\n");
+    send({ type: "stream_event", event: { type: "message_start", message: { role: "assistant" } } });
+    send({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "First " } } });
+    send({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "answer" } } });
+    send({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "input_json_delta", partial_json: '{"answer":"First answer"}' } } });
+    send({ type: "result", subtype: "success", is_error: false, structured_output: { answer: "First answer" } });
+    call.child.emit("close", 0);
+  });
+  await assistant.ask(common(spawn, "claude", { onProgress: update => updates.push(update) }));
+  assert.deepEqual(updates, [{ answer: "First " }, { answer: "First answer" }]);
+});
+
+test("Claude names the SAP object being read and does not restart the answer", async () => {
+  const updates = [];
+  const spawn = spawner(call => {
+    const send = event => call.child.stdout.emit("data", JSON.stringify(event) + "\n");
+    send({ type: "stream_event", event: { type: "content_block_start", index: 0,
+      content_block: { type: "tool_use", name: "mcp__vertex__read_sap_object" } } });
+    send({ type: "stream_event", event: { type: "content_block_delta", index: 0,
+      delta: { type: "input_json_delta", partial_json: '{"object_type":"CLAS","object_name":"ZCL_CALC"}' } } });
+    send({ type: "stream_event", event: { type: "content_block_stop", index: 0 } });
+    for (const part of ["Hello", "Hello", "Hello world"]) {
+      send({ type: "stream_event", event: { type: "message_start", message: { role: "assistant" } } });
+      send({ type: "stream_event", event: { type: "content_block_delta",
+        delta: { type: "text_delta", text: part } } });
+    }
+    send({ type: "result", subtype: "success", is_error: false, structured_output: { answer: "Hello world" } });
+    call.child.emit("close", 0);
+  });
+  await assistant.ask(common(spawn, "claude", { onProgress: update => updates.push(update) }));
+  assert.deepEqual(updates, [
+    { status: "Using read_sap_object…" },
+    { status: "Using read_sap_object: CLAS ZCL_CALC…" },
+    { answer: "Hello" }, { answer: "Hello world" }
+  ]);
+});
+
+test("Claude streams reasoning and the current tool name separately from the answer", async () => {
+  const updates = [];
+  const spawn = spawner(call => {
+    const send = event => call.child.stdout.emit("data", JSON.stringify(event) + "\n");
+    send({ type: "stream_event", event: { type: "content_block_delta",
+      delta: { type: "thinking_delta", thinking: "Checking the run" } } });
+    send({ type: "stream_event", event: { type: "content_block_start",
+      content_block: { type: "tool_use", name: "mcp__vertex__run_abap_transpiler" } } });
+    send({ type: "result", subtype: "success", is_error: false, structured_output: PLAN });
+    call.child.emit("close", 0);
+  });
+  await assistant.ask(common(spawn, "claude", { onProgress: update => updates.push(update) }));
+  assert.deepEqual(updates, [{ thinking: "Checking the run" }, { status: "Claude is thinking…" },
+    { status: "Using run_abap_transpiler…" }]);
+});
+
+test("an empty thinking delta does not claim visible reasoning", async () => {
+  const updates = [];
+  const spawn = spawner(call => {
+    call.child.stdout.emit("data", JSON.stringify({ type: "stream_event", event: {
+      type: "content_block_delta", delta: { type: "thinking_delta", thinking: "" } } }) + "\n");
+    call.child.stdout.emit("data", JSON.stringify({ type: "result", subtype: "success", is_error: false,
+      structured_output: PLAN }) + "\n");
+    call.child.emit("close", 0);
+  });
+  await assistant.ask(common(spawn, "claude", { onProgress: update => updates.push(update) }));
+  assert.deepEqual(updates, [{ status: "Claude is working…" }]);
+});
+
 test("Claude Code's own failure reaches the chat in its own words", async () => {
   const run = (stdout, stderr, code) => assistant.ask(common(spawner(call => {
     if (stdout) { call.child.stdout.emit("data", stdout); }
@@ -246,4 +315,22 @@ test("Claude's list is versions by full id, the newest of each family on and the
   assert.deepEqual(list.filter(m => m.on).map(m => m.id),
     ["claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1"]);
   assert.ok(list.every(m => /^claude-/.test(m.id)));
+});
+
+test("Claude Code's StructuredOutput call streams as the answer, not as a tool in use", async () => {
+  const updates = [];
+  const spawn = spawner(call => {
+    const send = event => call.child.stdout.emit("data", JSON.stringify(event) + "\n");
+    send({ type: "stream_event", event: { type: "content_block_start", index: 1,
+      content_block: { type: "tool_use", name: "StructuredOutput", input: {} } } });
+    send({ type: "stream_event", event: { type: "content_block_delta", index: 1,
+      delta: { type: "input_json_delta", partial_json: '{"answer":"Five ' } } });
+    send({ type: "stream_event", event: { type: "content_block_delta", index: 1,
+      delta: { type: "input_json_delta", partial_json: 'runs","navigation":null}' } } });
+    send({ type: "stream_event", event: { type: "content_block_stop", index: 1 } });
+    send({ type: "result", subtype: "success", is_error: false, structured_output: { answer: "Five runs", navigation: null } });
+    call.child.emit("close", 0);
+  });
+  await assistant.ask(common(spawn, "claude", { onProgress: update => updates.push(update) }));
+  assert.deepEqual(updates, [{ answer: "Five " }, { answer: "Five runs" }]);
 });

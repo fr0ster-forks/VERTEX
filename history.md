@@ -1,5 +1,19 @@
 # Release history
 
+## 2026-10-18 — VS Code 0.9.13: transpiler selection and evidence
+
+`run_abap_transpiler` matches selection keys and radio choices without regard to case, as ABAP does. A key the selection screen lacks, such as a radio button given as `{"P_PREC": "X"}` instead of its group `{"SC": "P_PREC"}`, now stops the call with an error naming the accepted groups and choices. Previously such keys were ignored and the run used the default scenario, so a run reported as one scenario was in fact another.
+
+The agent is instructed not to reason from code about what a run did: every claim about values, control flow or a cause must cite a run_id and the step, line and value from the run history, and anything the history does not show is reported as not verified.
+
+The agent must query the run history before it compares runs, explains a result or names a cause, and may not answer such a request with a status line alone.
+
+The agent cites evidence as `[run <id> step <n>]`; in the chat the citation is a link that opens the run in Visual Debug at that step, without running it again. The new setting `vertex.transpiler.runPath` keeps each chat run as a self-contained folder (record, output, copies of the sources), so links work after a restart and a run folder can be shared and opened with **VERTEX: Open Transpiler Run...**.
+
+The chat's final answer field is described to the model as the complete reply: an answer with Claude Code could otherwise stream the full analysis and then replace it with a one-line summary, losing the text and its run links.
+
+Run links read as "run 2, step 13": runs are numbered within a chat conversation, and New conversation starts again at 1. The agent refers to runs by that number rather than by id.
+
 ## 2026-10-17 — VS Code 0.9.11: SAP ADT extension bridge retired
 
 Removed the experimental connection through SAP's ABAP Development Tools for VS Code, including destination import, `abap:` editor integration, its customer-package index, commands and settings. Direct RFC/SNC via fr0ster's connection and auth-broker libraries remains supported. Existing extension-only entries in `vertex.systems` need to be removed or imported again as direct SNC systems; settings are not changed automatically.

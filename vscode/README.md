@@ -829,11 +829,29 @@ The VERTEX chat and `vertex-debug` agents can run eligible ABAP with `run_abap_t
 When no run mode is specified, the agent tries the local transpiler first and reports that its
 result is a simulation. `screen_only` returns the selection screen or method arguments; the
 agent can then pass radio choices, parameters and ranges in `selection`. Missing required
-values are reported before execution. A completed run returns its output and a `run_id`.
+values are reported before execution. Names are matched without regard to case, as in ABAP:
+a radio group is given as `{"SC": "P_PREC"}`. A key the selection screen does not have, or a
+choice its radio group does not offer, stops the call with an error naming what the screen
+accepts, instead of running the defaults. A completed run returns its output and a `run_id`.
 `read_abap_transpiler_history` pages through every recorded step and its variable changes;
 `find_abap_transpiler_stops` finds source lines or changes to a variable, including a
 structure field such as `LS_RESULT-AMOUNT`. These are virtual watchpoints over the recorded
-run. If the transpiler cannot run the code, the agent asks before switching to a SAP run.
+run. To compare runs, explain a result or find a cause, the agent must query that history
+before answering and back every statement about values, control flow or a cause with a
+`run_id` and the step, line and value; if the history cannot be read, it reports the run
+outputs and marks the rest as not verified. If the transpiler cannot run the code, the agent asks before switching to a SAP run.
+
+Runs are numbered within a chat conversation from 1, and **New conversation** starts again at 1.
+The agent cites its evidence as `[run d6c436b8 step 13]`; the chat shows such a citation as
+**run 2, step 13**, a link when it names exactly one known run (a run from another conversation
+keeps its id). The link opens that run in Visual Debug at the cited step, with its record, variables, SQL and output, without running the program again. A kept
+run is looked at, not executed; Run in that panel says so.
+
+Set `vertex.transpiler.runPath` to keep the chat's runs on disk. Each run is a folder of its
+own (`vertex-run.json` and copies of the sources it stepped through), so citations still open
+after a restart, and a folder copied elsewhere or sent to someone else opens with
+**VERTEX: Open Transpiler Run...**. Without the setting, runs last for the session only, and a
+citation of an older run reports that the run is unknown.
 
 ### How a run is caught
 
