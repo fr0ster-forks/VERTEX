@@ -257,6 +257,14 @@ function copyPath(folder, source) {
     : path.join(folder, "src", fileName(source.name, source.type, source.include));
 }
 
+// FORMAT changes only classic list presentation. The transpiler does not implement it;
+// omit standalone, single-line FORMAT statements in its copy while keeping line numbers.
+// SAP source and the sap/ copies remain untouched for the editor and debugger mapping.
+function omitListFormat(text) {
+  return String(text).split(/\r?\n/).map(line => /^\s*FORMAT\b[^.]*\.\s*(?:".*)?$/i.test(line)
+    ? "* VERTEX transpiler: FORMAT list presentation omitted" : line).join("\n");
+}
+
 const progXml = (name, kind) => `<?xml version="1.0" encoding="utf-8"?>\n<abapGit version="v1.0.0" serializer="LCL_OBJECT_PROG" serializer_version="v1.0.0"><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><PROGDIR><NAME>${name}</NAME><SUBC>${kind}</SUBC></PROGDIR></asx:values></asx:abap></abapGit>\n`;
 
 /* A program with its INCLUDEs written in, as SAP compiles it: its lines, and for each the file and line it comes from
@@ -316,7 +324,8 @@ function writeProject(system, sources, dictionary = [], folder = path.join(os.tm
       continue;
     }
     const file = copyPath(folder, source);
-    fs.writeFileSync(file, source.kind === "module" ? require("./sap-fugr").moduleBody(source.text, source.signature) : source.text);
+    fs.writeFileSync(file, omitListFormat(source.kind === "module"
+      ? require("./sap-fugr").moduleBody(source.text, source.signature) : source.text));
     written.push(file);
   }
   // The DEFAULTs of the modules' optional parameters, which the transpiler leaves unset (sap-fugr applyModuleDefaults).
@@ -332,7 +341,7 @@ function writeProject(system, sources, dictionary = [], folder = path.join(os.tm
   const maps = [];
   for (const name of programs) {
     const expanded = expandIncludes(name, texts), file = path.join(src, fileName(name, "PROG"));
-    fs.writeFileSync(file, expanded.lines.join("\n"));
+    fs.writeFileSync(file, omitListFormat(expanded.lines.join("\n")));
     fs.writeFileSync(file.replace(/\.abap$/, ".xml"), progXml(name, "1"));
     written.push(file, file.replace(/\.abap$/, ".xml"));
     maps.push({ program: path.basename(file), files: expanded.files.map(include => path.join(sap, fileName(include, "PROG"))),
@@ -424,4 +433,4 @@ function remapIncludes(root, outputRoot) {
   }
 }
 
-module.exports = { partsOf, callsOf, stubUnreached, namedObjects, collect, fileName, copyPath, expandIncludes, writeProject, remapIncludes };
+module.exports = { partsOf, callsOf, stubUnreached, namedObjects, collect, fileName, copyPath, expandIncludes, omitListFormat, writeProject, remapIncludes };

@@ -234,7 +234,7 @@ RFC library installed on your computer. On Windows, VERTEX looks for
 put the SDK's `lib` directory on `DYLD_LIBRARY_PATH` before starting VS Code.
 Your SAP account needs RFC authorization for `SADT_REST_RFC_ENDPOINT`.
 
-The direct SNC connection builds on [fr0ster-forks' auth-broker PR #1](https://github.com/ysichov/VERTEX/pull/1): VERTEX sends ADT requests over RFC through `sap-rfc-lite` and `SADT_REST_RFC_ENDPOINT`. This path does not use SAP ADT for VS Code. The 0.9.11 universal VSIX includes Windows x64 and macOS Apple silicon bindings, searches for an installed `sapnwrfc.dll` on Windows, and imports SNC/RFC settings from SAP Logon. The SAP RFC library itself stays outside the VSIX. A separate SDK installation may be unnecessary when a compatible library is already present, but that library is still required at runtime.
+The direct SNC connection builds on [fr0ster-forks' auth-broker PR #1](https://github.com/ysichov/VERTEX/pull/1): VERTEX sends ADT requests over RFC through `sap-rfc-lite` and `SADT_REST_RFC_ENDPOINT`. This path does not use SAP ADT for VS Code. Since 0.9.11, the universal VSIX includes Windows x64 and macOS Apple silicon bindings, searches for an installed `sapnwrfc.dll` on Windows, and imports SNC/RFC settings from SAP Logon. The SAP RFC library itself stays outside the VSIX. A separate SDK installation may be unnecessary when a compatible library is already present, but that library is still required at runtime.
 
 ```json
 "vertex.systems": [
@@ -825,6 +825,16 @@ choose **Claude Code** or **Codex**. Both review and debugger registrations are 
 
 `vertex-debug` sits beside the review's `vertex`; neither changes the other.
 
+The VERTEX chat and `vertex-debug` agents can run eligible ABAP with `run_abap_transpiler`.
+When no run mode is specified, the agent tries the local transpiler first and reports that its
+result is a simulation. `screen_only` returns the selection screen or method arguments; the
+agent can then pass radio choices, parameters and ranges in `selection`. Missing required
+values are reported before execution. A completed run returns its output and a `run_id`.
+`read_abap_transpiler_history` pages through every recorded step and its variable changes;
+`find_abap_transpiler_stops` finds source lines or changes to a variable, including a
+structure field such as `LS_RESULT-AMOUNT`. These are virtual watchpoints over the recorded
+run. If the transpiler cannot run the code, the agent asks before switching to a SAP run.
+
 ### How a run is caught
 
 1. The assistant sets breakpoints. Setting the first one starts a **listener** for your SAP
@@ -1182,8 +1192,9 @@ debugger the assistant drives - one session, not a second one:
   SAP's DD tables too. A step into an include stands in the include, as in SAP, and a breakpoint can be set there. An
   open tab of the program with changes not activated stops it. So does anything that cannot be read, a dictionary type
   whose definition names one the dictionary does not have, an `INCLUDE` sharing its line with another statement, and a
-  function module parameter whose DEFAULT is no literal: the reason names the object. What the transpiler itself cannot
-  run, `FORMAT` for one, stops the run at its line. A name the dictionary does not have
+  function module parameter whose DEFAULT is no literal: the reason names the object. Standalone one-line `FORMAT`
+  statements are omitted from the transpiler copy because they only style classic list output; their SAP source and
+  line numbers remain intact. Other statements the transpiler cannot run stop at their line. A name the dictionary does not have
   either is left to the transpiler, which names what it cannot resolve.
   SAP's own classes the code uses - `CX_SY_*`, `CL_ABAP_CHAR_UTILITIES`, RTTI and the rest of open-abap-core,
   bundled with VERTEX - run with it; they are not recorded and a step does not go into them.

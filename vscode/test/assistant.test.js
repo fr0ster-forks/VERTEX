@@ -118,6 +118,27 @@ test("every model Claude Code reports is named, the one that wrote most first", 
   assert.deepEqual(answer.usage, { input_tokens: 0, output_tokens: 943, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 });
 });
 
+test("Claude streams only the answer field before the final structured result", async () => {
+  const updates = [];
+  const spawn = spawner(call => {
+    const send = event => call.child.stdout.emit("data", JSON.stringify(event) + "\n");
+    send({ type: "stream_event", event: { type: "content_block_delta",
+      delta: { type: "text_delta", text: '{"answer":"First ' } } });
+    send({ type: "stream_event", event: { type: "content_block_delta",
+      delta: { type: "text_delta", text: 'line\\nsecond","navigation":null}' } } });
+    send({ type: "result", subtype: "success", is_error: false,
+      structured_output: { answer: "First line\nsecond", navigation: null } });
+    call.child.emit("close", 0);
+  });
+  const answer = await assistant.ask(common(spawn, "claude", {
+    onProgress: update => updates.push(update)
+  }));
+  assert.equal(after(spawn.calls[0].args, "--output-format"), "stream-json");
+  assert.ok(spawn.calls[0].args.includes("--include-partial-messages"));
+  assert.deepEqual(updates, [{ answer: "First " }, { answer: "First line\nsecond" }]);
+  assert.equal(answer.plan.answer, "First line\nsecond");
+});
+
 test("Claude Code's own failure reaches the chat in its own words", async () => {
   const run = (stdout, stderr, code) => assistant.ask(common(spawner(call => {
     if (stdout) { call.child.stdout.emit("data", stdout); }

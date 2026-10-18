@@ -41,6 +41,30 @@ test("the VS Code chat sends the conversation so far, and a new conversation sta
   assert.doesNotMatch(prompts[2], /show Z_CALC|Answer 1/);
 });
 
+test("a new conversation accepts a request while an old SAP debug wait is still running", async t => {
+  let finishOld;
+  const prompts = [];
+  t.mock.method(assistant, "ask", options => {
+    prompts.push(options.prompt);
+    if (prompts.length === 1) return new Promise(resolve => { finishOld = resolve; });
+    return Promise.resolve({ plan: { answer: "New answer" }, model: "sonnet", usage: null });
+  });
+  const tools = { schemas: [], instructions: "", editorContext: () => null };
+  const server = { start: async () => ({ url: "http://127.0.0.1:1/mcp" }), token: "t" };
+  const ask = chat.create(fakeVscode({ provider: "claude-subscription", model: "sonnet" }), tools, server);
+  const old = ask("debug in SAP");
+  await new Promise(resolve => setImmediate(resolve));
+  ask.newConversation();
+  const next = await ask("find the error with the transpiler", { model: "new-selected-model" });
+  assert.equal(next.answer, "New answer");
+  assert.doesNotMatch(prompts[1], /debug in SAP/);
+  assert.equal(assistant.ask.mock.calls[1].arguments[0].model, "new-selected-model");
+  finishOld({ plan: { answer: "Old debugger answer" }, model: "haiku", usage: null });
+  assert.equal((await old).superseded, true);
+  await ask("follow up");
+  assert.doesNotMatch(prompts[2], /Old debugger answer|debug in SAP/);
+});
+
 test("the VERTEX chat routes Copilot through VS Code with its SAP tools", async (t) => {
   let received;
   t.mock.method(copilot, "models", async () => [{ id: "model-one", label: "Model One" }]);

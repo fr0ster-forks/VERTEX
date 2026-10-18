@@ -369,6 +369,16 @@ function stageRuntime(project) {
     for (const dependency of Object.keys(metadata.dependencies || {})) stage(dependency);
   }
   stage("@abaplint/runtime");
+  // The transpiler emits SY-VLINE as sy.get().vline, but the bundled runtime
+  // omits this standard list separator. Patch only the staged run copy.
+  const syFile = path.join(modulePath(outputRoot, "@abaplint/runtime"), "build", "src", "builtin", "sy.js");
+  const sySource = fs.readFileSync(syFile, "utf8");
+  if (!/\bvline:\s*new types_1\.Character\(/.test(sySource)) {
+    const anchor = "exports.sy = new types_1.Structure({";
+    if (!sySource.includes(anchor)) throw new Error("The staged ABAP runtime has an unexpected SY definition.");
+    fs.writeFileSync(syFile, sySource.replace(anchor,
+      anchor + "\n    vline: new types_1.Character(1).set(\"|\"),"));
+  }
 }
 
 function initializeSelectorDatabase(project) {
@@ -665,6 +675,7 @@ async function launch(vscode, debug, options = {}) {
   if (reuse) {
     // Only the modules of the user's code are changed in place: those are put back, the rest of the output stays.
     for (const relative of readJson(path.join(pristine, "files.json")) || []) fs.copyFileSync(path.join(pristine, relative), path.join(outputRoot, relative));
+    stageRuntime(project);
   } else try {
     await prepareFlow(project, document, output);
     if (project.automatic) output.appendLine("Included classes/interfaces: " +

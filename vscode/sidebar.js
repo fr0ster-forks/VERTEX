@@ -13,7 +13,7 @@ const ACTIONS = Object.freeze({
 });
 
 function register(vscode, context, active, ask, systems, toolContext) {
-  let currentView, pendingPrompt, ready = false;
+  let currentView, pendingPrompt, ready = false, nextRequest = 0;
   context.subscriptions.push(vscode.commands.registerCommand("vertex.askReviewBlock", async text => {
     pendingPrompt = text;
     await vscode.commands.executeCommand("vertex.launcher.focus");
@@ -87,16 +87,22 @@ function register(vscode, context, active, ask, systems, toolContext) {
           return;
         }
         if (message.action === "chat") {
+          const requestId = ++nextRequest;
           await view.webview.postMessage({ chat: "You: " + message.text });
+          await view.webview.postMessage({ progress: { id: requestId, status: "VERTEX is working…" } });
           try {
-            const reply = await ask(message.text, {state: (await toolContext()) || {}});
-            await view.webview.postMessage({ chat: "VERTEX:\n" + reply.answer, usage: usageLine(reply), choices: reply.choices || [] });
+            const reply = await ask(message.text, {model: message.model, state: (await toolContext()) || {},
+              onProgress: update => { Promise.resolve(view.webview.postMessage({ progress: { id: requestId, ...update } })).catch(() => {}); } });
+            if (reply.superseded) { await view.webview.postMessage({ progress: { id: requestId, remove: true } }); return; }
+            await view.webview.postMessage({ progress: { id: requestId, answer: reply.answer,
+              done: true, usage: usageLine(reply), choices: reply.choices || [] } });
             // The answer names a VERTEX function to run - a table's data, a
             // class's diff - and the panel has no view of its own for it, so
             // a Tools window opens on it, on the panel's system.
             if (reply.navigation) { await vscode.commands.executeCommand("vertex.tools", reply.navigation); }
           }
-          catch (error) { await view.webview.postMessage({ chat: "VERTEX: " + error.message }); }
+          catch (error) { await view.webview.postMessage({ progress: { id: requestId,
+            answer: "Request failed: " + error.message, done: true } }); }
           return;
         }
         if (!Object.hasOwn(ACTIONS, message.action)) { return; }
@@ -214,7 +220,7 @@ document.getElementById('chat').addEventListener('submit', event => {
   const field = document.getElementById('prompt');
   const text = field.value.trim();
   if (!text) return;
-  api.postMessage({ action: 'chat', text });
+  api.postMessage({ action: 'chat', text, model: document.getElementById('model-select').value });
   field.value = '';
 });
 document.getElementById('prompt').addEventListener('keydown', event => {
@@ -224,6 +230,7 @@ document.getElementById('prompt').addEventListener('keydown', event => {
   }
 });
 let lastCopy = null;
+const progressItems = new Map();
 window.addEventListener('message', event => {
   if (event.data && typeof event.data.copied === 'boolean' && lastCopy) {
     lastCopy.textContent = event.data.copied ? 'Copied' : 'Copy failed: ' + event.data.error;
@@ -239,6 +246,36 @@ window.addEventListener('message', event => {
     const hint = document.createElement('p');
     hint.textContent = 'Ask about SAP code, data or a transport.';
     box.appendChild(hint);
+    progressItems.clear();
+  }
+  if (event.data && event.data.progress) {
+    const update = event.data.progress;
+    let item = progressItems.get(update.id);
+    if (!item && !update.remove) {
+      item = document.createElement('div'); item.className = 'vertex';
+      document.getElementById('messages').appendChild(item);
+      progressItems.set(update.id, item);
+    }
+    if (item && update.remove) { item.remove(); progressItems.delete(update.id); }
+    else if (item) {
+      const answer = typeof update.answer === 'string' ? update.answer : item.dataset.answer || '';
+      if (typeof update.answer === 'string') { item.dataset.answer = answer; }
+      item.replaceChildren();
+      markdown('VERTEX:\n' + (answer || update.status || 'VERTEX is working…'), item);
+      if (update.done) {
+        links(item, update.choices || []);
+        const copy = document.createElement('button');
+        copy.className = 'secondary copy-answer'; copy.textContent = 'Copy'; copy.title = 'Copy this answer to the clipboard';
+        copy.addEventListener('click', () => { lastCopy = copy; api.postMessage({ action: 'copyAnswer', text: answer }); });
+        item.appendChild(copy);
+        if (update.usage) {
+          const line = document.createElement('p'); line.className = 'usage'; line.textContent = update.usage;
+          item.appendChild(line);
+        }
+        progressItems.delete(update.id);
+      }
+      const box = document.getElementById('messages'); box.scrollTop = box.scrollHeight;
+    }
   }
   if (event.data && Array.isArray(event.data.systems)) {
     const select = document.getElementById('system-select');

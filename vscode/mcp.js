@@ -343,8 +343,8 @@ function fail(text) {
 /* Short on purpose: the assistant's own reasoning does the debugging. This only
    says how the tools fit together and what must not be done. */
 const DEBUG_INSTRUCTIONS = [
-  "VERTEX debugs ABAP on the user's SAP system through ADT.",
-  "Method: form a hypothesis, set breakpoints (prefer a condition written like an ABAP IF, or mode log for a watchpoint, over stepping line by line), start the program with debug_run, collect stops with debug_wait, read what matters with debug_read, refine, and end with a verdict that names the line and the values that prove it.",
+  "These tools debug ABAP on the user's SAP system through ADT when a SAP runtime run is chosen.",
+  "For SAP runtime debugging: form a hypothesis, set breakpoints (prefer a condition written like an ABAP IF, or mode log for a watchpoint, over stepping line by line), start the program with debug_run, collect stops with debug_wait, read what matters with debug_read, refine, and end with a verdict that names the line and the values that prove it.",
   "A run started from SAP Logon (standalone SAP GUI) is never caught - SAP's design. Start it with debug_run, which opens WebGUI.",
   "Nothing here changes a variable or the code. Do not ask for more than a question needs: stops return only what changed and tables in short.",
   "The user may take minutes to log on to WebGUI and start the program: call debug_wait again while it says it is still listening, and if nothing has stopped after a few minutes, ask the user whether the program ran - do not end the session on your own.",

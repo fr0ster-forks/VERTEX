@@ -759,13 +759,20 @@ function debuggerFor(context, auth) {
 /* The source tools with the debugger's added: the schemas and the method the
    chat is told, and a call that sends debug_* to the debugger. The Anthropic
    API path calls execute directly, so it gets the answer as text. */
-function withDebugger(sapCode, debugTools) {
+const TRANSPILER_AGENT_INSTRUCTIONS = "A request such as 'find the bug in the debugger' does not choose the SAP runtime. When execution or debugging is needed and the user has not specified a mode, use run_abap_transpiler first for a runnable report or method. It is a simulation, not proof of behavior in SAP. Use screen_only to inspect selection fields and ask for missing values. The result's run_id permits paged read_abap_transpiler_history and virtual line breakpoints or variable watchpoints with find_abap_transpiler_stops. If the transpiler cannot run the case, explain why and ask whether the user wants a SAP run; never silently switch modes. If the user explicitly requests a SAP run, use the SAP debugger tools.";
+
+function withDebugger(sapCode, debugTools, runTranspiler, transpilerHistory) {
   // Getters, read when asked - as the source tools' own text is: it names the
   // systems configured at the time. Object.assign would read them now.
   return Object.create(sapCode, {
-    schemas: { get: () => sapCode.schemas.concat(debugTools.tools) },
-    instructions: { get: () => sapCode.instructions + "\n\n" + debugTools.instructions },
+    schemas: { get: () => sapCode.schemas.concat(debugTools.tools, require("./transpiler-tool").schema,
+      require("./transpiler-history").schema, require("./transpiler-history").findSchema) },
+    instructions: { get: () => sapCode.instructions + "\n\n" + debugTools.instructions
+      + "\n\n" + TRANSPILER_AGENT_INSTRUCTIONS },
     execute: { value: async function (name, args) {
+      if (name === "run_abap_transpiler") return runTranspiler(args || {});
+      if (name === "read_abap_transpiler_history") return transpilerHistory.read(args);
+      if (name === "find_abap_transpiler_stops") return transpilerHistory.find(args);
       if (!/^debug_/.test(name)) { return sapCode.execute(name, args); }
       const answer = await debugTools.call({}, name, args || {});
       if (answer.isError) { throw new Error(answer.content[0].text); }
@@ -798,12 +805,27 @@ function activate(context) {
   const dbg = debuggerFor(context, auth);
   sapCode.attachDebugger(dbg);
   const debugTools = mcp.debugSet(dbg);
-  const chatTools = withDebugger(sapCode, debugTools);
+  const transpilerHistory = require("./transpiler-history").create();
+  const agentSourceQueue = require("./transpiler-tool").createRunQueue();
+  const agentBuilds = new Map();
+  const chatTools = withDebugger(sapCode, debugTools, async args => {
+    const request = require("./transpiler-tool").validate(args);
+    const own = pinnedSystem.getStore() || "";
+    const activeSystem = active();
+    const selected = String(args.system || own || (activeSystem.error ? "" : activeSystem.system.name)).trim();
+    const configured = systems().find(item => item.name.toUpperCase() === selected.toUpperCase());
+    if (!configured) throw new Error("Select a configured SAP system before running the transpiler.");
+    if (own && own !== configured.name) throw new Error("This VERTEX window works with " + own + " only.");
+    return runSapTranspiler({ ...request, system_name: configured.name },
+      { agentRun: true, screenOnly: args.screen_only === true, entryLine: request.entryLine,
+        selection: request.selection, history: transpilerHistory });
+  }, transpilerHistory);
   const toolsContextState = require("./tools-context-state").create();
   // What the Visual Debug panel shows - the record, and the flow of the analysis - for the chat to be given with a question.
   let latestDebugContext = null;
   const port = vscode.workspace.getConfiguration("vertex").get("mcp.port", 37777);
   const chatSet = {
+      instructions: chatTools.instructions,
       tools: chatTools.schemas.map(tool => ({
         name: tool.name,
         description: tool.description,
@@ -817,14 +839,25 @@ function activate(context) {
       return sessionLog.tools(sessionLog.current(config.get("logPath", ""), provider, sessionLog.fromConfig(config)),
         async function (_deps, toolName, toolArgs) {
           if (/^debug_/.test(toolName)) { return debugTools.call(_deps, toolName, toolArgs); }
-          const result = await sapCode.execute(toolName, toolArgs);
+          const result = await chatTools.execute(toolName, toolArgs);
           return { content: [{ type: "text", text: JSON.stringify(result) }] };
         })(deps, name, args);
     }
   };
+  const transpilerSchemas = [require("./transpiler-tool").schema, require("./transpiler-history").schema,
+    require("./transpiler-history").findSchema];
+  const agentDebugSet = {
+    tools: debugTools.tools.concat(transpilerSchemas),
+    instructions: debugTools.instructions + "\n\n" + TRANSPILER_AGENT_INSTRUCTIONS,
+    call: async (deps, name, args) => {
+      if (!transpilerSchemas.some(tool => tool.name === name)) return debugTools.call(deps, name, args);
+      try { return { content: [{ type: "text", text: JSON.stringify(await chatTools.execute(name, args || {})) }] }; }
+      catch (error) { return { isError: true, content: [{ type: "text", text: error.message }] }; }
+    }
+  };
   tools = mcp.create({ fetch: fetch, context: context, port: port,
     pin: pinTo, pinned: () => pinnedSystem.getStore() || "",
-    pages: Object.assign(windowTools(), { "/chat": chatSet, "/debug": debugTools }) });
+    pages: Object.assign(windowTools(), { "/chat": chatSet, "/debug": agentDebugSet }) });
   const showTools = (initial, embeddedPanel) => initial && initial.systemName
     ? pinTo(initial.systemName, () => openTools(initial, embeddedPanel)) : openTools(initial, embeddedPanel);
   const openTools = (initial, embeddedPanel) => require("./tools-window").open(vscode, context,
@@ -1279,20 +1312,25 @@ function activate(context) {
       const editor = vscode.window.activeTextEditor;
       entryLine = editor && editor.document.uri.toString() === tab ? editor.selection.active.line + 1 : 1;
     }
-    const read = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+    const readSources = () => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
       title: "VERTEX: " + (options.recompile ? "recompiling " : "reading ") + shown.object_name + " for the transpiler" },
       report => pinTo(shown.system_name, () => sapCode.transpileSources(shown, name => report.report({ message: name }), { recompile: options.recompile === true,
         // A class's run reads what its method at the cursor reaches; a program and a module start whole.
         entryLine: kind === "CLAS" ? entryLine : 0 })));
+    // SAP/cache reads share one system session and one vertex-read.json. Keep
+    // that short phase ordered, then transpile/execute independent runs at once.
+    const read = await (options.agentRun ? agentSourceQueue(readSources) : readSources());
     // The project is written again only when what was read changed; its fingerprint goes with it, for local-run to
     // take the transpiled code again (sap-cache.js).
-    const transpile = require("./sap-transpile"), project = path.join(read.folder, "project"), stampFile = path.join(project, "vertex-fingerprint.json");
+    const transpile = require("./sap-transpile"), project = path.join(read.folder, "project"),
+      stampFile = path.join(project, "vertex-fingerprint.json");
     let stamp = null; try { stamp = JSON.parse(fs.readFileSync(stampFile, "utf8")); } catch (_) { /* none yet */ }
     let file;
-    if (read.cached && stamp && stamp.fingerprint === read.fingerprint && fs.existsSync(stamp.shown)) file = stamp.shown;
+    if (read.cached && stamp && stamp.fingerprint === read.fingerprint && stamp.format_compat_version === 1
+      && fs.existsSync(stamp.shown)) file = stamp.shown;
     else {
       file = transpile.writeProject(shown.system_name, read.sources, read.dictionary, project);
-      fs.writeFileSync(stampFile, JSON.stringify({ fingerprint: read.fingerprint, shown: file }));
+      fs.writeFileSync(stampFile, JSON.stringify({ fingerprint: read.fingerprint, shown: file, format_compat_version: 1 }));
     }
     // The programs' texts, for the selection screen the panel draws (local-run screenFor).
     fs.writeFileSync(path.join(project, "vertex-texts.json"), JSON.stringify(read.texts || {}));
@@ -1310,8 +1348,59 @@ function activate(context) {
     if (kind === "FUNC" && !module) throw new Error(shown.object_name + " was not among the modules read of its function group.");
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(module ? transpile.copyPath(folder, module) : file));
     if (kind === "FUNC") entryLine = Math.max(entryLine, module.signature.firstLine);
-    if (kind !== "PROG" && !require("./local-run").entryScreen(document, entryLine))
+    const entry = kind !== "PROG" ? require("./local-run").entryScreen(document, entryLine) : null;
+    if (kind !== "PROG" && !entry)
       throw new Error("Line " + entryLine + " of " + shown.object_name + " is in no method: put the cursor in the method to run.");
+    if (options.agentRun) {
+      const localRun = require("./local-run");
+      const screen = kind === "PROG" ? localRun.screenFor(document) : null;
+      if (options.screenOnly) return { status: "selection_screen", mode: "transpiler", object_name: shown.object_name,
+        selection_screen: entry || require("./transpiler-tool").describeScreen(screen) };
+      const missing = require("./transpiler-tool").missingSelection(screen, options.selection || {});
+      if (entry?.error) throw new Error(entry.error);
+      if (entry) missing.push(...require("./transpiler-tool").missingEntry(entry, options.selection || {}));
+      if (missing.length) return { status: "needs_input", mode: "transpiler", object_name: shown.object_name,
+        missing, selection_screen: entry || require("./transpiler-tool").describeScreen(screen) };
+      const selection = entry ? { ...options.selection, $entry: options.selection?.$entry || { parameters: {}, creation: {} } }
+        : options.selection || {};
+      const buildKey = project + "|" + read.fingerprint;
+      let ready = agentBuilds.get(buildKey), result;
+      if (!ready) {
+        // The first selection prepares one shared build. Its execution can fail
+        // while the build is valid; other selections still get that build.
+        let resolveBuild, rejectBuild;
+        ready = new Promise((resolve, reject) => { resolveBuild = resolve; rejectBuild = reject; });
+        ready.catch(() => {});
+        agentBuilds.set(buildKey, ready);
+        let runError;
+        try { result = await localRun.launch(vscode, false, { document, entryLine, selection, trace: true }); }
+        catch (error) { runError = error; }
+        try {
+          if (!fs.existsSync(path.join(project, "output-pristine")) || !fs.existsSync(path.join(project, "vertex-built.json")))
+            throw runError || new Error("The transpiler produced no reusable build.");
+          const snapshot = path.join(fs.mkdtempSync(path.join(read.folder, "agent-build-")), "project");
+          fs.cpSync(project, snapshot, { recursive: true });
+          resolveBuild(snapshot);
+        } catch (error) { agentBuilds.delete(buildKey); rejectBuild(error); if (!runError) runError = error; }
+        if (runError) throw runError;
+      } else {
+        // Selection values and trace instrumentation mutate generated JS, so
+        // each following run gets a private copy of the compiled project.
+        const snapshot = await ready;
+        const privateProject = path.join(fs.mkdtempSync(path.join(read.folder, "agent-run-")), "project");
+        fs.cpSync(snapshot, privateProject, { recursive: true });
+        const privateFile = path.join(privateProject, path.relative(project, document.uri.fsPath));
+        const privateDocument = await vscode.workspace.openTextDocument(vscode.Uri.file(privateFile));
+        result = await localRun.launch(vscode, false, { document: privateDocument, entryLine, selection, trace: true });
+      }
+      const run_id = options.history.save(result.records || [], { object_name: shown.object_name,
+        system: shown.system_name });
+      return { status: "completed", mode: "transpiler", object_name: shown.object_name,
+        run_id,
+        output: String(result.output || "").slice(0, 12000), output_truncated: String(result.output || "").length > 12000,
+        recorded_steps: result.records?.length || 0, duration_ms: result.durationMs || 0,
+        note: "Local transpiler simulation. This is not proof of execution in SAP." };
+    }
     openVisualDebug(true, { ...require("./local-analysis").sourceObject(document), local: true, document, entryLine, autoRun: true,
       sapCopies: { system: shown.system_name, copies, builtAt: read.builtAt || "",
         root: { object_name: shown.object_name, object_type: kind, system_name: shown.system_name }, entryLine } });

@@ -218,7 +218,51 @@ test("bundled transpiler and runtime serve a project without npm dependencies", 
     }
     const runtimeIndex = fs.readFileSync(path.join(root, "output", "node_modules", "@abaplint", "runtime", "build", "src", "index.js"), "utf8");
     assert.doesNotMatch(runtimeIndex, /sourceMappingURL=index\.js\.map/);
+    const syFile = path.join(root, "output", "node_modules", "@abaplint", "runtime", "build", "src", "builtin", "sy.js");
+    assert.match(fs.readFileSync(syFile, "utf8"), /vline: new types_1\.Character\(1\)\.set\("\|"\)/);
+    stageRuntime(project);
+    assert.equal((fs.readFileSync(syFile, "utf8").match(/vline: new types_1\.Character/g) || []).length, 1);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("local report can WRITE the standard SY-VLINE separator", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-vline-"));
+  try {
+    const source = path.join(root, "zvline.prog.abap");
+    fs.writeFileSync(source, "REPORT zvline.\nWRITE: / sy-vline, 'ok', sy-vline.\n");
+    const document = { uri: { scheme: "file", fsPath: source }, getText: () => fs.readFileSync(source, "utf8") };
+    const vscode = { workspace: { getWorkspaceFolder: () => ({ uri: { fsPath: root } }) },
+      window: { createOutputChannel: () => ({ append() {}, appendLine() {}, hide() {}, show() {} }) } };
+    const result = await launch(vscode, false, { document, selection: {}, trace: true });
+    assert.match(result.output, /\|ok\|/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("one compiled report runs two selection variants in parallel copies", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-parallel-"));
+  try {
+    const base = path.join(root, "base"), source = path.join(base, "zchoice.prog.abap");
+    fs.mkdirSync(base);
+    fs.writeFileSync(source, "REPORT zchoice.\nPARAMETERS p_a RADIOBUTTON GROUP sc DEFAULT 'X'.\n" +
+      "PARAMETERS p_b RADIOBUTTON GROUP sc.\nWRITE: / p_a, p_b.\n");
+    fs.writeFileSync(path.join(base, "abap_transpile.json"), JSON.stringify({ input_folder: ".", output_folder: "output", write_source_map: true }));
+    fs.writeFileSync(path.join(base, "vertex-fingerprint.json"), JSON.stringify({ fingerprint: "same-source" }));
+    const vscode = { workspace: { getWorkspaceFolder: () => ({ uri: { fsPath: base } }) },
+      window: { createOutputChannel: () => ({ append() {}, appendLine() {}, hide() {}, show() {} }) } };
+    const doc = file => ({ uri: { scheme: "file", fsPath: file }, getText: () => fs.readFileSync(file, "utf8") });
+    await launch(vscode, false, { document: doc(source), selection: { SC: "P_A" }, trace: true });
+    assert.equal(fs.existsSync(path.join(base, "output-pristine")), true);
+    const run = async (name, choice) => {
+      const clone = path.join(root, name);
+      fs.cpSync(base, clone, { recursive: true });
+      return launch(vscode, false, { document: doc(path.join(clone, "zchoice.prog.abap")),
+        selection: { SC: choice }, trace: true });
+    };
+    const [a, b] = await Promise.all([run("a", "P_A"), run("b", "P_B")]);
+    assert.notEqual(a.output, b.output);
+    assert.match(a.output, /X/);
+    assert.match(b.output, /X/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

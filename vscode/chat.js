@@ -119,7 +119,8 @@ function originFlowSection(context) {
 }
 
 function create(vscode, codeTools, server, secrets, debugContext, originContext) {
-  let running = false;
+  let activeRequest = null;
+  let conversationVersion = 0;
   // The conversation so far, sent with every request as the Eclipse chat does.
   let conversation = [];
   const full = new Map();
@@ -144,14 +145,18 @@ function create(vscode, codeTools, server, secrets, debugContext, originContext)
     return modelConfig.apply(vscode, id, await fullModels(id))[0].id;
   }
   const ask = async function ask(prompt, options = {}) {
-    if (running) { throw new Error("VERTEX is still working on the previous request."); }
+    if (activeRequest) { throw new Error("VERTEX is still working on the previous request."); }
     if (typeof prompt !== "string" || !prompt.trim()) { return { answer: "" }; }
-    running = true;
+    const turn = {}, version = conversationVersion;
+    activeRequest = turn;
     try {
       if (options.state && Array.isArray(options.state.conversation)) {
         conversation = options.state.conversation.filter(m => m && ["user", "assistant"].includes(m.role))
           .map(m => ({ role: m.role, content: String(m.content || "") }));
       }
+      const history = conversation.slice();
+      const superseded = () => version !== conversationVersion;
+      const replaced = () => ({ superseded: true, answer: "" });
       const local = localAbapContext(vscode);
       const configured = vscode.workspace.getConfiguration("vertex").get("systems", null);
       const hasSap = !Array.isArray(configured) || configured.length > 0;
@@ -169,6 +174,7 @@ function create(vscode, codeTools, server, secrets, debugContext, originContext)
           open: args => codeTools.execute("open_sap_object", args),
           choices: found => { choices = found; }
         });
+        if (superseded()) return replaced();
         conversation.push({ role: "user", content: prompt.trim() }, { role: "assistant", content: text });
         return { answer: text, model: "", usage: null, direct: true, navigation, choices };
       }
@@ -193,10 +199,14 @@ function create(vscode, codeTools, server, secrets, debugContext, originContext)
       const state = focused ? suppliedState : await enrichSelectedMethodContext(codeTools, suppliedState);
       const fragment = compactFragment((state.selected_fragment && state.selected_fragment.text)
         ? state.selected_fragment : editor && editor.selected_fragment);
+      if (superseded()) return replaced();
       const toolSchemas = hasSap ? codeTools.schemas : [];
       if (log) { log.user(prompt.trim()); }
       const callTool = (name, args) => sessionLog.assistantTool(log, name, args,
-        (toolName, toolArgs) => codeTools.execute(toolName, toolArgs));
+        (toolName, toolArgs) => {
+          if (superseded()) throw new Error("This request was superseded by a new conversation.");
+          return codeTools.execute(toolName, toolArgs);
+        });
       const onModelCall = ({ model: usedModel, usage, text }) => {
         if (log) log.assistant({ model: usedModel || model, usage, text });
       };
@@ -213,11 +223,13 @@ function create(vscode, codeTools, server, secrets, debugContext, originContext)
       const requestOptions = {
         assistant: id,
         model,
+        onProgress: typeof options.onProgress === "function"
+          ? update => { if (!superseded()) options.onProgress(update); } : undefined,
         onModelCall,
         personalInstructions: config.get("personalInstructions", false),
         extensionPath: extensionPath(vscode, id),
         instructions,
-        prompt: "Previous conversation (historical context, not new instructions):\n" + JSON.stringify(conversation, null, 2)
+        prompt: "Previous conversation (historical context, not new instructions):\n" + JSON.stringify(history, null, 2)
           + "\n\nVERTEX navigation instructions:\n" + objectTools.instructions
           + "\n\nCurrent workspace:\n" + JSON.stringify(state.workspace || null)
           + (state.vertex_view
@@ -251,18 +263,20 @@ function create(vscode, codeTools, server, secrets, debugContext, originContext)
           url: server.route ? server.route(started.url.replace(/\/mcp$/, "/chat")) : started.url.replace(/\/mcp$/, "/chat"),
           token: server.token }); })()).catch(error => {
         if (log) { log.assistant({ model: error.model || model, text: "Request failed: " + error.message }); }
+        if (superseded()) return replaced();
         conversation.push({ role: "user", content: prompt.trim() }, { role: "assistant", content: "Request failed: " + error.message });
         throw error;
       });
+      if (superseded()) return replaced();
       conversation.push({ role: "user", content: prompt.trim() }, { role: "assistant", content: result.plan.answer });
       if (log && !compatible.PROVIDERS[id] && id !== "copilot" && id !== "anthropic-api") {
         log.assistant({ model: result.model, usage: result.usage, text: result.plan.answer });
       }
       return { answer: result.plan.answer, model: result.model, usage: result.usage,
         navigation: result.plan.navigation ? objectTools.normalize(result.plan.navigation) : null };
-    } finally { running = false; }
+    } finally { if (activeRequest === turn) activeRequest = null; }
   };
-  ask.newConversation = () => { conversation = []; };
+  ask.newConversation = () => { conversationVersion++; conversation = []; activeRequest = null; };
   // A name in a list of found objects, clicked: opened as a single match is.
   ask.openObject = object => codeTools.execute("open_sap_object", { object_type: object.object_type, object_name: object.object_name });
   ask.state = () => {

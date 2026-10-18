@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { namedObjects, collect, expandIncludes, writeProject } = require("../sap-transpile");
+const { namedObjects, collect, expandIncludes, omitListFormat, writeProject } = require("../sap-transpile");
 const { launch } = require("../local-run");
 
 const system = {
@@ -61,6 +61,27 @@ test("includes are written into the program, each line keeping its file and line
   assert.deepEqual(expanded.places, [[0, 1], [1, 1], [2, 1], [1, 3], [0, 3], [0, 4]]);
   assert.throws(() => expandIncludes("zp", new Map([["ZP", "WRITE 1. INCLUDE zi1."], ["ZI1", ""]])), /shares its line/);
   assert.throws(() => expandIncludes("zp", new Map([["ZP", "INCLUDE zp."]])), /includes itself/);
+});
+
+test("classic list FORMAT is omitted only in the transpiler copy, preserving lines and calculation", async () => {
+  const source = "REPORT zformat.\nDATA amount TYPE i VALUE 42.\nFORMAT COLOR COL_HEADING INTENSIFIED ON.\nWRITE amount.\nFORMAT RESET.\n";
+  assert.equal(omitListFormat(source).split("\n").length, source.split("\n").length);
+  assert.match(omitListFormat(source), /FORMAT list presentation omitted/);
+  assert.match(omitListFormat("FORMAT COLOR COL_HEADING INTENSIFIED ON. WRITE amount."), /WRITE amount/);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-sap-format-"));
+  try {
+    const file = writeProject("TEST", [{ name: "ZFORMAT", type: "PROG", include: "main", text: source }], [], folder);
+    assert.equal(fs.readFileSync(file, "utf8"), source, "SAP source copy stays intact");
+    assert.doesNotMatch(fs.readFileSync(path.join(folder, "src", "zformat.prog.abap"), "utf8"), /FORMAT COLOR/);
+    const document = { uri: { scheme: "file", fsPath: file }, getText: () => fs.readFileSync(file, "utf8") };
+    let log = "";
+    const vscode = { workspace: { getWorkspaceFolder: () => undefined },
+      window: { createOutputChannel: () => ({ append: t => { log += t; }, appendLine: t => { log += t + "\n"; }, hide() {}, show() {} }) } };
+    const result = await launch(vscode, false, { document, selection: {}, trace: true })
+      .catch(error => { throw new Error(error.message + "\n" + log); });
+    assert.match(result.output, /42/);
+    assert.ok(result.records.some(record => record.line === 4), "WRITE keeps its SAP source line");
+  } finally { fs.rmSync(folder, { recursive: true, force: true }); }
 });
 
 test("the collected program runs with the transpiler, stepping into its include and the class", async () => {
