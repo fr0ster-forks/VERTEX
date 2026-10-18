@@ -1,11 +1,11 @@
 # Your SAP systems
 
-VERTEX reaches ADT over HTTP(S), so it needs the address of each system's ICM - which SAP Logon does not store.
+VERTEX reaches ADT over HTTP(S), so it needs the address of each system's ICM.
 
 **Import SAP Systems** builds the list from what this computer already knows:
 
-- **SAP Logon** - each system's host and instance (a logon group through its message server)
-- **Eclipse ADT** - the client and user of each system, from the workspaces Eclipse lists as recent
+- **SAP Logon**, when installed - each system's host and instance (a logon group through its message server)
+- **Eclipse ADT** - system, host, instance, client and user from ABAP projects in a workspace; on macOS, Eclipse `.app` bundles and their recent workspaces are found automatically
 - **The port** - the usual ones are tried (443NN, 80NN, 44300, 8000, 50000 ...) and only addresses that answer are offered
 - **WebGUI** for the debugger - found where it is served
 

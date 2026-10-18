@@ -90,3 +90,16 @@ test("an Eclipse installation's recent workspaces are read from its Java propert
   try { assert.deepEqual(recentWorkspaces(install), ["D:" + B + "Eclipse" + B + "workspace", "C:" + B + "ws2"]); }
   finally { fs.rmSync(install, { recursive: true, force: true }); }
 });
+
+test("an ADT workspace supplies systems without SAP Logon", () => {
+  const { eclipseProjects } = require("../system-setup");
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "vertex-adt-workspace-"));
+  const project = path.join(workspace, ".metadata", ".plugins", "org.eclipse.core.resources.semantic", ".cache", "DEV_100_USER_en");
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, ".destination.properties"),
+    "systemConfiguration=Development\nserver=dev.example.com\nsystemId=DEV\nsystemNumber=01\nclient=100\nuser=USER\npassword=secret\n");
+  try {
+    assert.deepEqual(eclipseProjects(workspace), [{ id: "DEV", title: "Development", host: "dev.example.com",
+      instance: "01", client: "100", user: "USER" }]);
+  } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
+});

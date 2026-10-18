@@ -1,5 +1,9 @@
 # Release history
 
+## Unreleased — ADT workspace import on macOS
+
+Import SAP Systems can read system ID, server, instance, client and user from ABAP projects in an Eclipse ADT workspace without SAP Logon. On macOS it also looks for Eclipse app bundles and their recent workspaces. The usual ADT HTTP ports are still checked before a system is offered.
+
 ## 2026-10-18 — VS Code 0.9.14: missing scenarios are run
 
 When a chat question covers several scenarios and no run of the request covers one of them, the agent runs it with the transpiler instead of asking. A kept run open in Visual Debug is passed to the agent as a kept run of one selection, not as the current session.

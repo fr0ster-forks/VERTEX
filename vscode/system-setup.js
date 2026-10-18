@@ -1,8 +1,8 @@
 "use strict";
 /* Setting up vertex.systems without knowing ADT's HTTP address by heart.
 
-   What a reader already has: SAP Logon knows each system's ID, host and instance number; an Eclipse workspace with
-   ADT projects knows the client and the user of each system ID. What neither knows is the HTTP port of the ICM, so
+   What a reader already has: SAP Logon or an Eclipse ADT project knows each system's ID, host and instance number;
+   the ADT workspace also knows the client and user. Neither reliably gives the HTTP port of the ICM, so
    the instance's defaults (HTTPS 443NN, HTTP 80NN) and the usual others are asked, and only an address that answers is offered.
    A guess that does not answer is said as such, and the reader types the address. */
 const fs = require("fs"), path = require("path"), http = require("http"), https = require("https");
@@ -46,6 +46,7 @@ function landscape(files) {
   return { systems, skipped };
 }
 function landscapeFiles() {
+  if (process.platform !== "win32") { return []; }
   const common = path.join(process.env.APPDATA || "", "SAP", "Common");
   return [path.join(common, "SAPUILandscape.xml"), path.join(common, "SAPUILandscapeGlobal.xml")];
 }
@@ -63,17 +64,46 @@ function eclipseLogons(workspace) {
   return logons;
 }
 
+/* ADT keeps each ABAP project's connection in the workspace, including on macOS where SAP Logon
+   is usually absent. Read only the fields needed for an HTTP connection; never copy credentials. */
+function eclipseProjects(workspace) {
+  const root = path.join(workspace, ".metadata", ".plugins", "org.eclipse.core.resources.semantic", ".cache");
+  let projects;
+  try { projects = fs.readdirSync(root, { withFileTypes: true }); } catch (_) { return []; }
+  const systems = [];
+  for (const project of projects) {
+    if (!project.isDirectory()) { continue; }
+    let data;
+    try { data = fs.readFileSync(path.join(root, project.name, ".destination.properties"), "utf8"); } catch (_) { continue; }
+    const props = {};
+    for (const line of data.split(/\r?\n/)) {
+      const match = /^([^#!\s][^=]*)=(.*)$/.exec(line);
+      if (match) { props[match[1].trim()] = match[2].trim(); }
+    }
+    const id = props.systemId, host = props.server, instance = props.systemNumber;
+    if (!/^[A-Z0-9]{3}$/.test(id || "") || !host || !/^\d{2}$/.test(instance || "")) { continue; }
+    systems.push({ id, title: props.systemConfiguration || project.name, host, instance,
+      client: props.client || "", user: props.user || "" });
+  }
+  return systems;
+}
+
 /* Where Eclipse workspaces are, without asking: each Eclipse installation lists its recent workspaces in
    configuration/.settings/org.eclipse.ui.ide.prefs (RECENT_WORKSPACES, a Java properties value: "\:" for ":",
-   "\\" for "\", entries split by "\n"). Installations are looked for where people put them - a drive's eclipse
-   folder, the user's eclipse folder (the Eclipse Installer's default), Program Files - a few levels down. The
-   default workspace folder is added too. Only workspaces with ADT logon settings are kept. */
+   "\\" for "\", entries split by "\n"). Installations are looked for in the usual Windows folders or macOS
+   app bundles. Default workspace folders are added too. Only workspaces with ADT projects or logon settings are kept. */
 function installations() {
   const home = process.env.USERPROFILE || process.env.HOME || "", found = [];
-  const roots = ["C:\\eclipse", "D:\\eclipse", "C:\\Program Files\\eclipse", path.join(home, "eclipse"),
-    path.join(process.env.LOCALAPPDATA || "", "Programs")];
+  const roots = process.platform === "darwin"
+    ? ["/Applications", path.join(home, "Applications"), path.join(home, "eclipse")]
+    : ["C:\\eclipse", "D:\\eclipse", "C:\\Program Files\\eclipse", path.join(home, "eclipse"),
+      path.join(process.env.LOCALAPPDATA || "", "Programs")];
   const walk = (dir, depth) => {
-    if (fs.existsSync(path.join(dir, "configuration", ".settings", "org.eclipse.ui.ide.prefs"))) { found.push(dir); }
+    const prefs = path.join("configuration", ".settings", "org.eclipse.ui.ide.prefs");
+    if (fs.existsSync(path.join(dir, prefs))) { found.push(dir); }
+    if (process.platform === "darwin" && dir.endsWith(".app") && fs.existsSync(path.join(dir, "Contents", "Eclipse", prefs))) {
+      found.push(path.join(dir, "Contents", "Eclipse"));
+    }
     if (depth === 0) { return; }
     let entries = [];
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
@@ -101,14 +131,17 @@ function recentWorkspaces(installation) {
 }
 function eclipseWorkspaces() {
   const home = process.env.USERPROFILE || process.env.HOME || "";
-  const all = [...installations().flatMap(recentWorkspaces), path.join(home, "eclipse-workspace")];
+  const all = [...installations().flatMap(recentWorkspaces), path.join(home, "eclipse-workspace"),
+    ...(process.platform === "darwin" ? [path.join(home, "workspace"), path.join(home, "Documents", "workspace"),
+      path.join(home, "Documents", "eclipse-workspace")] : [])];
   const seen = new Set(), result = [];
   for (const workspace of all) {
     const key = path.resolve(workspace).toLowerCase();
     if (seen.has(key)) { continue; }
     seen.add(key);
     const logons = eclipseLogons(workspace);
-    if (logons && Object.keys(logons).length) { result.push({ workspace, logons }); }
+    const projects = eclipseProjects(workspace);
+    if ((logons && Object.keys(logons).length) || projects.length) { result.push({ workspace, logons: logons || {}, projects }); }
   }
   return result;
 }
@@ -210,18 +243,14 @@ async function importSystems(vscode, context) {
   const config = vscode.workspace.getConfiguration("vertex");
   const existing = (config.get("systems") || []).filter(s => s && s.name);
   const known = new Set(existing.map(s => String(s.name).toUpperCase()));
-  const { systems: logon, skipped } = landscape(landscapeFiles());
-  if (!logon.length) {
-    throw new Error("No SAP Logon systems with a host and instance were found in " + landscapeFiles().join(" or ")
-      + (skipped.length ? ". Skipped: " + skipped.join(", ") : "") + ".");
-  }
+  const { systems: sapLogon, skipped } = landscape(landscapeFiles());
   // Client and user from an Eclipse workspace: the ones Eclipse lists as recent are found and offered with the systems
   // they know; another folder can still be chosen.
   let workspace = context.globalState.get("vertex.eclipseWorkspace") || "";
   const found = eclipseWorkspaces();
-  const said = logons => Object.keys(logons).map(id => id + (logons[id].client ? " " + logons[id].client : "") + (logons[id].user ? " " + logons[id].user : "")).join(", ");
+  const said = f => [...new Set([...Object.keys(f.logons), ...f.projects.map(p => p.id)])].join(", ");
   const choice = await vscode.window.showQuickPick([
-    ...found.map(f => ({ label: f.workspace, description: f.workspace === workspace ? "used last time" : "", detail: said(f.logons), value: "found", workspace: f.workspace })),
+    ...found.map(f => ({ label: f.workspace, description: f.workspace === workspace ? "used last time" : "", detail: said(f), value: "found", workspace: f.workspace })),
     ...(workspace && !found.some(f => f.workspace === workspace) ? [{ label: "Use " + workspace, value: "kept" }] : []),
     { label: "Choose an Eclipse workspace folder…", description: "client and user of each system, from ADT", value: "choose" },
     { label: "No Eclipse workspace", description: "client and user are asked", value: "none" }],
@@ -234,11 +263,19 @@ async function importSystems(vscode, context) {
     workspace = picked[0].fsPath;
   }
   if (choice.value === "none") { workspace = ""; }
-  let logons = {};
+  let logons = {}, projects = [];
   if (workspace) {
-    logons = eclipseLogons(workspace);
-    if (!logons) { throw new Error(workspace + " has no ADT logon settings (.metadata/.plugins/org.eclipse.core.runtime/.settings/com.sap.adt.destinations.ui.prefs)."); }
+    logons = eclipseLogons(workspace) || {};
+    projects = eclipseProjects(workspace);
+    if (!Object.keys(logons).length && !projects.length) { throw new Error(workspace + " has no ADT projects or logon settings."); }
     await context.globalState.update("vertex.eclipseWorkspace", workspace);
+  }
+
+  const logon = [...sapLogon, ...projects.filter(p => !sapLogon.some(s =>
+    s.id === p.id && s.host === p.host && s.instance === p.instance))];
+  if (!logon.length) {
+    throw new Error("No SAP systems found. Choose an Eclipse workspace with ABAP projects or configure SAP Logon."
+      + (skipped.length ? " Skipped: " + skipped.join(", ") : ""));
   }
 
   const fresh = [], seen = new Set();
@@ -251,7 +288,8 @@ async function importSystems(vscode, context) {
   const candidates = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
     title: "VERTEX: looking for ADT on " + fresh.length + " systems" }, () => Promise.all(fresh.map(async s =>
       { const found = await probe(s.host, s.instance);
-        return { ...s, found, webgui: found ? await findWebgui(found, found.answering) : null, logon: logons[s.id] || {} }; })));
+        return { ...s, found, webgui: found ? await findWebgui(found, found.answering) : null,
+          logon: { client: s.client || logons[s.id]?.client || "", user: s.user || logons[s.id]?.user || "" } }; })));
   const items = candidates.map(c => ({
     label: c.id + "  " + c.title + (c.group !== undefined ? "  (logon group " + c.group + ", message server " + c.host + ")" : ""),
     description: (c.snc ? "SNC · " : "") + (c.found ? c.found.url + (c.found.insecure ? " (certificate not verified)" : "") : "ADT did not answer on any usual port"),
@@ -346,4 +384,4 @@ async function removeSystems(vscode) {
   vscode.window.showInformationMessage("VERTEX: removed " + selected.map(item => item.label).join(", ") + " from vertex.systems.");
 }
 
-module.exports = { importSystems, removeSystems, findWebgui, webguiAt, landscape, eclipseLogons, eclipseWorkspaces, recentWorkspaces, probe, answers };
+module.exports = { importSystems, removeSystems, findWebgui, webguiAt, landscape, eclipseLogons, eclipseProjects, eclipseWorkspaces, recentWorkspaces, probe, answers };

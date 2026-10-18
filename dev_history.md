@@ -1,5 +1,9 @@
 # Development history
 
+## 2026-10-18 — ADT workspace import on macOS
+
+The 0.9.14 importer stopped before workspace selection when SAP Logon was absent. It now reads each ABAP project's `.destination.properties` from the Eclipse workspace and uses its system ID, server, instance, client and user. It scans macOS Eclipse app bundles for recent workspaces and offers common workspace folders. SAP Logon entries continue to work. The focused system setup tests pass (7/7). Built and verified the universal `vertex-abap-0.9.14.vsix`; its archive contains the new importer. macOS discovery has not been run on a Mac.
+
 ## 2026-10-18 — 0.9.14: missing scenarios are run
 
 With a kept CLEAN run open in Visual Debug (opened from a chat link), the request "check all scenarios, describe the difference in logic" got no run at all: the agent took the Visual Debug context for the current debug session, said only CLEAN was recorded, and asked whether to run the rest. The chat context now adds `kept_run` (run_id, conversation number, a note that it covers only its selection) when Visual Debug shows a kept run, and the transpiler instructions tell the agent to run any scenario no run of the request covers, without asking.
